@@ -140,7 +140,22 @@ function renderEditor() {
   } else if (Object.keys(data).length === 0) {
     area.innerHTML = `<p class="hint">Empty record — switch to <b>Raw JSON</b> to paste a full record.</p>`;
   } else {
-    for (const [k, v] of Object.entries(data)) area.appendChild(field(k, v, false));
+    // Scalars go in a dense responsive grid; nested objects/arrays (edited as
+    // JSON) stack full-width below a divider — so a 100-field record isn't one
+    // giant single column.
+    const grid = document.createElement("div"); grid.className = "field-grid";
+    const stack = document.createElement("div"); stack.className = "field-stack";
+    let nJson = 0;
+    for (const [k, v] of Object.entries(data)) {
+      if (v === null || typeof v === "object") { stack.appendChild(field(k, v, false)); nJson++; }
+      else grid.appendChild(field(k, v, false));
+    }
+    if (grid.children.length) area.appendChild(grid);
+    if (nJson) {
+      const h = document.createElement("div"); h.className = "section-head";
+      h.textContent = `Nested fields · ${nJson}`;
+      area.appendChild(h); area.appendChild(stack);
+    }
   }
 }
 
@@ -153,8 +168,8 @@ $("rawToggle").onclick = () => {
 
 // One labelled input. Scalars get typed inputs; null/objects/arrays get a JSON field.
 function field(key, val, readonly) {
-  const wrap = document.createElement("label"); wrap.className = "field";
   const t = (val === null || typeof val === "object") ? "json" : typeof val;
+  const wrap = document.createElement("label"); wrap.className = "field" + (t === "json" ? " field-json" : "");
   wrap.innerHTML = `<span class="flabel">${escapeHtml(key)}</span>`;
   let inp;
   if (t === "json") {
