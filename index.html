@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Phalanx Data Editor</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>Phalanx <span>Data Editor</span></h1>
+    <div id="authbar"></div>
+  </header>
+
+  <!-- Sign-in (anyone may read; signing in unlocks writes via RLS) -->
+  <section id="login" class="card hidden">
+    <h2>Sign in to edit</h2>
+    <input id="email" type="email" placeholder="email" autocomplete="username">
+    <input id="password" type="password" placeholder="password" autocomplete="current-password">
+    <button id="loginBtn">Sign in</button>
+    <p id="loginMsg" class="msg"></p>
+    <p class="hint">Accounts are created in the Supabase dashboard
+      (Authentication&nbsp;&rarr;&nbsp;Users&nbsp;&rarr;&nbsp;Add user, tick&nbsp;<em>Auto&nbsp;Confirm</em>).</p>
+  </section>
+
+  <!-- Editor -->
+  <main id="editor" class="hidden">
+    <nav id="tabs"></nav>
+    <div class="cols">
+      <section id="listPane">
+        <div class="listbar">
+          <input id="search" placeholder="search…">
+          <button id="newBtn" class="ghost">+ New</button>
+        </div>
+        <div id="rowcount" class="hint"></div>
+        <ul id="rowlist"></ul>
+      </section>
+      <section id="editPane">
+        <div id="editHead" class="hint">Pick a row to edit.</div>
+        <div id="formArea"></div>
+        <div class="editActions hidden" id="editActions">
+          <button id="rawToggle" class="ghost">Raw JSON</button>
+          <span class="spacer"></span>
+          <button id="deleteBtn" class="danger">Delete</button>
+          <button id="saveBtn" class="primary">Save</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div id="status" class="status"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
