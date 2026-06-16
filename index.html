@@ -2,56 +2,1691 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Phalanx Data Editor</title>
-<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+/* ──────────────────────────────────────────────────────────────────
+   Phalanx Data Editor — single-file dark data tool.
+   Aesthetic: refined utilitarian terminal. Near-black plate, cyan
+   accent, restrained warm/cool secondary signals, dense monospace ids.
+   ────────────────────────────────────────────────────────────────── */
+:root{
+  --bg:#0b0e10;
+  --bg-2:#0f1316;
+  --panel:#12181c;
+  --panel-2:#161d22;
+  --line:#222c32;
+  --line-2:#2c3a42;
+  --ink:#e6edf0;
+  --ink-2:#aebac1;
+  --ink-3:#6f7e87;
+  --accent:#28e0c8;
+  --accent-2:#19b6a4;
+  --accent-dim:#0d3b38;
+  --amber:#f0a24b;
+  --rose:#f56a7a;
+  --violet:#9b8cf0;
+  --good:#46d39a;
+  --hero:#f0a24b;
+  --lieutenant:#5fb0ff;
+  --minion:#8b97a0;
+  --radius:7px;
+  --mono:"JetBrains Mono","SFMono-Regular",ui-monospace,Menlo,Consolas,monospace;
+  --sans:"Inter var","Segoe UI",system-ui,-apple-system,sans-serif;
+  --topbar-h:54px;
+  --tabbar-h:42px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:var(--sans);font-size:13px;line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(900px 500px at 100% -10%,rgba(40,224,200,.045),transparent 70%),
+    radial-gradient(700px 400px at -5% 110%,rgba(155,140,240,.04),transparent 70%);
+  background-attachment:fixed;
+}
+::selection{background:rgba(40,224,200,.28);color:#fff}
+.mono{font-family:var(--mono);font-feature-settings:"liga" 0}
+button{font-family:inherit}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#283238;border:3px solid transparent;background-clip:padding-box;border-radius:8px}
+::-webkit-scrollbar-thumb:hover{background:#3a474f;background-clip:padding-box}
+
+/* ── top bar ───────────────────────────────────────────────────── */
+.topbar{
+  height:var(--topbar-h);display:flex;align-items:center;gap:18px;
+  padding:0 18px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,#10161a,#0c1114);
+  position:sticky;top:0;z-index:50;
+}
+.brand{display:flex;align-items:baseline;gap:10px;user-select:none}
+.brand .glyph{
+  font-family:var(--mono);font-weight:700;font-size:15px;color:var(--accent);
+  letter-spacing:-1px;
+}
+.brand h1{font-size:14px;font-weight:600;letter-spacing:.3px;margin:0}
+.brand .sub{font-size:10.5px;color:var(--ink-3);font-family:var(--mono);letter-spacing:.5px;text-transform:uppercase}
+.topbar .spacer{flex:1}
+.chip{
+  display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 12px;
+  border:1px solid var(--line-2);border-radius:99px;background:var(--panel);
+  font-size:11.5px;color:var(--ink-2);text-decoration:none;white-space:nowrap;
+  font-family:var(--mono);
+}
+.chip.pr-open{border-color:var(--accent-2);color:var(--accent);background:rgba(40,224,200,.06)}
+.chip.pr-open:hover{background:rgba(40,224,200,.12)}
+.chip .dot{width:7px;height:7px;border-radius:99px;background:var(--ink-3)}
+.chip.pr-open .dot{background:var(--accent);box-shadow:0 0 0 3px rgba(40,224,200,.16)}
+.btn{
+  height:32px;padding:0 14px;border-radius:var(--radius);cursor:pointer;
+  border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink);
+  font-size:12px;font-weight:500;display:inline-flex;align-items:center;gap:8px;
+  transition:.12s background,.12s border-color,.12s transform;
+}
+.btn:hover{background:#1c252b;border-color:#384850}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.ghost{background:transparent}
+.btn.primary{
+  background:linear-gradient(180deg,var(--accent),var(--accent-2));
+  color:#04201d;border-color:transparent;font-weight:700;
+}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.primary:disabled{background:#1a2226;color:var(--ink-3);filter:none}
+.btn .count{
+  font-family:var(--mono);font-size:11px;font-weight:700;
+  background:rgba(4,32,29,.35);padding:1px 7px;border-radius:99px;
+}
+.btn.danger{color:var(--rose);border-color:#48272d}
+.btn.danger:hover{background:rgba(245,106,122,.1)}
+
+/* ── tabs ──────────────────────────────────────────────────────── */
+.tabbar{
+  height:var(--tabbar-h);display:flex;align-items:stretch;gap:2px;padding:0 12px;
+  border-bottom:1px solid var(--line);background:var(--bg-2);
+  position:sticky;top:var(--topbar-h);z-index:40;
+}
+.tab{
+  border:none;background:none;color:var(--ink-3);cursor:pointer;
+  padding:0 16px;font-size:12.5px;font-weight:600;letter-spacing:.2px;
+  position:relative;display:inline-flex;align-items:center;gap:7px;
+}
+.tab:hover{color:var(--ink-2)}
+.tab.active{color:var(--accent)}
+.tab.active::after{
+  content:"";position:absolute;left:10px;right:10px;bottom:-1px;height:2px;
+  background:var(--accent);border-radius:2px 2px 0 0;
+}
+.tab .badge{
+  font-family:var(--mono);font-size:10px;color:var(--ink-3);
+  border:1px solid var(--line);border-radius:99px;padding:0 6px;line-height:15px;
+}
+.tab.active .badge{color:var(--accent);border-color:var(--accent-dim)}
+.tab .dirtydot{width:6px;height:6px;border-radius:99px;background:var(--amber);display:none}
+.tab.has-dirty .dirtydot{display:inline-block}
+
+/* ── layout ────────────────────────────────────────────────────── */
+.view{display:none;height:calc(100vh - var(--topbar-h) - var(--tabbar-h))}
+.view.active{display:block}
+.split{display:grid;grid-template-columns:340px 1fr;height:100%}
+.split.wide{grid-template-columns:380px 1fr}
+.list-pane{
+  border-right:1px solid var(--line);background:var(--bg-2);
+  display:flex;flex-direction:column;min-height:0;
+}
+.detail-pane{overflow:auto;min-height:0;position:relative}
+.full-pane{overflow:auto;height:100%;padding:22px 26px}
+
+/* ── list ──────────────────────────────────────────────────────── */
+.list-head{
+  padding:12px 12px 10px;border-bottom:1px solid var(--line);
+  position:sticky;top:0;background:var(--bg-2);z-index:3;
+}
+.search-wrap{position:relative}
+.search-wrap svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:.5}
+.search{
+  width:100%;height:34px;padding:0 10px 0 32px;border-radius:var(--radius);
+  background:var(--panel);border:1px solid var(--line-2);color:var(--ink);
+  font-size:12.5px;outline:none;
+}
+.search:focus{border-color:var(--accent-2);box-shadow:0 0 0 3px rgba(40,224,200,.1)}
+.filter-row{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.pill{
+  border:1px solid var(--line-2);background:var(--panel);color:var(--ink-3);
+  border-radius:99px;padding:3px 11px;font-size:11px;cursor:pointer;font-weight:600;
+}
+.pill:hover{color:var(--ink-2)}
+.pill.on{background:var(--accent-dim);border-color:var(--accent-2);color:var(--accent)}
+.list-scroll{overflow:auto;flex:1;min-height:0}
+.list-meta{padding:7px 14px;font-size:10.5px;color:var(--ink-3);font-family:var(--mono);
+  border-bottom:1px solid var(--line);text-transform:uppercase;letter-spacing:.6px}
+.row{
+  display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;
+  border-bottom:1px solid #171f24;position:relative;
+}
+.row:hover{background:#141b20}
+.row.sel{background:rgba(40,224,200,.07)}
+.row.sel::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--accent)}
+.row.dirty .rid::after{content:"●";color:var(--amber);margin-left:6px;font-size:9px;vertical-align:middle}
+.row .rid{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);min-width:30px}
+.row .rname{flex:1;font-weight:600;font-size:12.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .rmeta{font-size:10.5px;color:var(--ink-3);font-family:var(--mono);white-space:nowrap}
+.tier-tag{
+  font-size:9px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;
+  padding:2px 6px;border-radius:4px;font-family:var(--mono);
+}
+.tier-hero{color:var(--hero);background:rgba(240,162,75,.13)}
+.tier-lieutenant{color:var(--lieutenant);background:rgba(95,176,255,.13)}
+.tier-minion{color:var(--minion);background:rgba(139,151,160,.13)}
+.type-swatch{font-size:10px;font-family:var(--mono);color:var(--ink-2)}
+
+/* ── detail form ───────────────────────────────────────────────── */
+.detail-head{
+  position:sticky;top:0;z-index:5;background:linear-gradient(180deg,#11171b,#0e1316ee);
+  backdrop-filter:blur(6px);border-bottom:1px solid var(--line);
+  padding:16px 24px;display:flex;align-items:center;gap:14px;
+}
+.detail-head .title{font-size:18px;font-weight:700;letter-spacing:-.2px}
+.detail-head .id-tag{font-family:var(--mono);font-size:11px;color:var(--accent);
+  background:var(--accent-dim);padding:2px 8px;border-radius:5px}
+.detail-head .spacer{flex:1}
+.detail-body{padding:18px 24px 80px;max-width:1080px}
+.empty-state{
+  height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  color:var(--ink-3);gap:14px;text-align:center;
+}
+.empty-state .big{font-family:var(--mono);font-size:13px;letter-spacing:1px;text-transform:uppercase;opacity:.7}
+
+.group{margin-bottom:22px}
+.group>legend,.group-title{
+  font-size:10.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;
+  color:var(--accent);margin-bottom:10px;display:flex;align-items:center;gap:9px;
+  width:100%;
+}
+.group-title::after{content:"";flex:1;height:1px;background:var(--line)}
+fieldset.group{border:none;padding:0;margin:0 0 22px}
+.grid{display:grid;gap:11px 16px}
+.cols-2{grid-template-columns:repeat(2,1fr)}
+.cols-3{grid-template-columns:repeat(3,1fr)}
+.cols-4{grid-template-columns:repeat(4,1fr)}
+.cols-5{grid-template-columns:repeat(5,1fr)}
+.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.field>label{font-size:10.5px;color:var(--ink-3);font-weight:600;letter-spacing:.3px;
+  display:flex;align-items:center;gap:6px}
+.field>label .hint{color:var(--ink-3);opacity:.65;font-weight:400;font-family:var(--mono);font-size:9.5px}
+input[type=text],input[type=number],select,textarea{
+  width:100%;height:32px;padding:0 9px;border-radius:6px;
+  background:var(--panel);border:1px solid var(--line-2);color:var(--ink);
+  font-size:12.5px;font-family:var(--sans);outline:none;transition:.1s border-color,.1s box-shadow;
+}
+input.mono,select.mono{font-family:var(--mono);font-size:11.5px}
+textarea{height:auto;min-height:64px;padding:8px 9px;resize:vertical;line-height:1.5}
+input:focus,select:focus,textarea:focus{
+  border-color:var(--accent-2);box-shadow:0 0 0 3px rgba(40,224,200,.1)
+}
+input.invalid{border-color:var(--rose)!important;box-shadow:0 0 0 3px rgba(245,106,122,.12)!important}
+select{appearance:none;cursor:pointer;
+  background-image:linear-gradient(45deg,transparent 50%,var(--ink-3) 50%),linear-gradient(135deg,var(--ink-3) 50%,transparent 50%);
+  background-position:calc(100% - 15px) 14px,calc(100% - 10px) 14px;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:26px}
+input[type=number]::-webkit-inner-spin-button{opacity:.35}
+
+/* toggles */
+.flags{display:flex;gap:10px;flex-wrap:wrap}
+.toggle{
+  display:inline-flex;align-items:center;gap:9px;cursor:pointer;user-select:none;
+  border:1px solid var(--line-2);background:var(--panel);border-radius:7px;
+  padding:8px 13px;font-size:12px;font-weight:600;color:var(--ink-2);
+}
+.toggle:hover{border-color:#384850}
+.toggle input{display:none}
+.toggle .sw{width:30px;height:17px;border-radius:99px;background:#2a343a;position:relative;transition:.15s;flex:none}
+.toggle .sw::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:99px;background:#7a8990;transition:.15s}
+.toggle.on{color:var(--ink);border-color:var(--accent-2)}
+.toggle.on .sw{background:var(--accent-2)}
+.toggle.on .sw::after{left:15px;background:#04201d}
+
+/* repeatable rows */
+.rep{display:flex;flex-direction:column;gap:8px}
+.rep-item{
+  display:grid;gap:8px;align-items:end;
+  background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:10px;
+  position:relative;
+}
+.rep-item .field>label{font-size:9.5px}
+.rep-del{
+  background:none;border:1px solid var(--line-2);color:var(--ink-3);cursor:pointer;
+  width:30px;height:32px;border-radius:6px;font-size:15px;line-height:1;flex:none;
+}
+.rep-del:hover{color:var(--rose);border-color:#48272d;background:rgba(245,106,122,.08)}
+.add-row{
+  align-self:flex-start;margin-top:2px;border:1px dashed var(--line-2);background:transparent;
+  color:var(--ink-2);cursor:pointer;border-radius:6px;padding:7px 13px;font-size:11.5px;font-weight:600;
+}
+.add-row:hover{border-color:var(--accent-2);color:var(--accent)}
+.add-row:disabled{opacity:.4;cursor:not-allowed}
+
+/* action slots */
+.slots{display:flex;flex-direction:column;gap:6px}
+.slot{
+  display:grid;grid-template-columns:120px 1fr 120px 110px 30px;gap:9px;align-items:center;
+  padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--panel);
+}
+.slot.filled{border-color:var(--line-2);background:var(--panel-2)}
+.slot .slot-label{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot.filled .slot-label{color:var(--accent)}
+.slot .resolved{font-size:11px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot .resolved .unknown{color:var(--rose)}
+.slot select,.slot input{height:28px;font-size:11px}
+.slot .slot-clr{background:none;border:none;color:var(--ink-3);cursor:pointer;font-size:14px;text-align:center}
+.slot .slot-clr:hover{color:var(--rose)}
+
+/* card art */
+.art-block{display:flex;gap:18px;align-items:flex-start}
+.art-frame{
+  width:200px;height:280px;border:1px solid var(--line-2);border-radius:10px;
+  background:var(--panel) repeating-linear-gradient(45deg,#0e1316,#0e1316 8px,#10161a 8px,#10161a 16px);
+  display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none;position:relative;
+}
+.art-frame img{width:100%;height:100%;object-fit:cover;display:block}
+.art-frame .noart{color:var(--ink-3);font-family:var(--mono);font-size:10.5px;letter-spacing:1px;text-align:center;padding:0 16px}
+
+/* effects / type-matrix tables */
+.table-wrap{border:1px solid var(--line);border-radius:9px;overflow:auto;background:var(--bg-2)}
+table{border-collapse:separate;border-spacing:0;width:100%;font-size:12px}
+thead th{
+  position:sticky;top:0;z-index:2;background:#121a1f;color:var(--ink-2);
+  font-size:10px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;
+  text-align:left;padding:10px 12px;border-bottom:1px solid var(--line-2);white-space:nowrap;
+}
+tbody td{padding:5px 8px;border-bottom:1px solid #161e23;vertical-align:middle}
+tbody tr:hover{background:#121a1f}
+table input{height:28px;background:transparent;border:1px solid transparent;font-size:12px}
+table input:hover{border-color:var(--line)}
+table input:focus{background:var(--panel);border-color:var(--accent-2)}
+.tm-grid td:first-child,.tm-grid th:first-child{
+  position:sticky;left:0;background:#121a1f;z-index:1;font-family:var(--mono);
+  font-size:10.5px;color:var(--ink-2);font-weight:700;border-right:1px solid var(--line-2);white-space:nowrap;
+}
+.tm-grid thead th:first-child{z-index:3}
+.tm-cell{width:62px;height:30px;text-align:center;font-family:var(--mono);font-size:11px;
+  border:1px solid transparent;border-radius:4px;background:transparent;color:var(--ink-2)}
+.tm-cell:hover{border-color:var(--line-2)}
+.tm-cell:focus{background:var(--panel);border-color:var(--accent-2);color:var(--ink);outline:none}
+.tm-cell[data-val="1"]{color:var(--ink-3);opacity:.55}
+.tm-cell.sup{color:var(--good);background:rgba(70,211,154,.07)}
+.tm-cell.eff{color:var(--rose);background:rgba(245,106,122,.07)}
+.tm-cell.imm{color:var(--violet);background:rgba(155,140,240,.1)}
+
+/* reference cards */
+.ref-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.ref-card{
+  border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:15px 16px;
+  position:relative;overflow:hidden;
+}
+.ref-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent-2);opacity:.6}
+.ref-card h3{margin:0 0 3px;font-size:14px;font-weight:700}
+.ref-card .cat{font-family:var(--mono);font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:.8px;margin-bottom:11px}
+.ref-card dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:11.5px}
+.ref-card dt{color:var(--ink-3);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.4px;padding-top:1px}
+.ref-card dd{margin:0;color:var(--ink-2)}
+
+/* none-toggle wrap for effect blocks */
+.subgroup{border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--bg-2)}
+.subgroup.off{opacity:.5}
+.subgroup .sg-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.subgroup .sg-head h4{margin:0;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--ink-2)}
+
+/* reorder controls */
+.reorder{display:flex;flex-direction:column}
+.reorder .ritem{
+  display:grid;grid-template-columns:1fr auto auto auto;gap:6px;align-items:center;
+  border:1px solid var(--line);border-radius:6px;background:var(--panel);padding:5px 6px 5px 10px;margin-bottom:5px;
+}
+.reorder .ritem .slug{font-family:var(--mono);font-size:11px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reorder .ritem .rname2{font-size:10.5px;color:var(--ink-3);margin-left:8px}
+.mini{width:26px;height:26px;border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink-2);
+  border-radius:5px;cursor:pointer;font-size:12px;line-height:1;padding:0}
+.mini:hover{border-color:#384850;color:var(--ink)}
+.mini:disabled{opacity:.3;cursor:not-allowed}
+.mini.del:hover{color:var(--rose);border-color:#48272d}
+.add-slug{display:flex;gap:6px;margin-top:4px}
+.add-slug select{flex:1}
+
+.legacy-toggle{cursor:pointer;color:var(--ink-3);font-size:11px;font-family:var(--mono);
+  display:inline-flex;align-items:center;gap:6px;user-select:none;margin-bottom:8px}
+.legacy-toggle:hover{color:var(--ink-2)}
+.legacy-body{display:none}
+.legacy-body.open{display:block}
+
+/* dialog + toast */
+.scrim{position:fixed;inset:0;background:rgba(4,7,9,.6);backdrop-filter:blur(3px);
+  display:none;align-items:center;justify-content:center;z-index:100}
+.scrim.show{display:flex}
+.dialog{
+  width:min(560px,92vw);background:var(--panel);border:1px solid var(--line-2);
+  border-radius:12px;box-shadow:0 30px 80px rgba(0,0,0,.55);overflow:hidden;
+}
+.dialog .dh{padding:16px 20px;border-bottom:1px solid var(--line);font-size:15px;font-weight:700;display:flex;align-items:center;gap:10px}
+.dialog .db{padding:18px 20px}
+.dialog .df{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end;background:var(--bg-2)}
+.change-summary{
+  font-family:var(--mono);font-size:11.5px;color:var(--ink-2);background:var(--bg-2);
+  border:1px solid var(--line);border-radius:7px;padding:11px 13px;margin-bottom:14px;
+  display:flex;flex-direction:column;gap:4px;max-height:160px;overflow:auto;
+}
+.change-summary .cs-row{display:flex;justify-content:space-between}
+.change-summary .cs-row b{color:var(--accent)}
+
+.toast-wrap{position:fixed;right:18px;bottom:18px;z-index:200;display:flex;flex-direction:column;gap:9px;align-items:flex-end}
+.toast{
+  background:var(--panel-2);border:1px solid var(--line-2);border-left:3px solid var(--accent);
+  border-radius:9px;padding:12px 15px;min-width:280px;max-width:420px;
+  box-shadow:0 16px 40px rgba(0,0,0,.5);font-size:12.5px;color:var(--ink);
+  animation:toastIn .25s cubic-bezier(.2,.9,.3,1);
+}
+.toast.err{border-left-color:var(--rose)}
+.toast.warn{border-left-color:var(--amber)}
+.toast a{color:var(--accent);font-weight:700}
+.toast .tt{font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:8px}
+.toast .tb{color:var(--ink-2);line-height:1.4}
+@keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+
+.loading-shade{position:fixed;inset:0;background:rgba(4,7,9,.55);display:flex;align-items:center;justify-content:center;z-index:150;font-family:var(--mono);color:var(--accent);letter-spacing:2px;font-size:12px}
+.spinner{width:13px;height:13px;border:2px solid rgba(40,224,200,.25);border-top-color:var(--accent);border-radius:99px;display:inline-block;margin-right:10px;animation:spin .7s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.hk{font-family:var(--mono);font-size:10px;color:var(--ink-3);border:1px solid var(--line);border-radius:4px;padding:1px 5px;background:var(--panel)}
+.note{font-size:11px;color:var(--ink-3);margin-top:4px}
+.warn-text{color:var(--amber)}
+/* ════════════════════════════════════════════════════════════════════
+   MOBILE / RESPONSIVE
+   ════════════════════════════════════════════════════════════════════ */
+.mobile-back{display:none}
+@media (max-width:760px){
+  /* topbar: wrap instead of overflowing off-screen */
+  .topbar{position:static;height:auto;flex-wrap:wrap;gap:8px 10px;padding:9px 12px}
+  .topbar .spacer{display:none}
+  .brand{gap:8px;flex:1 1 auto;min-width:0}
+  .brand h1{font-size:13px}
+  .brand .sub{display:none}
+  .chip{order:2;font-size:11px;padding:5px 9px}
+  #refreshBtn{order:3;font-size:11px;padding:7px 10px}
+  #saveBtn{order:4;margin-left:auto;font-size:11.5px;padding:7px 11px}
+
+  /* tabs: a single horizontally-scrollable row */
+  .tabbar{position:static;height:auto;overflow-x:auto;overflow-y:hidden;
+    -webkit-overflow-scrolling:touch;white-space:nowrap;gap:2px;padding:0 8px}
+  .tabbar::-webkit-scrollbar{height:0}
+  .tab{flex:none;white-space:nowrap}
+
+  /* let the page scroll naturally; no fixed-height nested panes */
+  .view{height:auto;min-height:60vh}
+
+  /* one column + master→detail swap */
+  .split,.split.wide{grid-template-columns:1fr;height:auto}
+  .list-pane{border-right:none}
+  .list-scroll{overflow:visible}
+  .detail-pane{display:none;overflow:visible}
+  .split.show-detail .list-pane{display:none}
+  .split.show-detail .detail-pane{display:block}
+
+  .detail-head{padding:12px 14px}
+  .detail-head .title{font-size:16px}
+  .detail-body{padding:14px 13px 96px;max-width:100%}
+
+  /* collapse multi-column form grids */
+  .grid.cols-2,.grid.cols-3,.grid.cols-4,.grid.cols-5{grid-template-columns:1fr 1fr}
+
+  /* action slots: stack the controls so nothing clips */
+  .slot{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+  .slot .slot-label{flex:0 0 100%}
+  .slot>select:first-of-type{flex:1 1 100%}
+  .slot .resolved{flex:0 0 100%;order:5}
+  .slot input[type=number]{flex:1 1 64px}
+  .slot>select:last-of-type{flex:2 1 120px}
+  .slot .slot-clr{flex:0 0 30px}
+
+  /* synergy / reorder / repeat rows (columns are set inline → need !important) */
+  .rep-item{grid-template-columns:1fr 1fr !important}
+
+  .art-block{flex-direction:column;align-items:stretch}
+  .art-frame{width:150px;height:210px;align-self:center}
+
+  .tm-cell{width:46px}
+
+  /* floating "back to list" button when viewing a record */
+  body.in-detail .mobile-back{
+    display:block;position:fixed;left:50%;transform:translateX(-50%);
+    bottom:16px;z-index:120;background:var(--accent);color:#04110f;
+    font-weight:800;border:none;padding:12px 22px;border-radius:99px;
+    box-shadow:0 8px 24px rgba(0,0,0,.55);font-size:13px;letter-spacing:.3px;
+  }
+}
+@media (max-width:440px){
+  .grid.cols-2,.grid.cols-3,.grid.cols-4,.grid.cols-5{grid-template-columns:1fr}
+  .rep-item{grid-template-columns:1fr 1fr !important}
+}
+</style>
 </head>
 <body>
-  <header>
-    <h1>Phalanx <span>Data Editor</span></h1>
-    <div id="authbar"></div>
-  </header>
 
-  <!-- Sign-in (anyone may read; signing in unlocks writes via RLS) -->
-  <section id="login" class="card hidden">
-    <h2>Sign in to edit</h2>
-    <input id="email" type="email" placeholder="email" autocomplete="username">
-    <input id="password" type="password" placeholder="password" autocomplete="current-password">
-    <button id="loginBtn">Sign in</button>
-    <p id="loginMsg" class="msg"></p>
-    <p class="hint">Accounts are created in the Supabase dashboard
-      (Authentication&nbsp;&rarr;&nbsp;Users&nbsp;&rarr;&nbsp;Add user, tick&nbsp;<em>Auto&nbsp;Confirm</em>).</p>
-  </section>
-
-  <!-- Editor -->
-  <main id="editor" class="hidden">
-    <nav id="tabs"></nav>
-    <div class="cols">
-      <section id="listPane">
-        <div class="listbar">
-          <input id="search" placeholder="search…">
-          <button id="newBtn" class="ghost">+ New</button>
-        </div>
-        <div id="rowcount" class="hint"></div>
-        <ul id="rowlist"></ul>
-      </section>
-      <section id="editPane">
-        <div id="editHead" class="hint">Pick a row to edit.</div>
-        <div id="formArea"></div>
-        <div class="editActions hidden" id="editActions">
-          <button id="rawToggle" class="ghost">Raw JSON</button>
-          <span class="spacer"></span>
-          <button id="deleteBtn" class="danger">Delete</button>
-          <button id="saveBtn" class="primary">Save</button>
-        </div>
-      </section>
+<div class="topbar">
+  <div class="brand">
+    <span class="glyph">◈PX</span>
+    <div>
+      <h1>Phalanx Data Editor</h1>
     </div>
-  </main>
+    <span class="sub" id="branchInfo">—</span>
+  </div>
+  <div class="spacer"></div>
+  <a class="chip" id="prChip" href="#" target="_blank" rel="noopener"><span class="dot"></span><span id="prChipText">No open PR</span></a>
+  <button class="btn ghost" id="refreshBtn" title="Re-sync the edit branch onto the latest main">⟳ Refresh from main</button>
+  <button class="btn primary" id="saveBtn" disabled>Save changes → PR <span class="count" id="saveCount">0</span></button>
+</div>
 
-  <div id="status" class="status"></div>
+<button class="mobile-back" id="mobileBack">← Back to list</button>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+<div class="tabbar" id="tabbar">
+  <button class="tab active" data-tab="characters">Characters <span class="badge" id="badge-characters">0</span><span class="dirtydot"></span></button>
+  <button class="tab" data-tab="classes">Classes <span class="badge" id="badge-classes">0</span><span class="dirtydot"></span></button>
+  <button class="tab" data-tab="actions">Actions <span class="badge" id="badge-actions">0</span><span class="dirtydot"></span></button>
+  <button class="tab" data-tab="effects">Effects <span class="badge" id="badge-effects">0</span><span class="dirtydot"></span></button>
+  <button class="tab" data-tab="matrix">Type Matrix<span class="dirtydot"></span></button>
+  <button class="tab" data-tab="aoe">AoE Patterns <span class="badge" id="badge-aoe">0</span></button>
+</div>
+
+<!-- CHARACTERS -->
+<div class="view active" data-view="characters">
+  <div class="split wide">
+    <div class="list-pane">
+      <div class="list-head">
+        <div class="search-wrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7f8d95" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input class="search" id="char-search" placeholder="Search name / id / class / type…">
+        </div>
+        <div class="filter-row" id="char-tierfilter"></div>
+      </div>
+      <div class="list-meta" id="char-listmeta">0 characters</div>
+      <div class="list-scroll" id="char-list"></div>
+    </div>
+    <div class="detail-pane" id="char-detail"></div>
+  </div>
+</div>
+
+<!-- CLASSES -->
+<div class="view" data-view="classes">
+  <div class="split">
+    <div class="list-pane">
+      <div class="list-head">
+        <div class="search-wrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7f8d95" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input class="search" id="class-search" placeholder="Search class / playstyle…">
+        </div>
+      </div>
+      <div class="list-meta" id="class-listmeta">0 classes</div>
+      <div class="list-scroll" id="class-list"></div>
+    </div>
+    <div class="detail-pane" id="class-detail"></div>
+  </div>
+</div>
+
+<!-- ACTIONS -->
+<div class="view" data-view="actions">
+  <div class="split wide">
+    <div class="list-pane">
+      <div class="list-head">
+        <div class="search-wrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7f8d95" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input class="search" id="action-search" placeholder="Search action name / id / effect…">
+        </div>
+      </div>
+      <div class="list-meta" id="action-listmeta">0 actions</div>
+      <div class="list-scroll" id="action-list"></div>
+    </div>
+    <div class="detail-pane" id="action-detail"></div>
+  </div>
+</div>
+
+<!-- EFFECTS -->
+<div class="view" data-view="effects">
+  <div class="full-pane">
+    <div class="group-title">Effects reference & editor</div>
+    <p class="note">Edit names, categories and meanings. Saving sends the whole effects array. <span class="warn-text">Renaming an effect does not rewrite references that use it.</span></p>
+    <div class="table-wrap" id="effects-table"></div>
+    <button class="add-row" id="effect-add" style="margin-top:14px">+ Add effect</button>
+  </div>
+</div>
+
+<!-- TYPE MATRIX -->
+<div class="view" data-view="matrix">
+  <div class="full-pane">
+    <div class="group-title">Type effectiveness matrix <span class="hint" style="color:var(--ink-3)"></span></div>
+    <p class="note">Rows = <b>attacker</b>, columns = <b>defender</b>. Multiplier on damage; blank/<span class="mono">1</span> = neutral. Edits set the key <span class="mono">"Attacker:Defender"</span>. <span style="color:var(--good)">&gt;1 super</span> · <span style="color:var(--rose)">&lt;1 resist</span> · <span style="color:var(--violet)">0 immune</span></p>
+    <div class="table-wrap" id="matrix-wrap" style="max-height:calc(100vh - 230px)"></div>
+  </div>
+</div>
+
+<!-- AOE PATTERNS -->
+<div class="view" data-view="aoe">
+  <div class="full-pane">
+    <div class="group-title">AoE pattern reference <span class="hint" style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">read-only</span></div>
+    <div class="ref-grid" id="aoe-grid"></div>
+  </div>
+</div>
+
+<!-- SAVE DIALOG -->
+<div class="scrim" id="saveScrim">
+  <div class="dialog">
+    <div class="dh">↟ Propose changes to a PR</div>
+    <div class="db">
+      <div class="change-summary" id="changeSummary"></div>
+      <div class="field">
+        <label>Commit message</label>
+        <input type="text" id="commitMsg" placeholder="Data edit via editor">
+        <div class="note">All edits ride one <span class="mono" id="dlgBranch">editor-edits</span> branch and update the single open PR into <span class="mono" id="dlgMain">main</span>.</div>
+      </div>
+    </div>
+    <div class="df">
+      <button class="btn ghost" id="saveCancel">Cancel</button>
+      <button class="btn primary" id="saveConfirm">Commit & push</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<script>
+"use strict";
+/* ════════════════════════════════════════════════════════════════════
+   Phalanx Data Editor — vanilla JS, single working copy + dirty tracking.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ---- global state ---------------------------------------------------- */
+const S = {
+  raw:null,            // last server payload (baseline)
+  characters:[], actions:[], classes:null, effects:[],
+  typeMatrix:{}, aoe:[], enums:null,
+  mainBranch:"main", editBranch:"editor-edits", pr:{},
+  // dirty sets
+  dirtyChars:new Set(), dirtyActions:new Set(),
+  classesDirty:false, effectsDirty:false, matrixDirty:false,
+  // selection
+  selChar:null, selAction:null, selClass:null,
+  charTier:"", actionById:{}, charById:{},
+};
+let CURRENT_TAB = "characters";
+
+/* ---- helpers --------------------------------------------------------- */
+const $ = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
+const el = (tag,attrs={},...kids)=>{
+  const n=document.createElement(tag);
+  for(const k in attrs){
+    if(k==="class")n.className=attrs[k];
+    else if(k==="html")n.innerHTML=attrs[k];
+    else if(k.startsWith("on")&&typeof attrs[k]==="function")n.addEventListener(k.slice(2),attrs[k]);
+    else if(attrs[k]!==undefined&&attrs[k]!==null&&attrs[k]!==false)n.setAttribute(k,attrs[k]);
+  }
+  for(const c of kids.flat()){if(c==null||c===false)continue;n.append(c.nodeType?c:document.createTextNode(c));}
+  return n;
+};
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const num=(v,fallback=0)=>{const n=parseFloat(v);return Number.isFinite(n)?n:fallback;};
+const intOf=(v,fallback=0)=>{const n=parseInt(v,10);return Number.isFinite(n)?n:fallback;};
+const clone=o=>JSON.parse(JSON.stringify(o));
+const debounce=(fn,ms=180)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};};
+
+/* ---- toast / loading ------------------------------------------------- */
+function toast(title,body,kind="ok",timeout=5200){
+  const t=el("div",{class:"toast "+(kind==="ok"?"":kind)});
+  t.append(el("div",{class:"tt"},title));
+  if(body){const b=el("div",{class:"tb"});b.innerHTML=body;t.append(b);}
+  $("#toasts").append(t);
+  if(timeout)setTimeout(()=>{t.style.opacity="0";t.style.transition=".3s";setTimeout(()=>t.remove(),300);},timeout);
+  return t;
+}
+let shade=null;
+function loading(on,label="WORKING"){
+  if(on){if(shade)return;shade=el("div",{class:"loading-shade"},el("span",{class:"spinner"}),label);document.body.append(shade);}
+  else if(shade){shade.remove();shade=null;}
+}
+
+/* ---- API ------------------------------------------------------------- */
+async function api(path,opts={}){
+  const r=await fetch(path,opts);
+  let data=null;
+  try{data=await r.json();}catch(e){/* may be empty */}
+  return {ok:r.ok,status:r.status,data};
+}
+
+/* ---- load / ingest --------------------------------------------------- */
+function ingest(d){
+  S.raw=d;
+  S.characters=clone(d.characters||[]);
+  S.actions=clone(d.actions||[]);
+  S.classes=clone(d.classes||{classes:[],playstyles:[]});
+  S.effects=clone(d.effects||[]);
+  S.typeMatrix=clone(d.type_matrix||{});
+  S.aoe=clone(d.aoe_patterns||[]);
+  S.enums=d.enums||{};
+  S.mainBranch=d.main_branch||"main";
+  S.editBranch=d.edit_branch||"editor-edits";
+  S.pr=d.pr||{};
+  S.actionById={}; S.actions.forEach(a=>{if(a&&a.id)S.actionById[a.id]=a;});
+  S.charById={}; S.characters.forEach(c=>{if(c&&c.id!=null)S.charById[String(c.id)]=c;});
+  // reset dirty
+  S.dirtyChars.clear();S.dirtyActions.clear();
+  S.classesDirty=S.effectsDirty=S.matrixDirty=false;
+}
+async function boot(){
+  loading(true,"LOADING DATA");
+  const {ok,data,status}=await api("/api/data");
+  loading(false);
+  if(!ok){toast("Failed to load data",`HTTP ${status}. ${esc((data&&data.error)||"")}`,"err",0);return;}
+  ingest(data);
+  renderAll();
+  toast("Data loaded",`${S.characters.length} characters · ${S.actions.length} actions · ${(S.classes.classes||[]).length} classes`,"ok",3000);
+}
+
+/* ---- dirty bookkeeping ---------------------------------------------- */
+function markChar(id){S.dirtyChars.add(String(id));syncDirty();}
+function markAction(id){S.dirtyActions.add(String(id));syncDirty();}
+function markClasses(){S.classesDirty=true;syncDirty();}
+function markEffects(){S.effectsDirty=true;syncDirty();}
+function markMatrix(){S.matrixDirty=true;syncDirty();}
+function dirtyCount(){
+  return S.dirtyChars.size+S.dirtyActions.size+(S.classesDirty?1:0)+(S.effectsDirty?1:0)+(S.matrixDirty?1:0);
+}
+function syncDirty(){
+  const n=dirtyCount();
+  $("#saveCount").textContent=n;
+  $("#saveBtn").disabled=n===0;
+  setTabDirty("characters",S.dirtyChars.size>0);
+  setTabDirty("actions",S.dirtyActions.size>0);
+  setTabDirty("classes",S.classesDirty);
+  setTabDirty("effects",S.effectsDirty);
+  setTabDirty("matrix",S.matrixDirty);
+}
+function setTabDirty(tab,on){
+  const t=$(`.tab[data-tab="${tab}"]`);if(t)t.classList.toggle("has-dirty",on);
+}
+
+/* ---- header bits ----------------------------------------------------- */
+function renderHeader(){
+  $("#branchInfo").textContent=`${S.editBranch} → ${S.mainBranch}`;
+  $("#dlgBranch").textContent=S.editBranch;
+  $("#dlgMain").textContent=S.mainBranch;
+  const chip=$("#prChip"),txt=$("#prChipText");
+  if(S.pr&&S.pr.number){
+    chip.classList.add("pr-open");chip.href=S.pr.url||"#";
+    txt.textContent=`PR #${S.pr.number} open ↗`;chip.title=S.pr.title||"";
+  }else{
+    chip.classList.remove("pr-open");chip.href="#";chip.removeAttribute("target");
+    txt.textContent="No open PR";chip.title="";
+    chip.addEventListener("click",e=>e.preventDefault(),{once:true});
+  }
+  $("#badge-characters").textContent=S.characters.length;
+  $("#badge-classes").textContent=(S.classes.classes||[]).length;
+  $("#badge-actions").textContent=S.actions.length;
+  $("#badge-effects").textContent=S.effects.length;
+  $("#badge-aoe").textContent=S.aoe.length;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   CHARACTERS
+   ════════════════════════════════════════════════════════════════════ */
+function actionName(id){const a=S.actionById[id];return a?a.name:null;}
+
+function charMatch(c,q){
+  if(!q)return true;
+  const hay=[c.id,c.name,c.class_name_char,c.type_1,c.type_2,c.tier].map(x=>String(x||"").toLowerCase()).join(" ");
+  return q.split(/\s+/).every(w=>hay.includes(w));
+}
+function renderCharFilters(){
+  const wrap=$("#char-tierfilter");wrap.innerHTML="";
+  const tiers=["",...(S.enums.tiers||["hero","lieutenant","minion"])];
+  tiers.forEach(t=>{
+    const p=el("button",{class:"pill"+(S.charTier===t?" on":""),onclick:()=>{S.charTier=t;renderCharFilters();renderCharList();}},t===""?"All":t);
+    wrap.append(p);
+  });
+}
+function renderCharList(){
+  const q=$("#char-search").value.trim().toLowerCase();
+  const list=$("#char-list");list.innerHTML="";
+  const items=S.characters.filter(c=>(!S.charTier||c.tier===S.charTier)&&charMatch(c,q));
+  $("#char-listmeta").textContent=`${items.length} character${items.length===1?"":"s"}${q||S.charTier?" (filtered)":""}`;
+  items.forEach(c=>{
+    const id=String(c.id);
+    const row=el("div",{class:"row"+(S.selChar===id?" sel":"")+(S.dirtyChars.has(id)?" dirty":""),onclick:()=>selectChar(id)});
+    row.append(el("span",{class:"rid mono",html:esc(id)}));
+    row.append(el("span",{class:"rname"},c.name||"(unnamed)"));
+    const t=c.tier||"minion";
+    row.append(el("span",{class:`tier-tag tier-${t}`},t.slice(0,4)));
+    row.append(el("span",{class:"type-swatch"},c.type_1||"—"));
+    list.append(row);
+  });
+}
+function selectChar(id){S.selChar=id;renderCharList();renderCharDetail();}
+
+function renderCharDetail(){
+  const pane=$("#char-detail");
+  const c=S.charById[S.selChar];
+  if(!c){pane.innerHTML="";pane.append(emptyState("Select a character","Pick one from the list to edit its stats, types, synergies and action slots."));return;}
+  pane.innerHTML="";
+  const head=el("div",{class:"detail-head"});
+  head.append(el("span",{class:"id-tag mono"},"#"+esc(c.id)));
+  head.append(el("span",{class:"title"},c.name||"(unnamed)"));
+  const t=c.tier||"minion";
+  head.append(el("span",{class:`tier-tag tier-${t}`},t));
+  head.append(el("span",{class:"spacer"}));
+  if(S.dirtyChars.has(String(c.id)))head.append(el("span",{class:"chip",style:"color:var(--amber);border-color:#4a3b22"},"● unsaved"));
+  pane.append(head);
+
+  const body=el("div",{class:"detail-body"});
+  const onEdit=()=>{markChar(c.id);renderCharList();
+    head.querySelector(".title").textContent=c.name||"(unnamed)";};
+
+  // Identity
+  body.append(group("Identity",grid("cols-3",
+    fieldText("Name",c.name,v=>{c.name=v;onEdit();}),
+    fieldSelect("Tier",c.tier,S.enums.tiers||["hero","lieutenant","minion"],v=>{c.tier=v;onEdit();
+      head.querySelector(".tier-tag").className="tier-tag tier-"+v;head.querySelector(".tier-tag").textContent=v;}),
+    fieldSelect("Class",c.class_name_char,[""].concat(S.enums.classes||[]),v=>{c.class_name_char=v;onEdit();}),
+  )));
+
+  // Types
+  body.append(group("Types",grid("cols-4",
+    fieldSelect("Type 1",c.type_1,[""].concat(S.enums.types||[]),v=>{c.type_1=v;onEdit();}),
+    fieldNum("Type 1 %",c.type_1_percent,{step:.01,min:0,max:1,float:true,hint:"0–1"},v=>{c.type_1_percent=v;onEdit();}),
+    fieldSelect("Type 2",c.type_2,[""].concat(S.enums.types||[]),v=>{c.type_2=v;onEdit();}),
+    fieldNum("Type 2 %",c.type_2_percent,{step:.01,min:0,max:1,float:true,hint:"0–1"},v=>{c.type_2_percent=v;onEdit();}),
+  )));
+
+  // Stats
+  c.stats=c.stats||{};
+  const intStats=["health","regen","attack","defense","special_attack","special_defense","speed"];
+  const statFields=S.enums.stat_fields||["health","regen","attack","defense","special_attack","special_defense","speed","dodge","crit_chance","crit_bonus"];
+  const statGrid=grid("cols-5");
+  statFields.forEach(sf=>{
+    const isInt=intStats.includes(sf);
+    statGrid.append(fieldNum(prettyStat(sf),c.stats[sf],
+      isInt?{step:1,int:true}:{step:.01,float:true},
+      v=>{c.stats[sf]=v;onEdit();}));
+  });
+  body.append(group("Stats",statGrid));
+
+  // Flags
+  const flags=el("div",{class:"flags"});
+  flags.append(toggle("Available in KK",c.available_in_kk,v=>{c.available_in_kk=v;onEdit();}));
+  flags.append(toggle("Available in KW",c.available_in_kw,v=>{c.available_in_kw=v;onEdit();}));
+  flags.append(toggle("Released",c.released,v=>{c.released=v;onEdit();}));
+  body.append(group("Flags",flags));
+
+  // Synergies (type)
+  body.append(group("Type Synergies "+`(${(c.synergies||[]).length}/4)`,renderSynergies(c,onEdit)));
+  // Class synergies
+  body.append(group("Class Synergies",renderClassSynergies(c,onEdit)));
+  // Legacy flat class-synergy
+  body.append(renderLegacyClassSyn(c,onEdit));
+
+  // Action slots
+  body.append(group("Action Slots",renderSlots(c,onEdit)));
+
+  // Description
+  body.append(group("Description",fieldArea("Description (optional)",c.description||"",v=>{c.description=v;onEdit();})));
+
+  // Card art
+  body.append(group("Card Art",renderArt(c)));
+
+  pane.append(body);
+}
+function prettyStat(s){return s.replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase()).replace("Special","Sp.").replace("Crit","Crit");}
+
+function renderSynergies(c,onEdit){
+  c.synergies=c.synergies||[];
+  const wrap=el("div",{class:"rep"});
+  const draw=()=>{
+    wrap.innerHTML="";
+    c.synergies.forEach((s,i)=>{
+      const item=el("div",{class:"rep-item",style:"grid-template-columns:1.2fr .7fr .7fr 1.2fr .8fr auto"});
+      item.append(fieldSelect("Type",s.type,[""].concat(S.enums.types||[]),v=>{s.type=v;onEdit();}));
+      item.append(fieldNum("Qty",s.quantity,{step:1,int:true},v=>{s.quantity=v;onEdit();}));
+      item.append(fieldNum("Range",s.range,{step:1,int:true},v=>{s.range=v;onEdit();}));
+      item.append(fieldSelect("Stat",s.stat,[""].concat(S.enums.synergy_stats||[]),v=>{s.stat=v;onEdit();}));
+      item.append(fieldNum("Modifier",s.modifier,{step:.01,float:true},v=>{s.modifier=v;onEdit();}));
+      item.append(el("button",{class:"rep-del",title:"Remove",onclick:()=>{c.synergies.splice(i,1);onEdit();draw();}},"×"));
+      wrap.append(item);
+    });
+    const add=el("button",{class:"add-row",disabled:c.synergies.length>=4,
+      onclick:()=>{c.synergies.push({type:"",quantity:1,range:0,stat:"",modifier:0});onEdit();draw();}},
+      c.synergies.length>=4?"Max 4 synergies":"+ Add synergy");
+    wrap.append(add);
+  };
+  draw();return wrap;
+}
+function renderClassSynergies(c,onEdit){
+  c.class_synergies=c.class_synergies||[];
+  const wrap=el("div",{class:"rep"});
+  const draw=()=>{
+    wrap.innerHTML="";
+    c.class_synergies.forEach((s,i)=>{
+      const item=el("div",{class:"rep-item",style:"grid-template-columns:1.2fr .8fr .7fr 1.2fr .8fr auto"});
+      item.append(fieldSelect("Class",s.class_name,[""].concat(S.enums.classes||[]),v=>{s.class_name=v;onEdit();}));
+      item.append(fieldNum("Qty req.",s.quantity_required,{step:1,int:true},v=>{s.quantity_required=v;onEdit();}));
+      item.append(fieldNum("Range",s.range,{step:1,int:true},v=>{s.range=v;onEdit();}));
+      item.append(fieldSelect("Stat",s.stat,[""].concat(S.enums.synergy_stats||[]),v=>{s.stat=v;onEdit();}));
+      item.append(fieldNum("Modifier",s.modifier,{step:.01,float:true},v=>{s.modifier=v;onEdit();}));
+      item.append(el("button",{class:"rep-del",title:"Remove",onclick:()=>{c.class_synergies.splice(i,1);onEdit();draw();}},"×"));
+      wrap.append(item);
+    });
+    wrap.append(el("button",{class:"add-row",
+      onclick:()=>{c.class_synergies.push({class_name:"",quantity_required:1,range:0,stat:"",modifier:0});onEdit();draw();}},
+      "+ Add class synergy"));
+  };
+  draw();return wrap;
+}
+function renderLegacyClassSyn(c,onEdit){
+  const box=el("div",{class:"group"});
+  const tgl=el("div",{class:"legacy-toggle"},"▸ Legacy flat class-synergy fields (advanced)");
+  const body=el("div",{class:"legacy-body"});
+  tgl.addEventListener("click",()=>{body.classList.toggle("open");
+    tgl.textContent=(body.classList.contains("open")?"▾":"▸")+" Legacy flat class-synergy fields (advanced)";});
+  const g=grid("cols-5");
+  g.append(fieldText("class_synergy_class",c.class_synergy_class,v=>{c.class_synergy_class=v;onEdit();},true));
+  g.append(fieldNum("class_synergy_count",c.class_synergy_count,{step:1,int:true},v=>{c.class_synergy_count=v;onEdit();}));
+  g.append(fieldNum("class_synergy_range",c.class_synergy_range,{step:1,int:true},v=>{c.class_synergy_range=v;onEdit();}));
+  g.append(fieldText("class_synergy_stat",c.class_synergy_stat,v=>{c.class_synergy_stat=v;onEdit();},true));
+  g.append(fieldNum("class_synergy_modifier",c.class_synergy_modifier,{step:.01,float:true},v=>{c.class_synergy_modifier=v;onEdit();}));
+  body.append(el("p",{class:"note"},"Preserved for backwards compatibility. Prefer the structured Class Synergies above."));
+  body.append(g);
+  box.append(tgl,body);return box;
+}
+
+function renderSlots(c,onEdit){
+  const slots=S.enums.char_action_slots||(["standard_attack","type_attack","class_action"].concat([...Array(15)].map((_,i)=>"unique_action_"+(i+1))));
+  const cats=S.enums.action_categories||["","anchor","standard","core","mastery"];
+  const ids=[""].concat(S.enums.action_ids||[]);
+  const wrap=el("div",{class:"slots"});
+  slots.forEach(slot=>{
+    let obj=c[slot];
+    const filled=obj&&typeof obj==="object"&&obj.id;
+    const row=el("div",{class:"slot"+(filled?" filled":"")});
+    row.append(el("span",{class:"slot-label",title:slot},slot));
+    // id picker
+    const sel=el("select",{class:"mono"});
+    ids.forEach(id=>{const o=el("option",{value:id},id||"— empty —");if(filled&&obj.id===id)o.selected=true;sel.append(o);});
+    const resolved=el("span",{class:"resolved"});
+    const renderResolved=()=>{
+      const cur=c[slot];
+      if(cur&&cur.id){
+        const nm=actionName(cur.id);
+        resolved.innerHTML=nm?esc(nm):'<span class="unknown">⚠ unknown action</span>';
+      }else resolved.textContent="";
+    };
+    sel.addEventListener("change",()=>{
+      const v=sel.value;
+      if(!v){c[slot]={};}
+      else{
+        if(!c[slot]||typeof c[slot]!=="object")c[slot]={};
+        c[slot].id=v;
+        if(c[slot].cooldown_rounds==null)c[slot].cooldown_rounds=0;
+        if(c[slot].category==null)c[slot].category="";
+      }
+      onEdit();renderResolved();
+      row.classList.toggle("filled",!!(c[slot]&&c[slot].id));
+      cdInput.value=(c[slot]&&c[slot].cooldown_rounds!=null)?c[slot].cooldown_rounds:"";
+      catSel.value=(c[slot]&&c[slot].category)||"";
+    });
+    row.append(sel);
+    row.append(resolved);
+    // cooldown
+    const cdInput=el("input",{type:"number",class:"mono",step:1,min:0,placeholder:"cd",
+      value:filled&&obj.cooldown_rounds!=null?obj.cooldown_rounds:""});
+    cdInput.title="cooldown rounds";
+    cdInput.addEventListener("input",()=>{if(c[slot]&&c[slot].id){c[slot].cooldown_rounds=intOf(cdInput.value,0);onEdit();}});
+    row.append(cdInput);
+    // category
+    const catSel=el("select",{class:"mono",title:"category"});
+    cats.forEach(cat=>{const o=el("option",{value:cat},cat||"(none)");if(filled&&obj.category===cat)o.selected=true;catSel.append(o);});
+    catSel.addEventListener("change",()=>{if(c[slot]&&c[slot].id){c[slot].category=catSel.value;onEdit();}});
+    row.append(catSel);
+    // clear
+    row.append(el("button",{class:"slot-clr",title:"Clear slot",onclick:()=>{
+      c[slot]={};sel.value="";cdInput.value="";catSel.value="";renderResolved();
+      row.classList.remove("filled");onEdit();
+    }},"×"));
+    renderResolved();
+    wrap.append(row);
+  });
+  return wrap;
+}
+
+function renderArt(c){
+  const wrap=el("div",{class:"art-block"});
+  const frame=el("div",{class:"art-frame"});
+  const noart=el("div",{class:"noart"},"NO ART\n#"+esc(c.id));
+  const img=el("img",{src:`/api/art/${encodeURIComponent(c.id)}?t=${Date.now()}`,alt:""});
+  img.addEventListener("error",()=>{img.style.display="none";frame.append(noart);});
+  img.addEventListener("load",()=>{if(noart.parentNode)noart.remove();});
+  frame.append(img);
+  wrap.append(frame);
+  const side=el("div",{style:"display:flex;flex-direction:column;gap:10px;padding-top:4px"});
+  side.append(el("div",{class:"note"},"Served from <span class='mono'>/api/art/"+esc(c.id)+"</span>. Upload a PNG to replace it (rides the same PR)."));
+  const fileInput=el("input",{type:"file",accept:"image/png",style:"display:none"});
+  const upBtn=el("button",{class:"btn",onclick:()=>fileInput.click()},"⬆ Upload card art (PNG)");
+  fileInput.addEventListener("change",async()=>{
+    const f=fileInput.files[0];if(!f)return;
+    if(!f.name.toLowerCase().endsWith(".png")){toast("Wrong file type","PNG files only.","err");return;}
+    const fd=new FormData();fd.append("char_id",String(c.id));fd.append("file",f);
+    loading(true,"UPLOADING ART");
+    const {ok,data,status}=await api("/api/upload-art",{method:"POST",body:fd});
+    loading(false);fileInput.value="";
+    if(ok&&data&&data.ok!==false){
+      if(data.pr)S.pr=data.pr;renderHeader();
+      img.style.display="";img.src=`/api/art/${encodeURIComponent(c.id)}?t=${Date.now()}`;
+      const link=data.pr&&data.pr.url?` <a href="${esc(data.pr.url)}" target="_blank">PR #${esc(data.pr.number)} ↗</a>`:"";
+      toast("Art uploaded","Committed to "+esc(S.editBranch)+"."+link);
+    }else{
+      toast("Upload failed",esc((data&&data.error)||("HTTP "+status)),"err",0);
+    }
+  });
+  side.append(upBtn,fileInput);
+  wrap.append(side);
+  return wrap;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   ACTIONS
+   ════════════════════════════════════════════════════════════════════ */
+function actionMatch(a,q){
+  if(!q)return true;
+  const e1=a.effect1&&a.effect1.effect_type||"",e2=a.effect2&&a.effect2.effect_type||"";
+  const hay=[a.id,a.name,a.aoe_pattern,e1,e2].map(x=>String(x||"").toLowerCase()).join(" ");
+  return q.split(/\s+/).every(w=>hay.includes(w));
+}
+function renderActionList(){
+  const q=$("#action-search").value.trim().toLowerCase();
+  const list=$("#action-list");list.innerHTML="";
+  const items=S.actions.filter(a=>actionMatch(a,q));
+  $("#action-listmeta").textContent=`${items.length} action${items.length===1?"":"s"}${q?" (filtered)":""}`;
+  items.forEach(a=>{
+    const id=String(a.id);
+    const row=el("div",{class:"row"+(S.selAction===id?" sel":"")+(S.dirtyActions.has(id)?" dirty":""),onclick:()=>selectAction(id)});
+    row.append(el("span",{class:"rname"},a.name||"(unnamed)"));
+    const dt=(S.enums.damage_types||[]).find(d=>d.value===a.damage_type);
+    row.append(el("span",{class:"rmeta"},dt?dt.label:""));
+    list.append(row);
+    row.insertBefore(el("span",{class:"rid mono",style:"min-width:0;max-width:120px;overflow:hidden;text-overflow:ellipsis",title:id,html:esc(id)}),row.firstChild);
+  });
+}
+function selectAction(id){S.selAction=id;renderActionList();renderActionDetail();}
+function renderActionDetail(){
+  const pane=$("#action-detail");
+  const a=S.actions.find(x=>String(x.id)===S.selAction);
+  if(!a){pane.innerHTML="";pane.append(emptyState("Select an action","Pick one from the list to edit damage, AoE and effects."));return;}
+  pane.innerHTML="";
+  const head=el("div",{class:"detail-head"});
+  head.append(el("span",{class:"id-tag mono"},esc(a.id)));
+  head.append(el("span",{class:"title"},a.name||"(unnamed)"));
+  head.append(el("span",{class:"spacer"}));
+  if(S.dirtyActions.has(String(a.id)))head.append(el("span",{class:"chip",style:"color:var(--amber);border-color:#4a3b22"},"● unsaved"));
+  pane.append(head);
+  const body=el("div",{class:"detail-body",style:"max-width:880px"});
+  const onEdit=()=>{markAction(a.id);renderActionList();head.querySelector(".title").textContent=a.name||"(unnamed)";};
+
+  body.append(group("Identity",grid("cols-2",
+    fieldText("Name",a.name,v=>{a.name=v;onEdit();}),
+    fieldText("id (slug)",a.id,v=>{
+      const old=String(a.id);a.id=v;
+      // keep dirty tracking consistent on id-rename
+      if(S.dirtyActions.has(old)){S.dirtyActions.delete(old);}
+      S.selAction=String(v);
+      markAction(v);rebuildActionIndex();renderActionList();
+    },true),
+  )));
+
+  body.append(group("Damage",grid("cols-4",
+    fieldSelectVal("Damage type",a.damage_type,(S.enums.damage_types||[]).map(d=>({value:d.value,label:d.label})),v=>{a.damage_type=intOf(v,0);onEdit();}),
+    fieldNum("Damage modifier",a.damage_modifier,{step:.01,float:true},v=>{a.damage_modifier=v;onEdit();}),
+    fieldNum("Energy cost",a.energy_cost,{step:1,int:true},v=>{a.energy_cost=v;onEdit();}),
+    fieldNum("Trap tick",a.trap_tick,{step:1,int:true},v=>{a.trap_tick=v;onEdit();}),
+  )));
+
+  body.append(group("Area of Effect",grid("cols-4",
+    fieldSelect("AoE pattern",a.aoe_pattern,[""].concat(S.enums.aoe_patterns||[]),v=>{a.aoe_pattern=v;onEdit();}),
+    fieldNum("AoE size",a.aoe_size,{step:1,int:true},v=>{a.aoe_size=v;onEdit();}),
+    fieldNum("AoE range",a.aoe_range,{step:1,int:true},v=>{a.aoe_range=v;onEdit();}),
+    fieldText("Action type",a.action_type,v=>{a.action_type=v;onEdit();},true),
+  )));
+
+  // effect1 / effect2
+  body.append(group("Effects",el("div",{class:"grid cols-2"},
+    effectBlock("Effect 1","effect1",a,onEdit),
+    effectBlock("Effect 2","effect2",a,onEdit),
+  )));
+
+  body.append(group("Summon",grid("cols-2",
+    fieldText("Summon character id",a.summon_character_id||"",v=>{a.summon_character_id=v;onEdit();},true),
+  )));
+
+  pane.append(body);
+}
+function rebuildActionIndex(){
+  S.actionById={};S.actions.forEach(a=>{if(a&&a.id)S.actionById[a.id]=a;});
+}
+function effectBlock(label,key,a,onEdit){
+  const sg=el("div",{class:"subgroup"+(a[key]?"":" off")});
+  const head=el("div",{class:"sg-head"});
+  head.append(el("h4",{},label));
+  const on=!!a[key];
+  const tg=toggle("Active",on,v=>{
+    if(v){a[key]=a[key]||{effect_type:"",effect_magnitude:0,effect_duration:0};}
+    else{a[key]=null;}
+    onEdit();
+    // re-render this block
+    const fresh=effectBlock(label,key,a,onEdit);
+    sg.replaceWith(fresh);
+  });
+  tg.style.fontSize="11px";
+  head.append(tg);
+  sg.append(head);
+  if(a[key]){
+    const g=grid("cols-3");
+    g.append(fieldSelect("Effect",a[key].effect_type,[""].concat(S.enums.effects||[]),v=>{a[key].effect_type=v;onEdit();}));
+    g.append(fieldNum("Magnitude",a[key].effect_magnitude,{step:.01,float:true},v=>{a[key].effect_magnitude=v;onEdit();}));
+    g.append(fieldNum("Duration",a[key].effect_duration,{step:1,int:true},v=>{a[key].effect_duration=v;onEdit();}));
+    sg.append(g);
+  }else{
+    sg.append(el("p",{class:"note"},"No effect. Toggle Active to add one."));
+  }
+  return sg;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   CLASSES
+   ════════════════════════════════════════════════════════════════════ */
+function renderClassList(){
+  const q=$("#class-search").value.trim().toLowerCase();
+  const list=$("#class-list");list.innerHTML="";
+  const classes=(S.classes.classes||[]).filter(c=>{
+    if(!q)return true;
+    const hay=[c.class_name,c.primary_playstyle,c.secondary_playstyle].map(x=>String(x||"").toLowerCase()).join(" ");
+    return q.split(/\s+/).every(w=>hay.includes(w));
+  });
+  $("#class-listmeta").textContent=`${classes.length} class${classes.length===1?"":"es"}${q?" (filtered)":""}`;
+  classes.forEach(c=>{
+    const row=el("div",{class:"row"+(S.selClass===c.class_name?" sel":""),onclick:()=>{S.selClass=c.class_name;renderClassList();renderClassDetail();}});
+    row.append(el("span",{class:"rname"},c.class_name||"(unnamed)"));
+    row.append(el("span",{class:"rmeta"},c.primary_playstyle||""));
+    list.append(row);
+  });
+}
+function renderClassDetail(){
+  const pane=$("#class-detail");
+  const c=(S.classes.classes||[]).find(x=>x.class_name===S.selClass);
+  if(!c){pane.innerHTML="";pane.append(emptyState("Select a class","Pick a class to edit playstyles, inherent effects and class actions."));return;}
+  pane.innerHTML="";
+  const head=el("div",{class:"detail-head"});
+  head.append(el("span",{class:"title"},c.class_name||"(unnamed)"));
+  head.append(el("span",{class:"spacer"}));
+  if(S.classesDirty)head.append(el("span",{class:"chip",style:"color:var(--amber);border-color:#4a3b22"},"● unsaved (classes)"));
+  pane.append(head);
+  const body=el("div",{class:"detail-body",style:"max-width:920px"});
+  const onEdit=()=>{markClasses();renderClassList();head.querySelector(".title").textContent=c.class_name||"(unnamed)";};
+  const playstyles=[""].concat(S.enums.playstyles||[]);
+
+  body.append(group("Identity & Playstyles",grid("cols-3",
+    fieldText("Class name",c.class_name,v=>{c.class_name=v;S.selClass=v;onEdit();},true),
+    fieldSelectFree("Primary playstyle",c.primary_playstyle,playstyles,v=>{c.primary_playstyle=v;onEdit();}),
+    fieldSelectFree("Secondary playstyle",c.secondary_playstyle,playstyles,v=>{c.secondary_playstyle=v;onEdit();}),
+  )));
+
+  body.append(group("Inherent Class Effects",renderInherentEffects(c,onEdit)));
+  body.append(group("Core Class Actions",renderSlugList(c,"core_class_actions",onEdit)));
+  body.append(group("Mastery Class Actions",renderSlugList(c,"mastery_class_actions",onEdit)));
+
+  // legacy class_action
+  const lg=el("div",{class:"group"});
+  const tgl=el("div",{class:"legacy-toggle"},"▸ Legacy class_action field");
+  const lb=el("div",{class:"legacy-body"});
+  tgl.addEventListener("click",()=>{lb.classList.toggle("open");tgl.textContent=(lb.classList.contains("open")?"▾":"▸")+" Legacy class_action field";});
+  lb.append(fieldText("class_action (null/slug)",c.class_action==null?"":c.class_action,v=>{c.class_action=v===""?null:v;onEdit();},true));
+  lb.append(el("p",{class:"note"},"Leave blank for <span class='mono'>null</span> (the normal value)."));
+  lg.append(tgl,lb);body.append(lg);
+
+  pane.append(body);
+}
+function renderInherentEffects(c,onEdit){
+  c.inherent_class_effects=c.inherent_class_effects||[];
+  const wrap=el("div",{class:"rep"});
+  const draw=()=>{
+    wrap.innerHTML="";
+    c.inherent_class_effects.forEach((e,i)=>{
+      const item=el("div",{class:"rep-item",style:"grid-template-columns:1.4fr .8fr 1fr auto"});
+      item.append(fieldSelect("Effect",e.effect_id,[""].concat(S.enums.effects||[]),v=>{e.effect_id=v;onEdit();}));
+      item.append(fieldNum("Magnitude",e.magnitude,{step:.01,float:true},v=>{e.magnitude=v;onEdit();}));
+      // duration: blank = permanent(null), 0 = instant, N = turns
+      const durF=el("div",{class:"field"});
+      durF.append(el("label",{},"Duration ",el("span",{class:"hint"},"blank=perm · 0=instant")));
+      const di=el("input",{type:"number",step:1,class:"mono",placeholder:"permanent",
+        value:e.duration==null?"":e.duration});
+      di.addEventListener("input",()=>{e.duration=di.value===""?null:intOf(di.value,0);onEdit();});
+      durF.append(di);item.append(durF);
+      item.append(el("button",{class:"rep-del",title:"Remove",onclick:()=>{c.inherent_class_effects.splice(i,1);onEdit();draw();}},"×"));
+      wrap.append(item);
+    });
+    wrap.append(el("button",{class:"add-row",onclick:()=>{c.inherent_class_effects.push({effect_id:"",magnitude:0,duration:null});onEdit();draw();}},"+ Add inherent effect"));
+  };
+  draw();return wrap;
+}
+function renderSlugList(c,key,onEdit){
+  c[key]=Array.isArray(c[key])?c[key]:[];
+  const wrap=el("div");
+  const list=el("div",{class:"reorder"});
+  const draw=()=>{
+    list.innerHTML="";
+    if(!c[key].length)list.append(el("p",{class:"note"},"None."));
+    c[key].forEach((slug,i)=>{
+      const ri=el("div",{class:"ritem"});
+      const nm=actionName(slug);
+      ri.append(el("div",{},el("span",{class:"slug"},slug),el("span",{class:"rname2"},nm?nm:(slug?"⚠ unknown":""))));
+      ri.append(el("button",{class:"mini",title:"Move up",disabled:i===0,onclick:()=>{[c[key][i-1],c[key][i]]=[c[key][i],c[key][i-1]];onEdit();draw();}},"↑"));
+      ri.append(el("button",{class:"mini",title:"Move down",disabled:i===c[key].length-1,onclick:()=>{[c[key][i+1],c[key][i]]=[c[key][i],c[key][i+1]];onEdit();draw();}},"↓"));
+      ri.append(el("button",{class:"mini del",title:"Remove",onclick:()=>{c[key].splice(i,1);onEdit();draw();}},"×"));
+      list.append(ri);
+    });
+  };
+  const adder=el("div",{class:"add-slug"});
+  const sel=el("select",{class:"mono"});
+  sel.append(el("option",{value:""},"— pick an action slug —"));
+  (S.enums.action_ids||[]).forEach(id=>sel.append(el("option",{value:id},id)));
+  adder.append(sel);
+  adder.append(el("button",{class:"btn",onclick:()=>{if(sel.value){c[key].push(sel.value);sel.value="";onEdit();draw();}}},"+ Add"));
+  wrap.append(list,adder);
+  draw();return wrap;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   EFFECTS
+   ════════════════════════════════════════════════════════════════════ */
+function renderEffects(){
+  const cols=["name","category","magnitude_meaning","duration_meaning","notes"];
+  const wrap=$("#effects-table");wrap.innerHTML="";
+  const table=el("table");
+  const thead=el("thead");const trh=el("tr");
+  cols.forEach(col=>trh.append(el("th",{},col.replace(/_/g," "))));
+  trh.append(el("th",{style:"width:40px"},""));
+  thead.append(trh);table.append(thead);
+  const tb=el("tbody");
+  S.effects.forEach((eff,i)=>{
+    const tr=el("tr");
+    cols.forEach(col=>{
+      const td=el("td");
+      const inp=el("input",{type:"text",value:eff[col]||"",class:col==="name"?"mono":""});
+      inp.addEventListener("input",()=>{eff[col]=inp.value;markEffects();});
+      td.append(inp);tr.append(td);
+    });
+    const tdd=el("td");
+    tdd.append(el("button",{class:"rep-del",style:"width:28px;height:26px;font-size:13px",title:"Delete effect",
+      onclick:()=>{S.effects.splice(i,1);markEffects();renderEffects();}},"×"));
+    tr.append(tdd);tb.append(tr);
+  });
+  table.append(tb);wrap.append(table);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   TYPE MATRIX
+   ════════════════════════════════════════════════════════════════════ */
+function renderMatrix(){
+  const wrap=$("#matrix-wrap");wrap.innerHTML="";
+  const types=(S.enums.types||[]).slice();
+  if(!types.length){wrap.append(el("p",{class:"note",style:"padding:14px"},"No types defined."));return;}
+  const table=el("table",{class:"tm-grid"});
+  const thead=el("thead");const trh=el("tr");
+  trh.append(el("th",{},el("span",{style:"opacity:.5;font-size:9px"},"ATK ↓ / DEF →")));
+  types.forEach(d=>trh.append(el("th",{style:"text-align:center"},d)));
+  thead.append(trh);table.append(thead);
+  const tb=el("tbody");
+  types.forEach(atk=>{
+    const tr=el("tr");
+    tr.append(el("td",{},atk));
+    types.forEach(def=>{
+      const key=`${atk}:${def}`;
+      const td=el("td",{style:"text-align:center;padding:2px"});
+      const val=S.typeMatrix[key];
+      const shown=(val==null)?"":String(val);
+      const inp=el("input",{class:"tm-cell mono",value:shown,placeholder:"1",title:key});
+      applyCellClass(inp,val);
+      inp.addEventListener("input",()=>{
+        const raw=inp.value.trim();
+        if(raw===""||raw==="1"){delete S.typeMatrix[key];inp.removeAttribute("data-val");}
+        else{const n=num(raw,1);S.typeMatrix[key]=n;}
+        applyCellClass(inp,raw===""?undefined:num(raw,1));
+        markMatrix();
+      });
+      td.append(inp);tr.append(td);
+    });
+    tb.append(tr);
+  });
+  table.append(tb);wrap.append(table);
+}
+function applyCellClass(inp,val){
+  inp.classList.remove("sup","eff","imm");inp.removeAttribute("data-val");
+  if(val==null)return;
+  if(val===1){inp.setAttribute("data-val","1");return;}
+  if(val===0)inp.classList.add("imm");
+  else if(val>1)inp.classList.add("sup");
+  else if(val<1)inp.classList.add("eff");
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   AOE PATTERNS (read-only)
+   ════════════════════════════════════════════════════════════════════ */
+function renderAoe(){
+  const grid=$("#aoe-grid");grid.innerHTML="";
+  if(!S.aoe.length){grid.append(el("p",{class:"note"},"No AoE patterns defined."));return;}
+  const fields=["size_meaning","range_meaning","persistence","notes"];
+  S.aoe.forEach(p=>{
+    const card=el("div",{class:"ref-card"});
+    card.append(el("h3",{},p.name||"(unnamed)"));
+    card.append(el("div",{class:"cat"},p.category||"pattern"));
+    const dl=el("dl");
+    fields.forEach(f=>{
+      if(p[f]==null||p[f]==="")return;
+      dl.append(el("dt",{},f.replace(/_/g," ").replace("meaning","")));
+      dl.append(el("dd",{},p[f]));
+    });
+    card.append(dl);grid.append(card);
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   FORM PRIMITIVES
+   ════════════════════════════════════════════════════════════════════ */
+function group(title,content){
+  const fs=el("fieldset",{class:"group"});
+  fs.append(el("div",{class:"group-title"},title));
+  fs.append(content);return fs;
+}
+function grid(cls,...kids){return el("div",{class:"grid "+cls},...kids.flat());}
+function field(label,input,hint){
+  const f=el("div",{class:"field"});
+  const lab=el("label",{},label);
+  if(hint)lab.append(el("span",{class:"hint"}," "+hint));
+  f.append(lab,input);return f;
+}
+function fieldText(label,val,onChange,mono){
+  const inp=el("input",{type:"text",value:val==null?"":val,class:mono?"mono":""});
+  inp.addEventListener("input",()=>onChange(inp.value));
+  return field(label,inp);
+}
+function fieldArea(label,val,onChange){
+  const inp=el("textarea",{},val==null?"":val);
+  inp.value=val==null?"":val;
+  inp.addEventListener("input",()=>onChange(inp.value));
+  return field(label,inp);
+}
+function fieldNum(label,val,opts,onChange){
+  opts=opts||{};
+  const inp=el("input",{type:"number",class:"mono",
+    value:(val==null||val==="")?"":val,
+    step:opts.step!=null?opts.step:1});
+  if(opts.min!=null)inp.min=opts.min;
+  if(opts.max!=null)inp.max=opts.max;
+  const validate=()=>{
+    const raw=inp.value;
+    if(raw===""){inp.classList.remove("invalid");onChange(opts.int?0:(opts.float?0:0));return;}
+    let n=opts.int?parseInt(raw,10):parseFloat(raw);
+    let bad=!Number.isFinite(n);
+    if(!bad&&opts.min!=null&&n<opts.min)bad=true;
+    if(!bad&&opts.max!=null&&n>opts.max)bad=true;
+    inp.classList.toggle("invalid",bad);
+    if(!bad)onChange(n);
+  };
+  inp.addEventListener("input",validate);
+  return field(label,inp,opts.hint);
+}
+function fieldSelect(label,val,options,onChange){
+  const sel=el("select",{class:"mono"});
+  options.forEach(o=>{
+    const opt=el("option",{value:o},o===""?"— none —":o);
+    if(String(val)===String(o))opt.selected=true;
+    sel.append(opt);
+  });
+  // value not in list -> add it so we don't silently lose data
+  if(val!=null&&val!==""&&!options.some(o=>String(o)===String(val))){
+    const opt=el("option",{value:val},val+" (custom)");opt.selected=true;sel.append(opt);
+  }
+  sel.addEventListener("change",()=>onChange(sel.value));
+  return field(label,sel);
+}
+function fieldSelectFree(label,val,options,onChange){return fieldSelect(label,val,options,onChange);}
+function fieldSelectVal(label,val,options,onChange){
+  const sel=el("select",{class:"mono"});
+  options.forEach(o=>{
+    const opt=el("option",{value:o.value},o.label);
+    if(String(val)===String(o.value))opt.selected=true;
+    sel.append(opt);
+  });
+  sel.addEventListener("change",()=>onChange(sel.value));
+  return field(label,sel);
+}
+function toggle(label,val,onChange){
+  const lab=el("label",{class:"toggle"+(val?" on":"")});
+  const inp=el("input",{type:"checkbox"});inp.checked=!!val;
+  const sw=el("span",{class:"sw"});
+  lab.append(inp,sw,el("span",{},label));
+  inp.addEventListener("change",()=>{lab.classList.toggle("on",inp.checked);onChange(inp.checked);});
+  return lab;
+}
+function emptyState(big,sub){
+  return el("div",{class:"empty-state"},
+    el("div",{class:"big"},big),
+    el("div",{style:"max-width:340px"},sub));
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   SAVE
+   ════════════════════════════════════════════════════════════════════ */
+function buildSaveBody(){
+  const body={};
+  if(S.dirtyChars.size){
+    body.characters=[...S.dirtyChars].map(id=>S.charById[id]).filter(Boolean);
+  }
+  if(S.dirtyActions.size){
+    body.actions=S.actions.filter(a=>S.dirtyActions.has(String(a.id)));
+  }
+  if(S.classesDirty)body.classes=S.classes;
+  if(S.effectsDirty)body.effects=S.effects;
+  if(S.matrixDirty)body.type_matrix=S.typeMatrix;
+  return body;
+}
+function summarizeChanges(){
+  const rows=[];
+  if(S.dirtyChars.size)rows.push(["Characters",[...S.dirtyChars].map(id=>{const c=S.charById[id];return c?c.name:"#"+id;}).join(", ")]);
+  if(S.dirtyActions.size)rows.push(["Actions",[...S.dirtyActions].join(", ")]);
+  if(S.classesDirty)rows.push(["Classes","whole document"]);
+  if(S.effectsDirty)rows.push(["Effects","whole array"]);
+  if(S.matrixDirty)rows.push(["Type matrix","whole dict"]);
+  return rows;
+}
+function defaultMessage(){
+  const parts=[];
+  if(S.dirtyChars.size)parts.push(`${S.dirtyChars.size} character(s)`);
+  if(S.dirtyActions.size)parts.push(`${S.dirtyActions.size} action(s)`);
+  if(S.classesDirty)parts.push("classes");
+  if(S.effectsDirty)parts.push("effects");
+  if(S.matrixDirty)parts.push("type matrix");
+  return "Data edit: "+(parts.join(", ")||"changes")+" [via editor]";
+}
+function openSaveDialog(){
+  if(dirtyCount()===0)return;
+  const cs=$("#changeSummary");cs.innerHTML="";
+  summarizeChanges().forEach(([k,v])=>{
+    cs.append(el("div",{class:"cs-row"},el("b",{},k),el("span",{style:"opacity:.85;text-align:right;margin-left:14px;overflow:hidden;text-overflow:ellipsis"},v)));
+  });
+  $("#commitMsg").value=defaultMessage();
+  $("#saveScrim").classList.add("show");
+  setTimeout(()=>$("#commitMsg").focus(),50);
+}
+function closeSaveDialog(){$("#saveScrim").classList.remove("show");}
+async function doSave(){
+  const body=buildSaveBody();
+  const msg=$("#commitMsg").value.trim();
+  if(msg)body.message=msg;
+  closeSaveDialog();
+  loading(true,"COMMITTING");
+  const {ok,data,status}=await api("/api/save",{
+    method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  loading(false);
+  if(status===409){toast("Save blocked (409)",esc((data&&data.error)||"Rebase conflict — merge the open PR or refresh."),"err",0);return;}
+  if(!ok||!data||data.ok===false){
+    toast("Save failed",esc((data&&data.error)||("HTTP "+status)),"err",0);return;}
+  if(data.committed===false){
+    toast("Nothing committed",esc(data.message||"No effective changes vs the branch."),"warn");
+    return;
+  }
+  // success — clear dirty, adopt new PR, rebaseline saved sections
+  if(data.pr)S.pr=data.pr;
+  // adopt working copy as the baseline for saved sections
+  S.dirtyChars.clear();S.dirtyActions.clear();
+  S.classesDirty=S.effectsDirty=S.matrixDirty=false;
+  syncDirty();renderHeader();renderActiveTabLists();
+  const link=data.pr&&data.pr.url?` <a href="${esc(data.pr.url)}" target="_blank">PR #${esc(data.pr.number)} ↗</a>`:"";
+  const sha=data.sha?` <span class="mono">${esc(data.sha)}</span>`:"";
+  toast("Saved & pushed","Committed"+sha+" to "+esc(S.editBranch)+"."+link,"ok",9000);
+}
+
+/* refresh from main */
+async function doRefresh(){
+  if(dirtyCount()>0&&!confirm("You have "+dirtyCount()+" unsaved change(s). Refreshing from main will DISCARD them. Continue?"))return;
+  loading(true,"REFRESHING");
+  const {ok,data,status}=await api("/api/refresh",{method:"POST"});
+  loading(false);
+  if(status===409){toast("Refresh blocked (409)",esc((data&&data.error)||"Rebase conflict."),"err",0);return;}
+  if(!ok||!data||data.ok===false){toast("Refresh failed",esc((data&&data.error)||("HTTP "+status)),"err",0);return;}
+  ingest(data);renderAll();
+  toast("Refreshed from "+esc(S.mainBranch),"Working copy re-synced.","ok",4000);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   TABS & RENDER ORCHESTRATION
+   ════════════════════════════════════════════════════════════════════ */
+function mobileBackToList(){
+  document.body.classList.remove("in-detail");
+  $$(".split").forEach(s=>s.classList.remove("show-detail"));
+}
+function switchTab(tab){
+  CURRENT_TAB=tab;
+  mobileBackToList();                       // each tab starts on its list (mobile)
+  $$(".tab").forEach(t=>t.classList.toggle("active",t.dataset.tab===tab));
+  $$(".view").forEach(v=>v.classList.toggle("active",v.dataset.view===tab));
+  renderActiveTab();
+}
+function renderActiveTab(){
+  if(CURRENT_TAB==="characters"){renderCharFilters();renderCharList();renderCharDetail();}
+  else if(CURRENT_TAB==="actions"){renderActionList();renderActionDetail();}
+  else if(CURRENT_TAB==="classes"){renderClassList();renderClassDetail();}
+  else if(CURRENT_TAB==="effects")renderEffects();
+  else if(CURRENT_TAB==="matrix")renderMatrix();
+  else if(CURRENT_TAB==="aoe")renderAoe();
+}
+function renderActiveTabLists(){
+  // light refresh of list panes (after save) without resetting detail edits
+  if(CURRENT_TAB==="characters")renderCharList();
+  else if(CURRENT_TAB==="actions")renderActionList();
+  else if(CURRENT_TAB==="classes")renderClassList();
+}
+function renderAll(){
+  renderHeader();syncDirty();
+  // default selections
+  if(!S.selChar&&S.characters[0])S.selChar=String(S.characters[0].id);
+  if(!S.selAction&&S.actions[0])S.selAction=String(S.actions[0].id);
+  if(!S.selClass&&(S.classes.classes||[])[0])S.selClass=S.classes.classes[0].class_name;
+  renderActiveTab();
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   WIRE-UP
+   ════════════════════════════════════════════════════════════════════ */
+function init(){
+  $("#tabbar").addEventListener("click",e=>{const t=e.target.closest(".tab");if(t)switchTab(t.dataset.tab);});
+  $("#char-search").addEventListener("input",debounce(renderCharList,160));
+  $("#action-search").addEventListener("input",debounce(renderActionList,160));
+  $("#class-search").addEventListener("input",debounce(renderClassList,160));
+  $("#refreshBtn").addEventListener("click",doRefresh);
+  $("#saveBtn").addEventListener("click",openSaveDialog);
+  $("#saveCancel").addEventListener("click",closeSaveDialog);
+  $("#saveConfirm").addEventListener("click",doSave);
+  $("#effect-add").addEventListener("click",()=>{
+    S.effects.push({name:"",category:"",magnitude_meaning:"",duration_meaning:"",notes:""});
+    markEffects();renderEffects();
+  });
+  $("#saveScrim").addEventListener("click",e=>{if(e.target.id==="saveScrim")closeSaveDialog();});
+  document.addEventListener("keydown",e=>{
+    if((e.ctrlKey||e.metaKey)&&e.key==="s"){e.preventDefault();openSaveDialog();}
+    if(e.key==="Escape")closeSaveDialog();
+  });
+  window.addEventListener("beforeunload",e=>{if(dirtyCount()>0){e.preventDefault();e.returnValue="";}});
+  // Mobile master→detail: tapping a list row reveals that pane's detail.
+  // Capture phase so we read the row BEFORE its own onclick re-renders the list.
+  document.addEventListener("click",e=>{
+    const row=e.target.closest&&e.target.closest(".list-pane .row");
+    if(!row)return;
+    const sp=row.closest(".split");
+    if(!sp)return;
+    $$(".split").forEach(s=>s.classList.remove("show-detail"));
+    sp.classList.add("show-detail");
+    document.body.classList.add("in-detail");
+  },true);
+  $("#mobileBack").addEventListener("click",mobileBackToList);
+  boot();
+}
+document.addEventListener("DOMContentLoaded",init);
+</script>
+
+<!-- ─────────────────────────────────────────────────────────────────────
+     Supabase data layer (2026-06-15). Ports this editor from its FastAPI
+     backend (/api/*, save-via-PR) to supabase-js, so it runs as a static
+     site on GitHub Pages. The UI + state model above are untouched — this
+     only swaps the load / save / refresh / art seams and adds a Supabase
+     Auth gate. Top-level `function` decls are global-object properties, so
+     reassigning window.boot/doSave/etc. here (before DOMContentLoaded) is
+     what init()'s wiring + the bare calls then pick up.
+     ───────────────────────────────────────────────────────────────────── -->
+<script>
+(function(){
+  const SB_URL = "https://tnmdusfxtzgfiehclxcv.supabase.co";
+  const SB_KEY = "sb_publishable_S4wKvpWCvkj-4Bres2UZvg_1SAtb8gV"; // publishable (public by design; RLS gates writes)
+  const db = supabase.createClient(SB_URL, SB_KEY);
+  // 14 playstyles — a sibling key of classes.json, not stored in Supabase.
+  const PLAYSTYLES = ["BALANCED","BRAWLER","MARKSMAN","TANK","HEALER","AMPLIFIER","CORRUPTOR",
+    "CONTROLLER","STEALTH","SUMMONER","LONER","FLUX","RECKLESS","SPECIALIST"];
+
+  async function fetchAll(table){
+    let out=[], from=0; const page=1000;
+    for(;;){
+      const {data,error}=await db.from(table).select("*").range(from, from+page-1);
+      if(error) throw new Error(table+": "+error.message);
+      out=out.concat(data||[]);
+      if(!data || data.length<page) break;
+      from+=page;
+    }
+    return out;
+  }
+
+  // Rebuild the exact payload shape the editor's ingest() expects, from the
+  // 7 Supabase tables (+ client-side enums, mirroring app.py build_enums).
+  async function loadFromSupabase(){
+    const [chars,acts,cls,eff,typ,aoe,tm] = await Promise.all(
+      ["characters","actions","classes","effects","types","aoe_patterns","type_matrix"].map(fetchAll));
+    const characters=chars.map(r=>r.data), actions=acts.map(r=>r.data),
+          classesArr=cls.map(r=>r.data), effects=eff.map(r=>r.data),
+          aoePatterns=aoe.map(r=>r.data), typesArr=typ.map(r=>r.data);
+    const type_matrix={}; tm.forEach(r=>{type_matrix[r.attacker+":"+r.defender]=r.multiplier;});
+    const enums={
+      types:typesArr.map(t=>t.type_name).sort(),
+      classes:classesArr.map(c=>c.class_name).sort(),
+      aoe_patterns:aoePatterns.map(p=>p.name),
+      effects:effects.map(e=>e.name),
+      action_ids:actions.map(a=>a.id).filter(Boolean).sort(),
+      tiers:["hero","lieutenant","minion"],
+      damage_types:[{value:0,label:"Normal"},{value:1,label:"Special"},{value:2,label:"Hybrid"}],
+      synergy_stats:["Attack","Defense","Special Attack","Special Defense","Dodge","Crit Chance","Crit Bonus","Health","Regen","Speed"],
+      stat_fields:["health","regen","attack","defense","special_attack","special_defense","speed","dodge","crit_chance","crit_bonus"],
+      char_action_slots:["standard_attack","type_attack","class_action"].concat(Array.from({length:15},(_,i)=>"unique_action_"+(i+1))),
+      action_categories:["","anchor","standard","core","mastery"],
+      playstyles:PLAYSTYLES.slice().sort(),
+    };
+    return {characters,actions,classes:{classes:classesArr,playstyles:PLAYSTYLES.slice()},
+      effects,type_matrix,aoe_patterns:aoePatterns,enums,
+      main_branch:"supabase",edit_branch:"supabase",pr:{}};
+  }
+
+  // Extracted columns mirror tools/supabase/load_supabase.py exactly.
+  const charRow  = d=>({id:String(d.id),name:d.name,class:d.class_name_char,type_1:d.type_1,type_2:d.type_2,data:d});
+  const actionRow= d=>({id:String(d.id),name:d.name,damage_type:d.damage_type,energy_cost:parseInt(d.energy_cost||0)||0,data:d});
+
+  async function saveToSupabase(){
+    if(dirtyCount()===0){toast("Nothing to save","No changes yet.","warn");return;}
+    loading(true,"SAVING");
+    try{
+      const cRows=[...S.dirtyChars].map(id=>S.charById[String(id)]).filter(Boolean).map(charRow);
+      if(cRows.length){const{error}=await db.from("characters").upsert(cRows,{onConflict:"id"});if(error)throw error;}
+      const aRows=[...S.dirtyActions].map(id=>S.actionById[String(id)]).filter(Boolean).map(actionRow);
+      if(aRows.length){const{error}=await db.from("actions").upsert(aRows,{onConflict:"id"});if(error)throw error;}
+      if(S.classesDirty){
+        const rows=(S.classes.classes||[]).filter(c=>c&&c.class_name).map(c=>({class_name:c.class_name,data:c}));
+        if(rows.length){const{error}=await db.from("classes").upsert(rows,{onConflict:"class_name"});if(error)throw error;}
+      }
+      if(S.effectsDirty){
+        const rows=(S.effects||[]).filter(e=>e&&e.name).map(e=>({name:e.name,category:e.category,data:e}));
+        if(rows.length){const{error}=await db.from("effects").upsert(rows,{onConflict:"name"});if(error)throw error;}
+      }
+      if(S.matrixDirty){
+        const rows=Object.entries(S.typeMatrix).map(([k,v])=>{const p=k.split(":");return{attacker:p[0],defender:p[1],multiplier:Number(v)};});
+        if(rows.length){const{error}=await db.from("type_matrix").upsert(rows,{onConflict:"attacker,defender"});if(error)throw error;}
+      }
+      loading(false);
+      S.dirtyChars.clear();S.dirtyActions.clear();S.classesDirty=S.effectsDirty=S.matrixDirty=false;
+      syncDirty();renderActiveTabLists();
+      toast("Saved to Supabase",'Edits are live. Run the GitHub Action ("Publish data from Supabase") to write them into the game’s data files.',"ok",9000);
+    }catch(e){loading(false);toast("Save failed",esc(e.message||String(e)),"err",0);}
+  }
+
+  async function realBoot(){
+    loading(true,"LOADING DATA");
+    try{
+      const d=await loadFromSupabase(); loading(false);
+      ingest(d); renderAll();
+      toast("Data loaded",S.characters.length+" characters · "+S.actions.length+" actions · "+((S.classes.classes||[]).length)+" classes","ok",3000);
+    }catch(e){loading(false);toast("Failed to load",esc(e.message||String(e)),"err",0);}
+  }
+
+  function showLogin(){
+    if(document.getElementById("sbLogin"))return;
+    const I=(ph,type)=>el("input",{type:type,placeholder:ph,style:"padding:10px;border-radius:8px;border:1px solid #313742;background:#0e1015;color:#e9e7e0;font:inherit"});
+    const email=I("email","email"), pass=I("password","password");
+    const msg=el("div",{style:"color:#e06a6a;font-size:13px;min-height:16px"});
+    const btn=el("button",{class:"btn primary",style:"min-height:42px"},"Sign in");
+    const go=async()=>{msg.textContent="Signing in…";
+      const{error}=await db.auth.signInWithPassword({email:email.value.trim(),password:pass.value});
+      if(error){msg.textContent=error.message;return;}
+      const ov=document.getElementById("sbLogin"); if(ov)ov.remove(); realBoot();};
+    btn.addEventListener("click",go); pass.addEventListener("keydown",e=>{if(e.key==="Enter")go();});
+    const card=el("div",{style:"width:340px;max-width:90vw;background:#1d2027;border:1px solid #313742;border-radius:12px;padding:24px;display:grid;gap:12px;box-shadow:0 16px 48px rgba(0,0,0,.55)"},
+      el("div",{style:"font-size:19px;font-weight:700;color:#d8b65a"},"Phalanx Data Editor"),
+      el("div",{style:"color:#989ea9;font-size:13px"},"Sign in to edit (Supabase Auth)."),
+      email,pass,btn,msg);
+    document.body.append(el("div",{id:"sbLogin",style:"position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(8,9,12,.93)"},card));
+  }
+
+  // ── swap the FastAPI seams (function decls are global-object props) ──
+  window.boot=async function(){const{data:{session}}=await db.auth.getSession();if(session)realBoot();else showLogin();};
+  window.doSave=saveToSupabase;
+  window.openSaveDialog=saveToSupabase;      // Save button → direct upsert (no PR dialog)
+  window.doRefresh=async function(){
+    if(dirtyCount()>0&&!confirm("Discard "+dirtyCount()+" unsaved change(s) and reload from Supabase?"))return;
+    realBoot();
+  };
+  // Card art is in the game repo, not Supabase → graceful note (no /api/art).
+  window.renderArt=function(c){return el("div",{class:"note",style:"padding:8px 2px;color:#989ea9"},
+    "Card art lives in the game repo (assets/cards/"+esc(String(c.id))+".png), not in Supabase — not shown here.");};
+
+  // ── header: drop the PR / branch chrome ──
+  const _rh=window.renderHeader;
+  window.renderHeader=function(){try{_rh();}catch(e){}
+    const bi=document.getElementById("branchInfo");if(bi)bi.textContent="Supabase · live";
+    const chip=document.getElementById("prChip");if(chip)chip.style.display="none";
+    const rb=document.getElementById("refreshBtn");if(rb)rb.textContent="⟳ Reload";
+    const sb=document.getElementById("saveBtn");if(sb&&sb.firstChild&&sb.firstChild.nodeType===3)sb.firstChild.nodeValue="Save to Supabase ";
+  };
+})();
+</script>
 </body>
 </html>

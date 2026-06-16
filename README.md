@@ -1,19 +1,34 @@
 # Phalanx Data Editor
 
-Static web editor for the Phalanx game data in Supabase — hosted here on GitHub
-Pages so it can be used from any device. No build step, no secrets: it talks to
-Supabase directly via the **publishable** (anon) key in `config.js`, protected by
-Row-Level Security (anyone may read; only signed-in users may write).
+A single-file static web editor for the Phalanx game data in Supabase — hosted on
+GitHub Pages (the `phalanx-editor` public repo), usable from any device.
+
+`index.html` is **the whole app**: it's the friend's polished editor UI (from PR #2,
+~1550 lines, vanilla JS — per-table views, search, tier filters, dirty-change
+tracking, dropdowns from real enums) with its data layer **ported from the
+original FastAPI backend to supabase-js**. No build step, no server, no secrets
+beyond the **publishable** (anon) key, which is public by design — Row-Level
+Security gates writes (anyone reads; only signed-in users write).
+
+## How the port works
+The bottom `<script>` in `index.html` overrides the FastAPI seams the original
+UI used, leaving the UI + state model untouched:
+- `boot` → Supabase Auth gate, then `loadFromSupabase()` (queries the 7 tables,
+  rebuilds the exact payload `ingest()` expects + builds the enums client-side).
+- `doSave`/`openSaveDialog` → upsert the dirty records straight to Supabase
+  (extracted columns mirror `tools/supabase/load_supabase.py`).
+- `doRefresh` → reload from Supabase. `renderArt` → a note (art lives in the game
+  repo, not Supabase). The PR/branch header chrome is dropped.
 
 ## Use
 Open the Pages URL, sign in with a Supabase Auth user (dashboard → Authentication
-→ Users), pick a table, edit, Save.
+→ Users → Add user, Auto Confirm), edit, **Save to Supabase**. Then run the
+**Publish data from Supabase** GitHub Action (in the game repo) to write the edits
+into `data/*.json` for the game.
 
-## Host (GitHub Pages)
-Settings → Pages → Build and deployment → **Deploy from a branch** → `main` → `/ (root)`.
-
-## Backend
-The schema, data loader, publish-back script, and the "publish to game" GitHub
-Action live in the main (private) game repo under `tools/supabase/`. This repo is
-only the hosted editor UI; updates are copied from the game repo's
-`tools/data-editor/`.
+## Backend / publish
+Schema, loader, publish-back script, and the publish Action live in the main
+(private) game repo under `tools/supabase/`. This `tools/data-editor/` folder is
+the canonical copy of the editor; it's mirrored into the public `phalanx-editor`
+repo (which GitHub Pages serves). When `index.html` changes here, copy it there
+and push.
