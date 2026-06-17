@@ -795,8 +795,17 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
   .slot{grid-template-columns:1fr 1fr;gap:8px}
   .slot select,.slot input{height:40px;font-size:15px}
   .slotgrid{grid-template-columns:1fr}
-  .slotcard .sc-head{min-height:44px;padding:7px 10px}
-  .slotcard .sc-name{font-size:15px}
+  /* collapsed slot card → TWO lines: name (≥12 chars) + buttons on line 1;
+     full meta (×mod · pattern · Size · Range · effect1 · effect2) wraps on line 2 */
+  .slotcard .sc-head{min-height:44px;padding:6px 10px;flex-wrap:wrap;align-items:center;row-gap:2px}
+  .slotcard .sc-headmain{flex-wrap:wrap;align-items:center;row-gap:2px}
+  .slotcard .sc-slot{min-width:0;max-width:84px;flex:0 0 auto;font-size:9.5px}
+  .slotcard .sc-name{flex:1 1 auto;min-width:12ch;font-size:14.5px}
+  .slotcard .sc-meta{flex:1 1 100%;order:9;white-space:normal;line-height:1.35;font-size:11px;color:var(--ink-2)}
+  /* un-clamp the 2-col character slots' collapsed meta so it wraps too */
+  .slotgrid>.slotcard:not(.expanded) .sc-head{overflow:visible}
+  .slotgrid>.slotcard:not(.expanded) .sc-name{min-width:12ch;overflow:hidden;text-overflow:ellipsis}
+  .slotgrid>.slotcard:not(.expanded) .sc-meta{overflow:visible;flex:1 1 100%;min-width:0}
 
   /* matrix dropdown → bottom sheet (full-width, anchored to viewport bottom) */
   .mdd .mdd-btn{height:44px;font-size:15px;padding-right:28px}
@@ -1760,6 +1769,20 @@ function EffectBlock({label, ef, effectRows, knownEffects, onChange, ownerKey, e
    COLLAPSIBLE ACTION SLOT (Characters + Classes)
    collapsed = AoE thumbnail + name ; expanded = full action editor
    ════════════════════════════════════════════════════════════════════ */
+/* Collapsed-row meta line: damage modifier · pattern · Size · Range · effect1 · effect2.
+   Shared by every collapsed slot card so mobile shows the same dense summary. */
+function slotMeta(act){
+  if(!act) return "";
+  const bits=[];
+  if(act.damage_modifier!=null && act.damage_modifier!=="") bits.push("×"+act.damage_modifier);
+  bits.push(act.aoe_pattern||"?");
+  bits.push("Size "+(act.aoe_size!=null?act.aoe_size:"?"));
+  bits.push("Range "+(act.aoe_range!=null?act.aoe_range:"?"));
+  const en=actionEffectNames(act)||[];
+  for(const e of en) bits.push(e);
+  return bits.join(" · ");
+}
+
 function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEffects, summonOptions, charById, tm, caster,
                    onPick, onClear, onActionChange, onFork, usageCount, defaultOpen, effectByName}){
   const [open,setOpen]=useState(!!defaultOpen);
@@ -1777,7 +1800,7 @@ function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEf
       <${AoeThumb} pattern=${act?act.aoe_pattern:null} size=${act?act.aoe_size:null} range=${act?act.aoe_range:null} />
       <span class="sc-slot">${slotLabel}</span>
       <span class="sc-name">${act?(act.name||cur):(cur?html`<span class="unknown">⚠ ${cur} (unknown)</span>`:html`<span style="color:var(--ink-3);font-weight:500">— empty —</span>`)}</span>
-      ${act?html`<span class="sc-meta">${act.aoe_pattern||"?"} · Size: ${act.aoe_size} · Range: ${act.aoe_range}${est?` · ~${est.dmg}`:""}${effNames.length?" · "+effNames.join(" · "):""}</span>`:null}
+      ${act?html`<span class="sc-meta">${slotMeta(act)}</span>`:null}
       <span class="sc-caret">${open?"▾":"▸"}</span>
     </div>
     ${open?html`<div class="sc-body">
@@ -2398,10 +2421,10 @@ function ClassSlotCard({slug, index, total, actionById, data, effectRows, knownE
   const effNames = actionEffectNames(act);                              // R3.5
   return html`<div class=${"slotcard"+(act?" filled":"")+(open?" expanded":"")}>
     <div class="sc-head" title=${actionSummaryText(act)}>
-      <span style="cursor:pointer;display:flex;align-items:center;gap:10px;flex:1;min-width:0" onClick=${()=>setOpen(o=>!o)}>
+      <span class="sc-headmain" style="cursor:pointer;display:flex;align-items:center;gap:10px;flex:1;min-width:0" onClick=${()=>setOpen(o=>!o)}>
         <${AoeThumb} pattern=${act?act.aoe_pattern:null} size=${act?act.aoe_size:null} range=${act?act.aoe_range:null} />
         <span class="sc-name">${act?(act.name||slug):html`<span class="unknown">⚠ ${slug} (unknown)</span>`}</span>
-        ${act?html`<span class="sc-meta">${act.aoe_pattern} · Size: ${act.aoe_size} · Range: ${act.aoe_range}${effNames.length?" · "+effNames.join(" · "):""}</span>`:null}
+        ${act?html`<span class="sc-meta">${slotMeta(act)}</span>`:null}
       </span>
       <button class="mini" disabled=${index===0} title="Up" onClick=${onUp}>↑</button>
       <button class="mini" disabled=${index===total-1} title="Down" onClick=${onDown}>↓</button>
@@ -2734,7 +2757,7 @@ function TypeSlotCard({type, data, actionById, effectRows, knownEffects, effectB
       <${AoeThumb} pattern=${act?act.aoe_pattern:null} size=${act?act.aoe_size:null} range=${act?act.aoe_range:null} />
       <span class="sc-slot">type_attack</span>
       <span class="sc-name">${act?(act.name||slug):(slug?html`<span class="unknown">⚠ ${slug} (unknown)</span>`:html`<span style="color:var(--ink-3);font-weight:500">— none —</span>`)}</span>
-      ${act?html`<span class="sc-meta">${act.aoe_pattern||"?"} · Size: ${act.aoe_size} · Range: ${act.aoe_range}${effNames.length?" · "+effNames.join(" · "):""}</span>`:null}
+      ${act?html`<span class="sc-meta">${slotMeta(act)}</span>`:null}
       <span class="sc-caret">${open?"▾":"▸"}</span>
     </div>
     ${open?html`<div class="sc-body">
