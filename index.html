@@ -721,17 +721,125 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
 .stat-step:hover{border-color:var(--accent-2);color:var(--accent)}
 .stat-step:active{transform:translateY(1px)}
 
+/* base: mobile-only chrome is hidden on desktop (shown in the media query) */
+.mobile-backbar{display:none}
+.save-fab{display:none}
+
+/* ════════════════════════════════════════════════════════════════════
+   MOBILE / RESPONSIVE PASS (2026-06-17) — tablet ≤760, phone ≤480.
+   Master/detail: on mobile show the list OR the detail (toggled by the
+   `mobile-detail` body class set in App), never both stacked. Inputs use
+   16px font so iOS doesn't auto-zoom on focus; controls get 44px taps.
+   Desktop is untouched (everything here is media-scoped or hidden above).
+   ════════════════════════════════════════════════════════════════════ */
 @media (max-width:760px){
-  .topbar{position:static;height:auto;flex-wrap:wrap;gap:8px 10px;padding:9px 12px}
+  body{font-size:14px}
+
+  /* —— top chrome —— */
+  .topbar{position:static;height:auto;flex-wrap:wrap;gap:8px;padding:8px 10px}
   .topbar .spacer{display:none}
-  .tabbar{position:static;height:auto;overflow-x:auto;white-space:nowrap;padding:0 8px}
-  .tab{flex:none}
-  .view{height:auto;min-height:60vh}
+  .brand h1,.brand .sub{display:none}
+  .cmdk-btn{display:none}                       /* no keyboard shortcut on mobile */
+  .topbar .btn{height:40px}
+  .topbar .btn.ghost{padding:0 12px;font-size:16px}
+  .topbar .btn.primary{margin-left:auto}        /* keep Save at the right edge */
+
+  /* tabbar: sticky primary nav, horizontal scroll, bigger taps */
+  .tabbar{position:sticky;top:0;z-index:40;height:auto;overflow-x:auto;
+    white-space:nowrap;padding:0 6px;-webkit-overflow-scrolling:touch}
+  .tab{flex:none;padding:12px 14px;font-size:13.5px}
+
+  /* back-bar takes the tabbar's place while inside a record */
+  body.mobile-detail .tabbar{display:none}
+  .mobile-backbar{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:42;
+    padding:8px 12px;background:var(--bg-2);border-bottom:1px solid var(--line-2)}
+  .mobile-backbar .mb-back{display:inline-flex;align-items:center;gap:7px;height:40px;padding:0 14px;
+    border:1px solid var(--line-2);border-radius:9px;background:var(--panel-2);color:var(--accent);
+    font-size:14.5px;font-weight:700;cursor:pointer;flex:none}
+  .mobile-backbar .mb-id{font-family:var(--mono);font-size:12px;color:var(--ink-3);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* —— master/detail layout —— */
+  .view{height:auto;min-height:50vh}
   .split,.split.wide{grid-template-columns:1fr;height:auto}
-  .list-pane{border-right:none}
+  .list-pane{border-right:none;min-height:0}
+  .list-head{position:static}
+  .list-scroll{overflow:visible}
+  .detail-pane{overflow:visible}
+  .detail-head{position:static;padding:12px 14px}
+  body:not(.mobile-detail) .split .detail-pane{display:none}
+  body.mobile-detail .split .list-pane{display:none}
+
+  /* roomier list rows */
+  .row{padding:12px 14px}
+  .row.row-one{padding:11px 12px}
+
+  /* —— forms —— */
+  .detail-body{padding:14px 14px 96px;max-width:none}
+  .full-pane{padding:14px 14px 96px}
+  .group{margin-bottom:18px}
   .grid.cols-2,.grid.cols-3,.grid.cols-4,.grid.cols-5{grid-template-columns:1fr 1fr}
-  .slot{grid-template-columns:1fr 1fr}
-  .mdd-pop{min-width:max(100%,90vw)}
+
+  /* tap targets + STOP iOS focus-zoom (needs ≥16px font on the control) */
+  input[type=text],input[type=number],select,textarea{height:44px;font-size:16px}
+  textarea{height:auto;min-height:80px}
+  .btn{height:40px;font-size:14px}
+  .toggle{padding:11px 14px;font-size:14px}
+  .pill{padding:7px 13px;font-size:13px}
+  .add-row{padding:10px 14px;font-size:13px}
+  .mini{width:34px;height:34px;font-size:15px}
+  .stat-step{width:36px;font-size:18px}
+  .rep-del{width:40px;height:44px}
+
+  /* slot rows + collapsible slot cards */
+  .slot{grid-template-columns:1fr 1fr;gap:8px}
+  .slot select,.slot input{height:40px;font-size:15px}
+  .slotgrid{grid-template-columns:1fr}
+  .slotcard .sc-head{min-height:44px;padding:7px 10px}
+  .slotcard .sc-name{font-size:15px}
+
+  /* matrix dropdown → bottom sheet (full-width, anchored to viewport bottom) */
+  .mdd .mdd-btn{height:44px;font-size:15px;padding-right:28px}
+  .mdd .mdd-btn:after{top:19px}
+  .mdd-pop,.mdd-pop.stat,.mdd-pop.modmtx{position:fixed;left:0;right:0;bottom:0;top:auto;
+    min-width:0;width:100%;max-height:62vh;border-radius:14px 14px 0 0;z-index:130;
+    box-shadow:0 -16px 50px rgba(0,0,0,.6)}
+  .mdd-pop.up{top:auto;bottom:0}
+  .mdd-grp .mdd-opts{flex-wrap:wrap;overflow-x:visible}
+  .mdd-opt{font-size:13px;padding:7px 12px}
+  .mdd-search{height:42px;font-size:16px}
+
+  /* tables: touch sizing (the wrappers already scroll-x) */
+  table input{height:38px;font-size:15px}
+  .tm-cell{width:48px;height:38px;font-size:13px}
+  table.chartable tbody td{padding:8px 9px}
+  table.chartable thead th{padding:9px 9px}
+
+  /* balance lab — full-width controls */
+  .bl .blfield{flex:1 1 130px}
+  .bl .blfield input,.bl .blfield select{width:100%}
+
+  /* card-art block stacks */
+  .art-block{flex-direction:column}
+  .art-frame{margin:0 auto}
+
+  /* toasts span the width + sit above the Save FAB */
+  .toast-wrap{left:12px;right:12px;bottom:74px;align-items:stretch}
+  .toast{min-width:0;max-width:none}
+
+  /* floating Save (the topbar Save scrolls away) */
+  .save-fab{display:inline-flex;position:fixed;right:14px;bottom:14px;z-index:120;cursor:pointer;
+    align-items:center;gap:8px;height:50px;padding:0 20px;border-radius:99px;border:none;
+    background:linear-gradient(180deg,var(--accent),var(--accent-2));color:#04201d;font-weight:800;font-size:15px;
+    box-shadow:0 12px 32px rgba(0,0,0,.5)}
+  .save-fab .count{font-family:var(--mono);background:rgba(4,32,29,.35);padding:1px 8px;border-radius:99px;font-size:13px}
+}
+
+/* phones: collapse multi-column forms to one column */
+@media (max-width:480px){
+  .grid.cols-2,.grid.cols-3,.grid.cols-4,.grid.cols-5{grid-template-columns:1fr}
+  .slot{grid-template-columns:1fr}
+  .detail-head .title{font-size:16px}
 }
 </style>
 </head>
@@ -1224,6 +1332,20 @@ function lintCharacter(c){
    ════════════════════════════════════════════════════════════════════ */
 const DRAFT_KEY = "phalanx_editor_v2_draft";
 
+/* matchMedia hook — re-renders when the viewport crosses the breakpoint */
+function useMedia(query){
+  const get=()=> (typeof window!=="undefined" && window.matchMedia) ? window.matchMedia(query).matches : false;
+  const [m,setM]=useState(get);
+  useEffect(()=>{
+    if(!window.matchMedia) return;
+    const mq=window.matchMedia(query);
+    const on=()=>setM(mq.matches); on();
+    try{ mq.addEventListener("change",on); }catch(e){ mq.addListener(on); }
+    return ()=>{ try{ mq.removeEventListener("change",on); }catch(e){ mq.removeListener(on); } };
+  },[query]);
+  return m;
+}
+
 function App(){
   const [session,setSession]=useState(undefined);  // undefined=unknown, null=signed out, obj=in
   const [loading,setLoading]=useState(false);
@@ -1455,6 +1577,18 @@ function App(){
     setCmdk(false);
   },[]);
 
+  /* ── mobile master/detail: show the LIST or the DETAIL, never both ── */
+  const isMobile = useMedia("(max-width:760px)");
+  const MDETAIL_KEY = {characters:"character",classes:"class",actions:"action",types:"type"};
+  const detailKey = MDETAIL_KEY[tab] || null;
+  const detailSel = detailKey ? sel[detailKey] : null;
+  const inMobileDetail = !!(isMobile && detailKey && detailSel!=null);
+  useEffect(()=>{
+    document.body.classList.toggle("mobile-detail", inMobileDetail);
+    if(inMobileDetail) window.scrollTo(0,0);
+    return ()=>document.body.classList.remove("mobile-detail");
+  },[inMobileDetail]);
+
   /* ── render ── */
   if(session===undefined) return html`<div class="loading-shade"><span class="spinner"></span>STARTING…</div>`;
   if(session===null) return html`<${Login} db=${db} />`;
@@ -1477,7 +1611,7 @@ function App(){
         <span class="sub">v2 · Supabase · live</span>
       </div>
       <div class="spacer"></div>
-      <button class="btn ghost" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
+      <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
       <button class="btn ghost" disabled=${!undoStack.length} title="Undo (Ctrl-Z)" onClick=${undo}>↶</button>
       <button class="btn ghost" disabled=${!redoStack.length} title="Redo (Ctrl-Y)" onClick=${redo}>↷</button>
       <button class="btn ghost" onClick=${()=>{
@@ -1496,6 +1630,11 @@ function App(){
       </button>`)}
     </div>
 
+    ${inMobileDetail ? html`<div class="mobile-backbar">
+      <button class="mb-back" onClick=${()=>setSel(s=>({...s,[detailKey]:null}))}>‹ ${(tabs.find(t=>t.id===tab)||{}).label||"Back"}</button>
+      <span class="mb-id">${String(detailSel)}</span>
+    </div>` : null}
+
     ${!data ? html`<div class="loading-shade"><span class="spinner"></span>LOADING…</div>` : html`
       <${ErrorBoundary} resetKey=${tab}>
         ${tab==="characters" && html`<${CharactersTab} ...${{data,enums,charById,actionById,usageIdx,summonOptions,commitEdit,sel,setSel,toast}} />`}
@@ -1511,6 +1650,7 @@ function App(){
     ${loading?html`<div class="loading-shade"><span class="spinner"></span>WORKING…</div>`:null}
     ${saveDlg?html`<${SaveDialog} data=${data} dirty=${dirty} onCancel=${()=>setSaveDlg(false)} onConfirm=${doSave} />`:null}
     ${cmdk?html`<${CommandPalette} data=${data} onJump=${jumpTo} onClose=${()=>setCmdk(false)} />`:null}
+    ${isMobile && dirtyCount>0 ? html`<button class="save-fab" onClick=${()=>setSaveDlg(true)}>Save <span class="count">${dirtyCount}</span></button>` : null}
 
     <div class="toast-wrap">
       ${toasts.map(t=>html`<div class=${"toast "+(t.kind==="ok"?"":t.kind)} key=${t.id}>
