@@ -978,6 +978,15 @@ const DMG_MOD_ROWS = [
 ];
 const DMG_MOD_SET = new Set(DMG_MOD_ROWS.flatMap(r=>r.names));
 
+const COOLDOWN_ROWS = [
+  {label:"none", names:["0"]},
+  {label:"1 – 5", names:["1","2","3","4","5"]},
+  {label:"6 – 10", names:["6","7","8","9","10"]},
+  {label:"11 – 15", names:["11","12","13","14","15"]},
+  {label:"16 – 20", names:["16","17","18","19","20"]},
+];
+const COOLDOWN_SET = new Set(COOLDOWN_ROWS.flatMap(r=>r.names));
+
 /* Effect magnitude / duration dropdowns (spec §Shared dropdown rules). */
 function magnitudeOptions(effect){
   if(effect==="Root"||effect==="Stun") return [0];
@@ -1892,8 +1901,12 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
         <${Field} label="Energy cost">
           <${NumSelect} value=${action.energy_cost} options=${[1,2]} onInput=${v=>set("energy_cost",v)} />
         </${Field}>
-        <${Field} label="Cooldown (rounds)" hint="0 = no cooldown · core 1-3 · mastery long">
-          <${NumInput} int=${true} min=${0} value=${action.cooldown_rounds==null?0:action.cooldown_rounds} onInput=${v=>set("cooldown_rounds",intOf(v,0))} />
+        <${Field} label="Cooldown (rounds)" hint="0 = none · core 1-3 · mastery long">
+          <${MatrixDropdown} numeric=${true} noClear=${true} popClass="modmtx"
+            value=${action.cooldown_rounds==null?"0":String(action.cooldown_rounds)} rows=${COOLDOWN_ROWS}
+            knownSet=${COOLDOWN_SET} placeholder="0"
+            displayFn=${v=>(+Number(v)).toString()}
+            onInput=${v=>set("cooldown_rounds",intOf(v,0))} />
         </${Field}>
         <${Field} label="Trap tick">
           <${Select} value=${action.trap_tick} options=${TRAP_TICKS} onInput=${v=>set("trap_tick",intOf(v,2))} />
