@@ -1448,6 +1448,8 @@ function App(){
   },[data]);
 
   const dirtyCount = dirty.chars.size + dirty.actions.size + (dirty.classes?1:0) + (dirty.effects?1:0) + (dirty.matrix?1:0) + (dirty.types?1:0);
+  /* always-current snapshot so unload/hidden flush handlers never use stale closures */
+  const liveRef = useRef(); liveRef.current = { data, dirty, dirtyCount };
 
   /* ── mutation helper: snapshot for undo, mutate working copy in place, bump dirty ── */
   const commitEdit = useCallback((mutate, dirtyPatch)=>{
@@ -1480,8 +1482,10 @@ function App(){
     });
   },[data,dirty]);
 
-  /* ── autosave draft to localStorage (debounced) ── */
-  const saveDraft=useMemo(()=>debounce((d,dy)=>{
+  /* ── autosave draft to localStorage ── */
+  /* synchronous writer: persists every dirty record's current value right now */
+  const writeDraft=useCallback((d,dy)=>{
+    if(!d||!dy) return;
     try{
       localStorage.setItem(DRAFT_KEY, JSON.stringify({
         ts:Date.now(),
@@ -1493,10 +1497,22 @@ function App(){
         types: dy.types? d.types : null,
       }));
     }catch(e){}
-  },600),[]);
+  },[]);
+  /* debounced during active typing (short, so a quick tab-switch can't outrun it) */
+  const saveDraft=useMemo(()=>debounce((d,dy)=>writeDraft(d,dy),250),[writeDraft]);
   useEffect(()=>{ if(data && dirtyCount>0) saveDraft(data,dirty); },[data,dirty]);
+  /* flush IMMEDIATELY the moment the tab is hidden or unloaded — browsers can
+     discard a backgrounded tab, which would otherwise drop in-memory edits */
+  useEffect(()=>{
+    const flush=()=>{ const s=liveRef.current; if(s && s.dirtyCount>0) writeDraft(s.data,s.dirty); };
+    const onVis=()=>{ if(document.visibilityState==="hidden") flush(); };
+    document.addEventListener("visibilitychange",onVis);
+    window.addEventListener("pagehide",flush);
+    return ()=>{ document.removeEventListener("visibilitychange",onVis); window.removeEventListener("pagehide",flush); };
+  },[writeDraft]);
 
-  /* offer to restore draft once data is loaded */
+  /* AUTO-restore any unsaved draft the moment data finishes loading, so edits
+     survive a tab discard / accidental reload with zero user action */
   useEffect(()=>{
     if(!data || draftedRef.current) return;
     draftedRef.current=true;
@@ -1505,27 +1521,25 @@ function App(){
     let d; try{ d=JSON.parse(raw); }catch(e){ return; }
     const n=(d.chars?.length||0)+(d.actions?.length||0)+(d.classes?1:0)+(d.effects?1:0)+(d.matrix?1:0)+(d.types?1:0);
     if(!n) return;
-    const restore=()=>{
-      setData(prev=>{
-        const next=clone(prev);
-        (d.chars||[]).forEach(c=>{ const i=next.characters.findIndex(x=>String(x.id)===String(c.id)); if(i>=0) next.characters[i]=c; });
-        (d.actions||[]).forEach(a=>{ const i=next.actions.findIndex(x=>String(x.id)===String(a.id)); if(i>=0) next.actions[i]=a; });
-        if(d.classes) next.classes.classes=d.classes;
-        if(d.effects) next.effects=d.effects;
-        if(d.matrix) next.type_matrix=d.matrix;
-        if(d.types) next.types=d.types;
-        return next;
-      });
-      setDirty({
-        chars:new Set((d.chars||[]).map(c=>String(c.id))),
-        actions:new Set((d.actions||[]).map(a=>String(a.id))),
-        classes:!!d.classes, effects:!!d.effects, matrix:!!d.matrix, types:!!d.types,
-      });
-      toast("Draft restored", `Restored ${n} unsaved change(s) from your last session.`, "warn", 6000);
-    };
-    toast("Unsaved draft found",
-      html`You have local unsaved edits. <a href="#" onClick=${e=>{e.preventDefault();restore();}}>Restore</a> · <a href="#" onClick=${e=>{e.preventDefault();try{localStorage.removeItem(DRAFT_KEY);}catch(x){}}}>Discard</a>`,
-      "warn", 12000);
+    setData(prev=>{
+      const next=clone(prev);
+      (d.chars||[]).forEach(c=>{ const i=next.characters.findIndex(x=>String(x.id)===String(c.id)); if(i>=0) next.characters[i]=c; });
+      (d.actions||[]).forEach(a=>{ const i=next.actions.findIndex(x=>String(x.id)===String(a.id)); if(i>=0) next.actions[i]=a; });
+      if(d.classes) next.classes.classes=d.classes;
+      if(d.effects) next.effects=d.effects;
+      if(d.matrix) next.type_matrix=d.matrix;
+      if(d.types) next.types=d.types;
+      return next;
+    });
+    setDirty({
+      chars:new Set((d.chars||[]).map(c=>String(c.id))),
+      actions:new Set((d.actions||[]).map(a=>String(a.id))),
+      classes:!!d.classes, effects:!!d.effects, matrix:!!d.matrix, types:!!d.types,
+    });
+    const discard=()=>{ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} location.reload(); };
+    toast("Restored unsaved edits",
+      html`Brought back ${n} unsaved change(s) from your last session. <a href="#" onClick=${e=>{e.preventDefault();discard();}}>Discard them</a>`,
+      "warn", 9000);
   },[data]);
 
   /* ── save to Supabase ── */
@@ -1578,10 +1592,10 @@ function App(){
   },[dirtyCount,undo,redo]);
 
   useEffect(()=>{
-    const h=e=>{ if(dirtyCount>0){ e.preventDefault(); e.returnValue=""; } };
+    const h=e=>{ if(dirtyCount>0){ const s=liveRef.current; if(s) writeDraft(s.data,s.dirty); e.preventDefault(); e.returnValue=""; } };
     window.addEventListener("beforeunload",h);
     return ()=>window.removeEventListener("beforeunload",h);
-  },[dirtyCount]);
+  },[dirtyCount,writeDraft]);
 
   /* ── selection state per-tab (kept in App so cmd-k can jump) ── */
   const [sel,setSel]=useState({character:null,action:null,class:null});
