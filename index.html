@@ -352,6 +352,8 @@ table input:focus{background:var(--panel);border-color:var(--accent-2)}
 .mini:hover{border-color:#384850;color:var(--ink)}
 .mini:disabled{opacity:.3;cursor:not-allowed}
 .mini.del:hover{color:var(--rose);border-color:#48272d}
+.mini.move{width:auto;padding:0 6px;font-size:11px;font-weight:600}
+.mini.move:hover{color:var(--accent,#5ab);border-color:#2e5560}
 .add-slug{display:flex;gap:6px;margin-top:4px}
 .add-slug select{flex:1}
 
@@ -2402,6 +2404,20 @@ function ClassActionList({c, keyName, data, actionById, enums, effectRows, known
     }, dy=>{ dy.classes=true; dy.actions.add(newSlug); });
   };
 
+  // Move the slug at index `i` between core <-> mastery (removes from this
+  // tier's array, appends to the other). Edits both arrays in one commit.
+  const otherKey = keyName==="core_class_actions" ? "mastery_class_actions" : "core_class_actions";
+  const onMove=(i)=>commitEdit(next=>{
+    const cc=next.classes.classes.find(x=>x.class_name===selName); if(!cc) return;
+    const cur=Array.isArray(cc[keyName])?cc[keyName].slice():[];
+    const oth=Array.isArray(cc[otherKey])?cc[otherKey].slice():[];
+    const removed=cur.splice(i,1)[0];
+    if(removed!=null && !oth.includes(removed)) oth.push(removed);
+    cc[keyName]=cur; cc[otherKey]=oth;
+  }, dy=>dy.classes=true);
+  const moveLabel = keyName==="core_class_actions" ? "→M" : "→C";
+  const moveTitle = keyName==="core_class_actions" ? "Move to Mastery" : "Move to Core";
+
   return html`<div>
     ${slugs.length?html`<div class="slotgrid">${slugs.map((slug,i)=>html`<${ClassSlotCard} key=${slug+i} slug=${slug} index=${i} total=${slugs.length}
         actionById=${actionById} data=${data} effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions}
@@ -2410,6 +2426,7 @@ function ClassActionList({c, keyName, data, actionById, enums, effectRows, known
         onDown=${()=>{const a=slugs.slice();[a[i+1],a[i]]=[a[i],a[i+1]];setSlugs(a);}}
         onDel=${()=>setSlugs(slugs.filter((_,j)=>j!==i))}
         onFork=${()=>onFork(i,slug)}
+        onMove=${()=>onMove(i)} moveLabel=${moveLabel} moveTitle=${moveTitle}
         onActionChange=${onActionChange} />`)}</div>`
       :html`<p class="note">None.</p>`}
     <div class="add-slug" style="margin-top:8px">
@@ -2433,7 +2450,7 @@ function ClassActionList({c, keyName, data, actionById, enums, effectRows, known
     </div>
   </div>`;
 }
-function ClassSlotCard({slug, index, total, actionById, data, effectRows, knownEffects, summonOptions, usageCount, onUp, onDown, onDel, onFork, onActionChange}){
+function ClassSlotCard({slug, index, total, actionById, data, effectRows, knownEffects, summonOptions, usageCount, onUp, onDown, onDel, onFork, onMove, moveLabel, moveTitle, onActionChange}){
   const [open,setOpen]=useState(false);
   const act=actionById[slug];
   const uses=usageCount||0;
@@ -2449,6 +2466,7 @@ function ClassSlotCard({slug, index, total, actionById, data, effectRows, knownE
       </span>
       <button class="mini" disabled=${index===0} title="Up" onClick=${onUp}>↑</button>
       <button class="mini" disabled=${index===total-1} title="Down" onClick=${onDown}>↓</button>
+      ${onMove?html`<button class="mini move" title=${moveTitle} onClick=${onMove}>${moveLabel}</button>`:null}
       <button class="mini del" title="Remove" onClick=${onDel}>×</button>
       <span class="sc-caret" style="cursor:pointer" onClick=${()=>setOpen(o=>!o)}>${open?"▾":"▸"}</span>
     </div>
