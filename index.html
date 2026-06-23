@@ -511,12 +511,19 @@ table input:focus{background:var(--panel);border-color:var(--accent-2)}
 .bk-n{font-family:var(--mono);color:var(--ink-3);font-weight:600}
 .bk-body{display:flex;flex-wrap:wrap;gap:4px;padding:7px;align-content:flex-start;flex:1}
 .bk-empty{color:var(--ink-3);font-size:10.5px;font-style:italic;opacity:.6;align-self:center;margin:auto}
-.chip{font-size:11px;font-weight:600;color:var(--ink-2);background:var(--panel);border:1px solid var(--line-2);
+.chip{font-size:11px;font-weight:700;color:#f4f7f9;text-shadow:0 1px 2px rgba(0,0,0,.75);
+  background:var(--panel);border:1px solid rgba(0,0,0,.4);
   border-radius:5px;padding:3px 7px;cursor:grab;user-select:none;white-space:nowrap}
-.chip:hover{border-color:var(--accent-2);color:var(--ink)}
+.chip:hover{outline:2px solid var(--accent-2);outline-offset:0}
 .chip.dragging{opacity:.4}
-.chip.primary{border-color:#e9c54a;color:#f2d572;background:rgba(233,197,74,.10)}
-.primary-star{color:#e9c54a;margin-right:3px}
+.chip.primary{border:2px solid #ffe08a;box-shadow:0 0 0 1px rgba(0,0,0,.45)}
+.primary-star{color:#ffe08a;margin-right:3px;text-shadow:0 1px 2px rgba(0,0,0,.85)}
+/* playstyle legend + class-editor swatches */
+.ps-legend{display:flex;flex-wrap:wrap;gap:4px 10px;margin:2px 0 10px}
+.ps-leg{display:flex;align-items:center;gap:4px;font-size:9.5px;color:var(--ink-3);font-weight:700;letter-spacing:.02em}
+.ps-leg .sw{width:11px;height:11px;border-radius:3px;display:inline-block;border:1px solid rgba(0,0,0,.45)}
+.ps-pick{display:flex;align-items:center;gap:8px}
+.ps-swatch{width:20px;height:20px;border-radius:5px;flex:none;border:1px solid rgba(0,0,0,.45)}
 .bk-starting{--bk-accent:#e9c54a}
 .bk-trivial{--bk-accent:#5fb98a}
 .bk-easy{--bk-accent:#54c2a8}
@@ -898,8 +905,16 @@ const SB_KEY = "sb_publishable_S4wKvpWCvkj-4Bres2UZvg_1SAtb8gV"; // publishable 
 const db = createClient(SB_URL, SB_KEY);
 const TABLES = ["characters","actions","classes","effects","types","aoe_patterns","type_matrix"];
 
-const PLAYSTYLES = ["BALANCED","BRAWLER","MARKSMAN","TANK","HEALER","AMPLIFIER","CORRUPTOR",
-  "CONTROLLER","STEALTH","SUMMONER","LONER","FLUX","RECKLESS","SPECIALIST"];
+const PLAYSTYLES = ["VERSATILE","BRAWLER","MARKSMAN","TANK","HEALER","AMPLIFIER","CORRUPTOR",
+  "CONTROLLER","STEALTH","SUMMONER","DUELIST","RECKLESS","OUTLIER"];
+// distinct fill color per playstyle (used to tint draggable class chips)
+const PLAYSTYLE_COLORS = {
+  VERSATILE:"#9aa7b0", BRAWLER:"#d8634a", MARKSMAN:"#caa14a", TANK:"#4f7fb8",
+  HEALER:"#5fb98a", AMPLIFIER:"#e9c54a", CORRUPTOR:"#8a5bd0", CONTROLLER:"#46a0d8",
+  STEALTH:"#7a6473", SUMMONER:"#54c2a8", DUELIST:"#d98a4a", RECKLESS:"#d44a4a",
+  OUTLIER:"#c45ba0",
+};
+const playstyleColor = (ps)=> PLAYSTYLE_COLORS[ps] || "#3a464d";
 
 const STAT_FIELDS = ["health","regen","attack","defense","special_attack","special_defense","speed","dodge","crit_chance","crit_bonus"];
 const INT_STATS = ["health","regen","attack","defense","special_attack","special_defense","speed"];
@@ -2024,6 +2039,13 @@ function ClassBuckets({selId, data, enums, commitEdit}){
   const [over,setOver]=useState(null);
   const prog=(data.progression&&data.progression[String(selId)])||emptyProg();
 
+  // class -> {p:primary, s:secondary} playstyle, for diagonal-split chip coloring
+  const psByClass={};
+  ((data.classes&&data.classes.classes)||[]).forEach(cl=>{ psByClass[cl.class_name]={p:cl.primary_playstyle||"",s:cl.secondary_playstyle||""}; });
+  const chipBg=(cn)=>{ const x=psByClass[cn]||{}; const a=playstyleColor(x.p), b=playstyleColor(x.s||x.p);
+    return `linear-gradient(135deg, ${a} 0%, ${a} 48%, ${b} 52%, ${b} 100%)`; };
+  const psTitle=(cn)=>{ const x=psByClass[cn]||{}; return (x.p||"?")+" / "+(x.s||"?"); };
+
   const move=(cls,bucket)=>{
     if(!cls) return;
     commitEdit(next=>{
@@ -2055,7 +2077,8 @@ function ClassBuckets({selId, data, enums, commitEdit}){
           ${byBucket[b.key].map((cn,i)=>{
             const primary = b.key==="starting" && i===0;
             return html`<div class=${"chip"+(primary?" primary":"")+(drag===cn?" dragging":"")} key=${cn} draggable=${true}
-              title=${b.key==="starting" ? (primary?cn+" — primary default (shown in TeamBuilder)":cn+" — click to make primary") : cn}
+              style=${"background:"+chipBg(cn)}
+              title=${(b.key==="starting" ? (primary?cn+" — primary default (shown in TeamBuilder)":cn+" — click to make primary") : cn)+"  ·  "+psTitle(cn)}
               onClick=${b.key==="starting"&&!primary?()=>makePrimary(cn):null}
               onDragStart=${e=>{setDrag(cn);e.dataTransfer.effectAllowed="move";try{e.dataTransfer.setData("text/plain",cn);}catch(_){}}}
               onDragEnd=${()=>{setDrag(null);setOver(null);}}>
@@ -2254,7 +2277,10 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
           </${Group}>
 
           <${Group} title="Class Progression">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">Drag each class into a difficulty bucket: which classes this character can unlock and how hard. <b>Starting</b> = already unlocked (first one is the primary default; click another to promote it). <b>Locked</b> = unavailable. Everything else is the unlock cost tier. Saved to the <span class="mono">character_class_progression</span> table.</p>
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Drag each class into a difficulty bucket: which classes this character can unlock and how hard. <b>Starting</b> = already unlocked (first one is the primary default; click another to promote it). <b>Locked</b> = unavailable. Everything else is the unlock cost tier. Chip fill = the class's playstyle (primary ◤ top-left / secondary ◢ bottom-right). Saved to the <span class="mono">character_class_progression</span> table.</p>
+            <div class="ps-legend">
+              ${PLAYSTYLES.map(ps=>html`<span class="ps-leg" key=${ps}><span class="sw" style=${"background:"+playstyleColor(ps)}></span>${ps}</span>`)}
+            </div>
             <${ClassBuckets} selId=${selId} data=${data} enums=${enums} commitEdit=${commitEdit} />
           </${Group}>
 
@@ -2435,6 +2461,24 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
       ${!c?html`<${Empty} big="Select a class" sub="Pick a class to edit inherent effects and class actions." />`:html`
         <div class="detail-head"><span class="title">${c.class_name}</span><span class="spacer"></span></div>
         <div class="detail-body" style="max-width:960px">
+          <${Group} title="Playstyle">
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Primary + secondary playstyle (design lens; also colors this class's chip in each character's Class Progression). ${PLAYSTYLES.length} playstyles.</p>
+            <div class="grid cols-2">
+              <${Field} label="Primary playstyle">
+                <div class="ps-pick">
+                  <span class="ps-swatch" style=${"background:"+playstyleColor(c.primary_playstyle)}></span>
+                  <${Select} value=${c.primary_playstyle} options=${[""].concat(PLAYSTYLES)} onInput=${v=>edit(cc=>cc.primary_playstyle=v)} />
+                </div>
+              </${Field}>
+              <${Field} label="Secondary playstyle">
+                <div class="ps-pick">
+                  <span class="ps-swatch" style=${"background:"+playstyleColor(c.secondary_playstyle)}></span>
+                  <${Select} value=${c.secondary_playstyle} options=${[""].concat(PLAYSTYLES)} onInput=${v=>edit(cc=>cc.secondary_playstyle=v)} />
+                </div>
+              </${Field}>
+            </div>
+          </${Group}>
+
           <${Group} title="Inherent Class Effects">
             <p class="note" style="margin-top:-4px;margin-bottom:8px">Blank duration = permanent. 0 = instant.</p>
             <${InherentEditor} list=${c.inherent_class_effects||[]} effectRows=${effectRows} knownEffects=${knownEffects}
