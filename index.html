@@ -2010,7 +2010,7 @@ const PROG_BUCKETS=[
   {key:"brutal",    label:"Brutal",    cls:"bk-brutal"},
   {key:"locked",    label:"Locked",    cls:"bk-locked"},
 ];
-const PROG_DEFAULT_TIER="medium";
+const PROG_DEFAULT_TIER="locked"; // classes with no explicit override = unavailable (mirrors the file-level default_tier the game uses)
 const PROG_KEYS=new Set(PROG_BUCKETS.map(b=>b.key));
 const emptyProg=()=>({starting_classes:[],overrides:{}});
 function classBucket(prog, cls){
