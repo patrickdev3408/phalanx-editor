@@ -501,6 +501,32 @@ table input:focus{background:var(--panel);border-color:var(--accent-2)}
 .classtoggle:hover{color:var(--ink-2);border-color:#384850}
 .classtoggle.on{background:var(--accent-dim);border-color:var(--accent-2);color:var(--accent)}
 
+/* class-progression buckets (drag & drop) */
+.bucketwrap{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.bucket{border:1px solid var(--line-2);border-radius:8px;background:var(--bg-2);min-height:88px;display:flex;flex-direction:column;
+  border-top:3px solid var(--bk-accent,#566)}
+.bucket.over{box-shadow:0 0 0 2px var(--accent-2) inset;background:var(--panel)}
+.bk-head{display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-bottom:1px solid var(--line);
+  font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--bk-accent,var(--ink-2))}
+.bk-n{font-family:var(--mono);color:var(--ink-3);font-weight:600}
+.bk-body{display:flex;flex-wrap:wrap;gap:4px;padding:7px;align-content:flex-start;flex:1}
+.bk-empty{color:var(--ink-3);font-size:10.5px;font-style:italic;opacity:.6;align-self:center;margin:auto}
+.chip{font-size:11px;font-weight:600;color:var(--ink-2);background:var(--panel);border:1px solid var(--line-2);
+  border-radius:5px;padding:3px 7px;cursor:grab;user-select:none;white-space:nowrap}
+.chip:hover{border-color:var(--accent-2);color:var(--ink)}
+.chip.dragging{opacity:.4}
+.chip.primary{border-color:#e9c54a;color:#f2d572;background:rgba(233,197,74,.10)}
+.primary-star{color:#e9c54a;margin-right:3px}
+.bk-starting{--bk-accent:#e9c54a}
+.bk-trivial{--bk-accent:#5fb98a}
+.bk-easy{--bk-accent:#54c2a8}
+.bk-medium{--bk-accent:#46a0d8}
+.bk-hard{--bk-accent:#caa14a}
+.bk-veryhard{--bk-accent:#d98a4a}
+.bk-brutal{--bk-accent:#d8634a}
+.bk-locked{--bk-accent:#7a6473}
+@media (max-width:760px){ .bucketwrap{grid-template-columns:repeat(2,1fr)} .chip{padding:6px 9px;font-size:13px} }
+
 /* command palette */
 .cmdk-scrim{position:fixed;inset:0;background:rgba(4,7,9,.55);backdrop-filter:blur(2px);z-index:300;
   display:flex;align-items:flex-start;justify-content:center;padding-top:12vh}
@@ -1412,8 +1438,10 @@ function App(){
         }
         return out;
       };
-      const [chars,acts,cls,eff,typ,aoe,tm]=await Promise.all(TABLES.map(fetchTable));
+      const [chars,acts,cls,eff,typ,aoe,tm,prog]=await Promise.all(
+        TABLES.concat(["character_class_progression"]).map(fetchTable));
       const type_matrix={}; tm.forEach(r=>{type_matrix[r.attacker+":"+r.defender]=r.multiplier;});
+      const progression={}; prog.forEach(r=>{ if(r&&r.id!=null) progression[String(r.id)]=r.data||{starting_classes:[],overrides:{}}; });
       const next={
         characters: chars.map(r=>r.data).filter(Boolean),
         actions: acts.map(r=>r.data).filter(Boolean),
@@ -1422,6 +1450,7 @@ function App(){
         types: typ.map(r=>r.data).filter(Boolean),
         aoe_patterns: aoe.map(r=>r.data).filter(Boolean),
         type_matrix,
+        progression,
       };
       setData(next);
       setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false});
@@ -1506,6 +1535,7 @@ function App(){
         effects: dy.effects? d.effects : null,
         matrix: dy.matrix? d.type_matrix : null,
         types: dy.types? d.types : null,
+        progression: dy.chars.size? Object.fromEntries([...dy.chars].filter(id=>d.progression&&d.progression[id]).map(id=>[id,d.progression[id]])) : null,
       }));
     }catch(e){}
   },[]);
@@ -1540,6 +1570,7 @@ function App(){
       if(d.effects) next.effects=d.effects;
       if(d.matrix) next.type_matrix=d.matrix;
       if(d.types) next.types=d.types;
+      if(d.progression){ next.progression=next.progression||{}; Object.assign(next.progression,d.progression); }
       return next;
     });
     setDirty({
@@ -1562,6 +1593,10 @@ function App(){
       const cRows=[...dirty.chars].map(id=>charById[String(id)]).filter(Boolean)
         .map(d=>({id:String(d.id),name:d.name,class:d.class_name_char,type_1:d.type_1,type_2:d.type_2,data:d}));
       if(cRows.length){const{error}=await db.from("characters").upsert(cRows,{onConflict:"id"});if(error)throw error;}
+      // class progression rides on the same per-character dirty flag (a stats-only
+      // edit harmlessly re-upserts an unchanged progression row).
+      const pRows=[...dirty.chars].map(id=>{const p=(data.progression||{})[String(id)]; return p?{id:String(id),starting_classes:p.starting_classes||[],data:p}:null;}).filter(Boolean);
+      if(pRows.length){const{error}=await db.from("character_class_progression").upsert(pRows,{onConflict:"id"});if(error)throw error;}
       const aRows=[...dirty.actions].map(id=>actionById[String(id)]).filter(Boolean)
         .map(d=>({id:String(d.id),name:d.name,damage_type:d.damage_type,energy_cost:parseInt(d.energy_cost||0)||0,data:d}));
       if(aRows.length){const{error}=await db.from("actions").upsert(aRows,{onConflict:"id"});if(error)throw error;}
@@ -1964,6 +1999,74 @@ function ActionEditorInlineAdapter(props){
 /* ════════════════════════════════════════════════════════════════════
    CHARACTERS TAB
    ════════════════════════════════════════════════════════════════════ */
+/* ── per-character class progression buckets (drag & drop) ── */
+const PROG_BUCKETS=[
+  {key:"starting",  label:"Starting",  cls:"bk-starting"},
+  {key:"trivial",   label:"Trivial",   cls:"bk-trivial"},
+  {key:"easy",      label:"Easy",      cls:"bk-easy"},
+  {key:"medium",    label:"Medium",    cls:"bk-medium"},
+  {key:"hard",      label:"Hard",      cls:"bk-hard"},
+  {key:"very_hard", label:"Very Hard", cls:"bk-veryhard"},
+  {key:"brutal",    label:"Brutal",    cls:"bk-brutal"},
+  {key:"locked",    label:"Locked",    cls:"bk-locked"},
+];
+const PROG_DEFAULT_TIER="medium";
+const PROG_KEYS=new Set(PROG_BUCKETS.map(b=>b.key));
+const emptyProg=()=>({starting_classes:[],overrides:{}});
+function classBucket(prog, cls){
+  if((prog.starting_classes||[]).includes(cls)) return "starting";
+  const ov=(prog.overrides||{})[cls];
+  const tier = typeof ov==="string" ? ov : (ov&&ov.tier) ? ov.tier : null;
+  return (tier && PROG_KEYS.has(tier)) ? tier : PROG_DEFAULT_TIER;
+}
+function ClassBuckets({selId, data, enums, commitEdit}){
+  const [drag,setDrag]=useState(null);
+  const [over,setOver]=useState(null);
+  const prog=(data.progression&&data.progression[String(selId)])||emptyProg();
+
+  const move=(cls,bucket)=>{
+    if(!cls) return;
+    commitEdit(next=>{
+      next.progression=next.progression||{};
+      const p=next.progression[String(selId)]=clone(next.progression[String(selId)]||emptyProg());
+      p.starting_classes=(p.starting_classes||[]).filter(x=>x!==cls);
+      p.overrides=p.overrides||{}; delete p.overrides[cls];
+      if(bucket==="starting") p.starting_classes.push(cls);
+      else p.overrides[cls]=bucket;
+    }, dy=>dy.chars.add(String(selId)));
+  };
+  const makePrimary=(cls)=>commitEdit(next=>{
+    next.progression=next.progression||{};
+    const p=next.progression[String(selId)]=clone(next.progression[String(selId)]||emptyProg());
+    p.starting_classes=[cls].concat((p.starting_classes||[]).filter(x=>x!==cls));
+  }, dy=>dy.chars.add(String(selId)));
+
+  const byBucket={}; PROG_BUCKETS.forEach(b=>byBucket[b.key]=[]);
+  (enums.classes||[]).forEach(cn=>{ (byBucket[classBucket(prog,cn)]||byBucket.medium).push(cn); });
+
+  return html`<div class="bucketwrap">
+    ${PROG_BUCKETS.map(b=>html`
+      <div class=${"bucket "+b.cls+(over===b.key?" over":"")} key=${b.key}
+        onDragOver=${e=>{e.preventDefault();if(over!==b.key)setOver(b.key);}}
+        onDragLeave=${()=>setOver(o=>o===b.key?null:o)}
+        onDrop=${e=>{e.preventDefault();setOver(null);move(drag,b.key);setDrag(null);}}>
+        <div class="bk-head"><span class="bk-name">${b.label}</span><span class="bk-n">${byBucket[b.key].length}</span></div>
+        <div class="bk-body">
+          ${byBucket[b.key].map((cn,i)=>{
+            const primary = b.key==="starting" && i===0;
+            return html`<div class=${"chip"+(primary?" primary":"")+(drag===cn?" dragging":"")} key=${cn} draggable=${true}
+              title=${b.key==="starting" ? (primary?cn+" — primary default (shown in TeamBuilder)":cn+" — click to make primary") : cn}
+              onClick=${b.key==="starting"&&!primary?()=>makePrimary(cn):null}
+              onDragStart=${e=>{setDrag(cn);e.dataTransfer.effectAllowed="move";try{e.dataTransfer.setData("text/plain",cn);}catch(_){}}}
+              onDragEnd=${()=>{setDrag(null);setOver(null);}}>
+              ${primary?html`<span class="primary-star">★</span>`:null}${cn}</div>`;
+          })}
+          ${byBucket[b.key].length===0?html`<span class="bk-empty">drop here</span>`:null}
+        </div>
+      </div>`)}
+  </div>`;
+}
+
 function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,commitEdit,sel,setSel,toast}){
   const [q,setQ]=useState("");
   const [tier,setTier]=useState("");
@@ -2150,20 +2253,9 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
             </div>
           </${Group}>
 
-          <${Group} title="Classes (multi-select)">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">Toggle which of the 45 classes this character may be assigned. Stored in <span class="mono">eligible_classes</span>.</p>
-            <div class="classgrid">
-              ${enums.classes.map(cn=>{
-                const set=new Set(Array.isArray(c.eligible_classes)?c.eligible_classes:[]);
-                const on = set.has(cn) || cn===c.class_name_char;
-                return html`<div class=${"classtoggle"+(on?" on":"")} title=${cn}
-                  onClick=${()=>edit(cc=>{
-                    const s=new Set(Array.isArray(cc.eligible_classes)?cc.eligible_classes:[]);
-                    s.has(cn)?s.delete(cn):s.add(cn);
-                    cc.eligible_classes=[...s];
-                  })}>${cn}</div>`;
-              })}
-            </div>
+          <${Group} title="Class Progression">
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Drag each class into a difficulty bucket: which classes this character can unlock and how hard. <b>Starting</b> = already unlocked (first one is the primary default; click another to promote it). <b>Locked</b> = unavailable. Everything else is the unlock cost tier. Saved to the <span class="mono">character_class_progression</span> table.</p>
+            <${ClassBuckets} selId=${selId} data=${data} enums=${enums} commitEdit=${commitEdit} />
           </${Group}>
 
           <${Group} title=${`Type Synergies (${(c.synergies||[]).length}/4)`}>
