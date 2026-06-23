@@ -2406,6 +2406,9 @@ function SlotCardBound({slot, owner, ownerKind, data, actionById, enums, effectR
    ════════════════════════════════════════════════════════════════════ */
 function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo}){
   const [q,setQ]=useState("");
+  const [psFilter,setPsFilter]=useState("");      // playstyle to filter by
+  const [psScope,setPsScope]=useState("either");  // either | primary | secondary
+  const [sortAz,setSortAz]=useState(false);
   const effectRows = EFFECT_GROUPS.map(g=>({label:g.label,names:g.names}));
   const knownEffects=useMemo(()=>new Set(enums.effects),[enums]);
   const summonOptions=useMemo(()=>{
@@ -2430,7 +2433,17 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
     return m;
   },[data.characters]);
 
-  const list=(data.classes.classes||[]).filter(c=>!q || (c.class_name||"").toLowerCase().includes(q.toLowerCase()));
+  let list=(data.classes.classes||[]).filter(c=>{
+    if(q && !(c.class_name||"").toLowerCase().includes(q.toLowerCase())) return false;
+    if(psFilter){
+      const p=c.primary_playstyle||"", s=c.secondary_playstyle||"";
+      if(psScope==="primary" && p!==psFilter) return false;
+      else if(psScope==="secondary" && s!==psFilter) return false;
+      else if(psScope==="either" && p!==psFilter && s!==psFilter) return false;
+    }
+    return true;
+  });
+  if(sortAz) list=list.slice().sort((a,b)=>(a.class_name||"").localeCompare(b.class_name||""));
   const selName = sel.class || (list[0]&&list[0].class_name) || (data.classes.classes[0]&&data.classes.classes[0].class_name);
   const c=(data.classes.classes||[]).find(x=>x.class_name===selName);
   const clChars=classChars[selName]||{starters:[],unlockers:[]};
@@ -2447,8 +2460,16 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7f8d95" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
           <input class="search" placeholder="Search class…" value=${q} onInput=${e=>setQ(e.target.value)} />
         </div>
+        <div class="grid cols-2" style="margin-top:8px;gap:6px">
+          <${Select} value=${psFilter} options=${[{value:"",label:"Playstyle: any"}].concat(PLAYSTYLES)} onInput=${setPsFilter} />
+          <${Select} value=${psScope} options=${[{value:"either",label:"in Primary or Secondary"},{value:"primary",label:"Primary only"},{value:"secondary",label:"Secondary only"}]} onInput=${setPsScope} />
+        </div>
+        <div class="filter-row" style="margin-top:8px">
+          <button class=${"pill"+(sortAz?" on":"")} title="Sort the list alphabetically" onClick=${()=>setSortAz(v=>!v)}>A–Z</button>
+          ${(q||psFilter||sortAz)?html`<button class="pill" onClick=${()=>{setQ("");setPsFilter("");setPsScope("either");setSortAz(false);}}>clear</button>`:null}
+        </div>
       </div>
-      <div class="list-meta">${list.length} class${list.length===1?"":"es"}${q?" (filtered)":""}</div>
+      <div class="list-meta">${list.length} class${list.length===1?"":"es"}${(q||psFilter)?" (filtered)":""}${sortAz?" · A–Z":""}</div>
       <div class="list-scroll">
         ${list.map(cl=>html`<div class=${"row"+(cl.class_name===selName?" sel":"")} key=${cl.class_name}
           onClick=${()=>setSel(s=>({...s,class:cl.class_name}))}>
