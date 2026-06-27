@@ -1355,7 +1355,7 @@ function makeForkSlug(oldSlug, actionById){
 function newActionStub(slug){
   return {id:slug,name:String(slug).replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase()),
     damage_type:0,damage_modifier:0.0,aoe_pattern:"Strike",aoe_size:1,aoe_range:1,
-    trap_tick:2,energy_cost:2,effect1:null,effect2:null,summon_character_id:"",action_type:""};
+    trap_tick:2,energy_cost:3,effect1:null,effect2:null,summon_character_id:"",action_type:""};
 }
 function lintAction(a, charById){
   const out=[];
@@ -1948,8 +1948,8 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
             displayFn=${v=>(+Number(v)).toString()}
             onInput=${v=>set("damage_modifier",v)} />
         </${Field}>
-        <${Field} label="Energy cost">
-          <${NumSelect} value=${action.energy_cost} options=${[1,2]} onInput=${v=>set("energy_cost",v)} />
+        <${Field} label="Energy cost" hint="1-3 · budget 5/turn (moves cost 1 each, max 3)">
+          <${NumSelect} value=${action.energy_cost} options=${[1,2,3]} onInput=${v=>set("energy_cost",v)} />
         </${Field}>
         <${Field} label="Cooldown (rounds)" hint="0 = none · core 1-3 · mastery long">
           <${MatrixDropdown} numeric=${true} noClear=${true} popClass="modmtx"
