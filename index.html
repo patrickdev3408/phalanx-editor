@@ -1606,7 +1606,15 @@ function App(){
     setSaveDlg(false); setLoading(true);
     try{
       const cRows=[...dirty.chars].map(id=>charById[String(id)]).filter(Boolean)
-        .map(d=>({id:String(d.id),name:d.name,class:d.class_name_char,type_1:d.type_1,type_2:d.type_2,data:d}));
+        .map(d=>{
+          // Single source of truth for "starting class" = the draggable Class Progression
+          // STARTING bucket. Mirror its FIRST entry into class_name_char (what the game reads),
+          // so the removed Identity dropdown is fully replaced by the draggable section.
+          const _p=(data.progression||{})[String(d.id)];
+          const _sc=_p&&_p.starting_classes&&_p.starting_classes[0];
+          if(_sc) d.class_name_char=_sc;
+          return {id:String(d.id),name:d.name,class:d.class_name_char,type_1:d.type_1,type_2:d.type_2,data:d};
+        });
       if(cRows.length){const{error}=await db.from("characters").upsert(cRows,{onConflict:"id"});if(error)throw error;}
       // class progression rides on the same per-character dirty flag (a stats-only
       // edit harmlessly re-upserts an unchanged progression row).
@@ -2245,10 +2253,9 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
           <${LintChips} issues=${lintCharacter(c)} />
 
           <${Group} title="Identity">
-            <div class="grid cols-3">
+            <div class="grid cols-2">
               <${Field} label="Name"><${TextInput} value=${c.name} onInput=${v=>edit(cc=>cc.name=v)} /></${Field}>
               <${Field} label="Tier"><${Select} value=${c.tier} options=${["hero","lieutenant","minion"]} onInput=${v=>edit(cc=>cc.tier=v)} /></${Field}>
-              <${Field} label="Starting class"><${Select} value=${c.class_name_char} options=${[""].concat(enums.classes)} onInput=${v=>edit(cc=>cc.class_name_char=v)} /></${Field}>
             </div>
           </${Group}>
 
