@@ -931,6 +931,46 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
   .fc-chip{padding:6px 11px;font-size:12px}   /* bigger taps on phone */
   .fc-mini{padding:6px 11px;font-size:11px}
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   R5b (2026-07-02) — DENSITY PASS. The first grid pass left cards too tall
+   with dead space: long inline field hints wrap into tall columns and, with
+   the row bottom-aligned, push empty gaps above the short fields. Fix =
+   drop the hints (kept in the wide Actions detail), top-align, tighten the
+   vertical rhythm, uniform-size the AoE fields (robust to toggled-off ones),
+   and compact the effect blocks. Also let the grid tabs use more width so
+   the auto-fit grid actually gets its 3rd/4th column.
+   ════════════════════════════════════════════════════════════════════ */
+.detail-body.wide-cards{max-width:1500px}
+/* hints wrap tall in a narrow card → hide inside the grid (hover the control) */
+.cardgrid .field>label .hint{display:none}
+/* short fields must not sink to the bottom of a taller neighbour */
+.cardgrid .daoe-grid,.cardgrid .eff-fields{align-items:start}
+/* uniform, evenly-growing AoE fields — order-independent (fields can be hidden) */
+.cardgrid .daoe-grid .field{flex:1 1 96px;min-width:86px}
+/* tighter vertical rhythm */
+.cardgrid .sc-body{padding:6px 9px 8px}
+.cardgrid .sc-body fieldset.group,.cardgrid .dense-action fieldset.group{margin:0 0 8px}
+.cardgrid .group-title{margin-bottom:4px}
+.cardgrid .daoe-grid{gap:6px 10px}
+.cardgrid .daoe-valid{margin-top:5px}
+.cardgrid .field{gap:3px}
+.cardgrid .field>label{font-size:10px}
+/* desktop only: trim control height a touch (mobile keeps 44px taps) */
+@media (min-width:761px){
+  .cardgrid select,.cardgrid .mdd .mdd-btn,
+  .cardgrid input[type=number],.cardgrid input[type=text]{height:30px}
+}
+/* effects: compact + drop the long helper line AND the empty-slot placeholder
+   (the effect's meaning is still on the dropdown's hover title) */
+.cardgrid .subgroup{padding:7px 8px}
+.cardgrid .subgroup .sg-head{margin-bottom:5px}
+.cardgrid .subgroup>.note{display:none}
+.cardgrid .subgroup.off{opacity:.55}
+.cardgrid .eff-fields{gap:6px 10px}
+.cardgrid .eff-fields .field{flex:1 1 84px;min-width:76px}
+/* the character slot's Action/Cooldown/Category row: tighter */
+.cardgrid .sc-body>.grid.cols-3{gap:6px 10px;margin-bottom:6px}
 </style>
 </head>
 <body>
@@ -2369,7 +2409,7 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
           <span class=${"tier-tag tier-"+(c.tier||"minion")}>${c.tier||"minion"}</span>
           <span class="spacer"></span>
         </div>
-        <div class="detail-body">
+        <div class="detail-body wide-cards">
           <${LintChips} issues=${lintCharacter(c)} />
 
           <${Group} title="Identity">
@@ -2609,7 +2649,7 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
     <div class="detail-pane">
       ${!c?html`<${Empty} big="Select a class" sub="Pick a class to edit inherent effects and class actions." />`:html`
         <div class="detail-head"><span class="title">${c.class_name}</span><span class="spacer"></span></div>
-        <div class="detail-body" style="max-width:960px">
+        <div class="detail-body wide-cards">
           <${Group} title="Playstyle">
             <p class="note" style="margin-top:-4px;margin-bottom:8px">Primary + secondary playstyle (design lens; also colors this class's chip in each character's Class Progression). ${PLAYSTYLES.length} playstyles.</p>
             <div class="grid cols-2">
