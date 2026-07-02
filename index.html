@@ -885,6 +885,52 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
   .slot{grid-template-columns:1fr}
   .detail-head .title{font-size:16px}
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   R5 (2026-07-02) — MULTI-MOVE CARD GRID
+   Auto-fit grid of always-open action cards + the per-field visibility
+   chip bar. Used by the Class (Core/Mastery), Character, and Actions tabs
+   so 3-4+ moves' full data show at once and reflow to 1 column on phone.
+   ════════════════════════════════════════════════════════════════════ */
+/* field-visibility chip bar */
+.fieldchips{display:flex;flex-wrap:wrap;align-items:center;gap:5px;
+  padding:8px 11px;margin:0 0 12px;border:1px solid var(--line);border-radius:var(--radius);
+  background:var(--panel)}
+.fieldchips .fc-lead{font-size:9.5px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;
+  color:var(--ink-3);margin-right:4px}
+.fc-chip{border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink-3);
+  border-radius:99px;padding:3px 10px;font-size:10.5px;font-weight:600;cursor:pointer;
+  font-family:var(--mono);letter-spacing:.2px}
+.fc-chip:hover{color:var(--ink-2);border-color:#384850}
+.fc-chip.on{background:var(--accent-dim);border-color:var(--accent-2);color:var(--accent)}
+.fc-sep{flex:1;min-width:8px}
+.fc-mini{border:1px solid var(--line-2);background:transparent;color:var(--ink-3);
+  border-radius:6px;padding:3px 9px;font-size:10px;font-weight:700;cursor:pointer;
+  font-family:var(--mono);text-transform:uppercase;letter-spacing:.5px}
+.fc-mini:hover{color:var(--accent);border-color:var(--accent-2)}
+
+/* auto-fit card grid: as many columns as fit a ~340px min width */
+.cardgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr));
+  gap:10px;align-items:start}
+.cardgrid>.slotcard{margin-bottom:0;min-width:0}
+/* an OPEN card keeps its OWN column here (unlike .slotgrid, which spans full width) */
+.cardgrid>.slotcard.expanded{grid-column:auto}
+/* effects stack in the narrow column instead of the 2-up default */
+.cardgrid .effects-grid{grid-template-columns:1fr}
+/* identity Action/Cooldown/Category row: 2-up (then 1-up on phone) inside a card */
+.cardgrid .sc-body>.grid.cols-3{grid-template-columns:1fr 1fr}
+/* mastery level badge on the card head */
+.lv-badge{font-family:var(--mono);font-size:9.5px;font-weight:800;letter-spacing:.4px;
+  color:var(--violet);background:rgba(155,140,240,.14);border:1px solid rgba(155,140,240,.3);
+  border-radius:5px;padding:1px 6px;flex:none}
+
+@media (max-width:760px){
+  .cardgrid{grid-template-columns:1fr;gap:10px}
+  .cardgrid .sc-body>.grid.cols-3{grid-template-columns:1fr}
+  .fieldchips{position:static}
+  .fc-chip{padding:6px 11px;font-size:12px}   /* bigger taps on phone */
+  .fc-mini{padding:6px 11px;font-size:11px}
+}
 </style>
 </head>
 <body>
@@ -928,6 +974,49 @@ const ACTION_CATS = ["","anchor","standard","core","mastery"];
 const DAMAGE_TYPES = [{value:0,label:"Normal"},{value:1,label:"Special"},{value:2,label:"Hybrid"}];
 // trap_tick: 0=Trigger(Trap), 1=Zone, 2=No(None default) — confirmed via ActionData.gd
 const TRAP_TICKS = [{value:2,label:"None"},{value:0,label:"Trap"},{value:1,label:"Zone"}];
+
+/* ──────────────────────────────────────────────────────────────────
+   R5 (2026-07-02) — MULTI-MOVE CARD GRID: per-field visibility store.
+   One global, localStorage-persisted Set of visible field keys, shared
+   by every action card everywhere (Class / Character / Actions / Types).
+   The FieldChips bar toggles entries; useFieldVis() re-renders subscribers.
+   ────────────────────────────────────────────────────────────────── */
+const FIELD_KEYS = [
+  {k:"name",         label:"Name"},
+  {k:"aoe_thumb",    label:"Shape"},
+  {k:"damage_type",  label:"Dmg type"},
+  {k:"damage_modifier",label:"Modifier"},
+  {k:"energy_cost",  label:"Energy"},
+  {k:"cooldown_rounds",label:"Cooldown"},
+  {k:"aoe_pattern",  label:"Pattern"},
+  {k:"aoe_size",     label:"Size"},
+  {k:"aoe_range",    label:"Range"},
+  {k:"effect1",      label:"Effect 1"},
+  {k:"effect2",      label:"Effect 2"},
+  {k:"summon",       label:"Summon"},
+  {k:"trap_tick",    label:"Trap tick"},
+  {k:"balance",      label:"Balance"},
+  {k:"usage",        label:"Uses"},
+];
+// Extras off by default (summon / trap_tick / balance / usage); everything else on.
+const FIELD_VIS_DEFAULT = ["name","aoe_thumb","damage_type","damage_modifier",
+  "energy_cost","cooldown_rounds","aoe_pattern","aoe_size","aoe_range","effect1","effect2"];
+const FIELD_VIS_LS_KEY = "phalanx_editor_field_vis_v1";
+const _fieldVisListeners = new Set();
+function _loadFieldVis(){
+  try{ const raw=localStorage.getItem(FIELD_VIS_LS_KEY); if(raw){ const a=JSON.parse(raw); if(Array.isArray(a)) return new Set(a); } }catch(e){}
+  return new Set(FIELD_VIS_DEFAULT);
+}
+let _fieldVis = _loadFieldVis();
+function _saveFieldVis(){ try{ localStorage.setItem(FIELD_VIS_LS_KEY, JSON.stringify([..._fieldVis])); }catch(e){} }
+function toggleFieldVis(k){ if(_fieldVis.has(k)) _fieldVis.delete(k); else _fieldVis.add(k); _saveFieldVis(); _fieldVisListeners.forEach(f=>f()); }
+function setAllFieldVis(on){ _fieldVis = on ? new Set(FIELD_KEYS.map(f=>f.k)) : new Set(["name"]); _saveFieldVis(); _fieldVisListeners.forEach(f=>f()); }
+/* Subscribe a component to visibility changes. Returns the live Set. */
+function useFieldVis(){
+  const [,bump]=useState(0);
+  useEffect(()=>{ const f=()=>bump(x=>x+1); _fieldVisListeners.add(f); return ()=>_fieldVisListeners.delete(f); },[]);
+  return _fieldVis;
+}
 
 /* Effect groups — both the Effects reference tab AND the effect matrix dropdown. */
 const EFFECT_GROUPS = [
@@ -1133,6 +1222,22 @@ class ErrorBoundary extends Component {
    ════════════════════════════════════════════════════════════════════ */
 function Field({label, hint, children}){
   return html`<div class="field"><label>${label}${hint?html`<span class="hint">${hint}</span>`:null}</label>${children}</div>`;
+}
+/* R5 — the per-field visibility toggle bar. Sits at the top of the
+   Class / Character / Actions tabs; controls which fields render in every
+   action card. Persists per-device via the localStorage store above. */
+function FieldChips(){
+  const vis=useFieldVis();
+  return html`<div class="fieldchips">
+    <span class="fc-lead">Show fields</span>
+    ${FIELD_KEYS.map(f=>html`<button key=${f.k}
+        class=${"fc-chip"+(vis.has(f.k)?" on":"")}
+        onClick=${()=>toggleFieldVis(f.k)}
+        title=${vis.has(f.k)?("Hide "+f.label):("Show "+f.label)}>${f.label}</button>`)}
+    <span class="fc-sep"></span>
+    <button class="fc-mini" title="Show every field" onClick=${()=>setAllFieldVis(true)}>all</button>
+    <button class="fc-mini" title="Hide all but the name" onClick=${()=>setAllFieldVis(false)}>min</button>
+  </div>`;
 }
 function TextInput({value, onInput, mono, placeholder}){
   return html`<input type="text" class=${mono?"mono":""} placeholder=${placeholder||""}
@@ -1884,6 +1989,7 @@ function slotMeta(act){
 function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEffects, summonOptions, charById, tm, caster,
                    onPick, onClear, onActionChange, onFork, usageCount, defaultOpen, effectByName}){
   const [open,setOpen]=useState(!!defaultOpen);
+  const vis=useFieldVis();                                              // R5 — gate head thumb / usage
   const [adding,setAdding]=useState(false);
   const [newId,setNewId]=useState("");
   const cur = (value && typeof value==="object" && value.id) ? value.id : (typeof value==="string"?value:"");
@@ -1895,7 +2001,7 @@ function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEf
 
   return html`<div class=${"slotcard"+(filled?" filled":"")+(open?" expanded":"")}>
     <div class="sc-head" title=${actionSummaryText(act)} onClick=${()=>setOpen(o=>!o)}>
-      <${AoeThumb} pattern=${act?act.aoe_pattern:null} size=${act?act.aoe_size:null} range=${act?act.aoe_range:null} />
+      ${vis.has("aoe_thumb")?html`<${AoeThumb} pattern=${act?act.aoe_pattern:null} size=${act?act.aoe_size:null} range=${act?act.aoe_range:null} />`:null}
       <span class="sc-slot">${slotLabel}</span>
       <span class="sc-name">${act?(act.name||cur):(cur?html`<span class="unknown">⚠ ${cur} (unknown)</span>`:html`<span style="color:var(--ink-3);font-weight:500">— empty —</span>`)}</span>
       ${act?html`<span class="sc-meta">${slotMeta(act)}</span>`:null}
@@ -1916,7 +2022,7 @@ function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEf
           </${Field}>
         `:null}
       </div>
-      ${act?html`<div class=${"share-bar"+(uses>1?"":" solo")}>
+      ${act&&(uses>1||vis.has("usage"))?html`<div class=${"share-bar"+(uses>1?"":" solo")}>
         ${uses>1
           ? html`<span class="share-badge">⚠ shared · used by ${uses}</span>
               <span class="note" style="margin:0;flex:1">Editing this action's data changes it everywhere it's used.</span>`
@@ -1950,35 +2056,40 @@ function defenderSampleTypes(){ return [{type:"",pct:1}]; } // neutral by defaul
 /* shared action body editor (used in Actions tab + inline in slot cards) */
 function ActionEditorInline({action, effectRows, knownEffects, summonOptions, charById, tm, onChangeField, effectByName}){
   // mutate-in-place style: caller provides onChangeField(key,value)
+  const vis=useFieldVis();                                    // R5 — per-field visibility
   const set=(k,v)=>onChangeField(k,v);
   const issues=lintAction(action, charById);
+  const showDaoeFields = ["damage_type","damage_modifier","energy_cost","cooldown_rounds","trap_tick","aoe_pattern","aoe_size","aoe_range"].some(k=>vis.has(k));
+  const showThumb = vis.has("aoe_thumb");
+  const showDaoeGroup = showDaoeFields || showThumb || issues.length>0;
+  const showEffects = vis.has("effect1") || vis.has("effect2");
   return html`<div>
-    <${Group} title="Damage & AoE">
-      <div class="daoe-grid">
-        <${Field} label="Damage type">
+    ${showDaoeGroup?html`<${Group} title="Damage & AoE">
+      ${showDaoeFields?html`<div class="daoe-grid">
+        ${vis.has("damage_type")?html`<${Field} label="Damage type">
           <${Select} value=${action.damage_type} options=${DAMAGE_TYPES} onInput=${v=>set("damage_type",intOf(v,0))} />
-        </${Field}>
-        <${Field} label="Damage modifier" hint="×stat · 0 = support">
+        </${Field}>`:null}
+        ${vis.has("damage_modifier")?html`<${Field} label="Damage modifier" hint="×stat · 0 = support">
           <${MatrixDropdown} numeric=${true} noClear=${true} popClass="modmtx"
             value=${action.damage_modifier==null?"":action.damage_modifier} rows=${DMG_MOD_ROWS}
             knownSet=${DMG_MOD_SET} placeholder="0"
             displayFn=${v=>(+Number(v)).toString()}
             onInput=${v=>set("damage_modifier",v)} />
-        </${Field}>
-        <${Field} label="Energy cost" hint="1-3 · budget 5/turn (moves cost 1 each, max 3)">
+        </${Field}>`:null}
+        ${vis.has("energy_cost")?html`<${Field} label="Energy cost" hint="1-3 · budget 5/turn (moves cost 1 each, max 3)">
           <${NumSelect} value=${action.energy_cost} options=${[1,2,3]} onInput=${v=>set("energy_cost",v)} />
-        </${Field}>
-        <${Field} label="Cooldown (rounds)" hint="0 = none · core 1-3 · mastery long">
+        </${Field}>`:null}
+        ${vis.has("cooldown_rounds")?html`<${Field} label="Cooldown (rounds)" hint="0 = none · core 1-3 · mastery long">
           <${MatrixDropdown} numeric=${true} noClear=${true} popClass="modmtx"
             value=${action.cooldown_rounds==null?"0":String(action.cooldown_rounds)} rows=${COOLDOWN_ROWS}
             knownSet=${COOLDOWN_SET} placeholder="0"
             displayFn=${v=>(+Number(v)).toString()}
             onInput=${v=>set("cooldown_rounds",intOf(v,0))} />
-        </${Field}>
-        <${Field} label="Trap tick">
+        </${Field}>`:null}
+        ${vis.has("trap_tick")?html`<${Field} label="Trap tick">
           <${Select} value=${action.trap_tick} options=${TRAP_TICKS} onInput=${v=>set("trap_tick",intOf(v,2))} />
-        </${Field}>
-        <${Field} label="AoE pattern">
+        </${Field}>`:null}
+        ${vis.has("aoe_pattern")?html`<${Field} label="AoE pattern">
           <${MatrixDropdown} value=${action.aoe_pattern} rows=${AOE_ROW_DEFS}
             placeholder="— pattern —" knownSet=${AOE_PATTERN_SET}
             onInput=${v=>{
@@ -1988,34 +2099,34 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
               if(!opts.includes(Number(action.aoe_size))) onChangeField("aoe_size",opts[0]);
               if(!ropts.includes(Number(action.aoe_range))) onChangeField("aoe_range",ropts[0]);
             }} />
-        </${Field}>
-        <${Field} label="AoE size">
+        </${Field}>`:null}
+        ${vis.has("aoe_size")?html`<${Field} label="AoE size">
           <${NumSelect} value=${action.aoe_size} options=${aoeSizeOptions(action.aoe_pattern)} onInput=${v=>set("aoe_size",v)} />
-        </${Field}>
-        <${Field} label="AoE range" hint="0–7">
+        </${Field}>`:null}
+        ${vis.has("aoe_range")?html`<${Field} label="AoE range" hint="0–7">
           <${NumSelect} value=${action.aoe_range} options=${aoeRangeOptions(action.aoe_pattern)} onInput=${v=>set("aoe_range",v)} />
-        </${Field}>
-      </div>
+        </${Field}>`:null}
+      </div>`:null}
       <div class="daoe-valid">
-        <${AoeThumb} pattern=${action.aoe_pattern} size=${action.aoe_size} range=${action.aoe_range} big=${false} />
+        ${showThumb?html`<${AoeThumb} pattern=${action.aoe_pattern} size=${action.aoe_size} range=${action.aoe_range} big=${false} />`:null}
         <${LintChips} issues=${issues} />
       </div>
-    </${Group}>
-    <${Group} title="Effects">
+    </${Group}>`:null}
+    ${showEffects?html`<${Group} title="Effects">
       <div class="grid cols-2 effects-grid">
-        <${EffectBlock} label="Effect 1" ef=${action.effect1} ownerKey=${action.id} effectRows=${effectRows} knownEffects=${knownEffects}
-          effectByName=${effectByName} onChange=${v=>set("effect1",v)} />
-        <${EffectBlock} label="Effect 2" ef=${action.effect2} ownerKey=${action.id} effectRows=${effectRows} knownEffects=${knownEffects}
-          effectByName=${effectByName} onChange=${v=>set("effect2",v)} />
+        ${vis.has("effect1")?html`<${EffectBlock} label="Effect 1" ef=${action.effect1} ownerKey=${action.id} effectRows=${effectRows} knownEffects=${knownEffects}
+          effectByName=${effectByName} onChange=${v=>set("effect1",v)} />`:null}
+        ${vis.has("effect2")?html`<${EffectBlock} label="Effect 2" ef=${action.effect2} ownerKey=${action.id} effectRows=${effectRows} knownEffects=${knownEffects}
+          effectByName=${effectByName} onChange=${v=>set("effect2",v)} />`:null}
       </div>
-    </${Group}>
-    <${Group} title="Summon">
+    </${Group}>`:null}
+    ${vis.has("summon")?html`<${Group} title="Summon">
       <div class="summon-row">
         <${Field} label="Summon character">
           <${Select} value=${action.summon_character_id||""} options=${summonOptions} onInput=${v=>set("summon_character_id",v)} />
         </${Field}>
       </div>
-    </${Group}>
+    </${Group}>`:null}
   </div>`;
 }
 
@@ -2311,8 +2422,9 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
           </${Group}>
 
           <${Group} title="Action Slots">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">Standard attack + unique actions (Type / Class actions are inherited, not edited here). Collapsed = AoE thumbnail; expand to edit. Pick an existing action or create a brand-new one.</p>
-            <div class="slotgrid">
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Standard attack + unique actions (Type / Class actions are inherited, not edited here). Cards open by default so several moves show at once; use the chips below to control which fields appear. Pick an existing action or create a brand-new one.</p>
+            <${FieldChips} />
+            <div class="cardgrid">
               ${CHAR_EDIT_SLOTS.map(slot=>html`<${SlotCardBound}
                 key=${slot} slot=${slot} owner=${c} ownerKind="char"
                 data=${data} actionById=${actionById} enums=${enums}
@@ -2413,7 +2525,7 @@ function SlotCardBound({slot, owner, ownerKind, data, actionById, enums, effectR
   return html`<${SlotCard} slotLabel=${slot} value=${value} actionById=${actionById}
     allActions=${data.actions} effectRows=${effectRows} knownEffects=${knownEffects}
     summonOptions=${summonOptions} charById=${charById} tm=${tm} caster=${caster}
-    usageCount=${uses} onFork=${onFork} effectByName=${effectByName}
+    usageCount=${uses} onFork=${onFork} effectByName=${effectByName} defaultOpen=${true}
     onPick=${onPick} onClear=${onClear} onActionChange=${onActionChange} />`;
 }
 
@@ -2522,6 +2634,7 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
               onChange=${arr=>edit(cc=>cc.inherent_class_effects=arr)} />
           </${Group}>
 
+          <${FieldChips} />
           <${Group} title="Core Class Actions">
             <${ClassActionList} c=${c} keyName="core_class_actions" data=${data} actionById=${actionById}
               enums=${enums} effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
@@ -2607,8 +2720,11 @@ function ClassActionList({c, keyName, data, actionById, enums, effectRows, known
   const moveLabel = keyName==="core_class_actions" ? "→M" : "→C";
   const moveTitle = keyName==="core_class_actions" ? "Move to Mastery" : "Move to Core";
 
+  // R5 — mastery cards carry a level badge derived from position (1st = Lv 1 … Lv N).
+  const isMastery = keyName==="mastery_class_actions";
   return html`<div>
-    ${slugs.length?html`<div class="slotgrid">${slugs.map((slug,i)=>html`<${ClassSlotCard} key=${slug+i} slug=${slug} index=${i} total=${slugs.length}
+    ${slugs.length?html`<div class="cardgrid">${slugs.map((slug,i)=>html`<${ClassSlotCard} key=${slug+i} slug=${slug} index=${i} total=${slugs.length}
+        levelBadge=${isMastery?(i+1):null}
         actionById=${actionById} data=${data} effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions}
         usageCount=${usageCountOf(usageIdx,slug)}
         onUp=${()=>{const a=slugs.slice();[a[i-1],a[i]]=[a[i],a[i-1]];setSlugs(a);}}
@@ -2639,8 +2755,9 @@ function ClassActionList({c, keyName, data, actionById, enums, effectRows, known
     </div>
   </div>`;
 }
-function ClassSlotCard({slug, index, total, actionById, data, effectRows, knownEffects, summonOptions, usageCount, onUp, onDown, onDel, onFork, onMove, moveLabel, moveTitle, onActionChange}){
-  const [open,setOpen]=useState(false);
+function ClassSlotCard({slug, index, total, levelBadge, actionById, data, effectRows, knownEffects, summonOptions, usageCount, onUp, onDown, onDel, onFork, onMove, moveLabel, moveTitle, onActionChange}){
+  const [open,setOpen]=useState(true);                                  // R5 — auto-open in the grid
+  const vis=useFieldVis();                                              // R5 — gate usage/name
   const act=actionById[slug];
   const uses=usageCount||0;
   const charById=useMemo(()=>{ const m={}; (data.characters||[]).forEach(c=>{ if(c&&c.id!=null) m[String(c.id)]=c; }); return m; },[data.characters]);
@@ -2649,18 +2766,19 @@ function ClassSlotCard({slug, index, total, actionById, data, effectRows, knownE
   return html`<div class=${"slotcard"+(act?" filled":"")+(open?" expanded":"")}>
     <div class="sc-head" title=${actionSummaryText(act)}>
       <span class="sc-headmain" style="cursor:pointer;display:flex;align-items:center;gap:10px;flex:1;min-width:0" onClick=${()=>setOpen(o=>!o)}>
-        <${AoeThumb} pattern=${act?act.aoe_pattern:null} size=${act?act.aoe_size:null} range=${act?act.aoe_range:null} />
+        ${levelBadge!=null?html`<span class="lv-badge" title="Mastery level (from order)">Lv ${levelBadge}</span>`:null}
+        ${vis.has("aoe_thumb")?html`<${AoeThumb} pattern=${act?act.aoe_pattern:null} size=${act?act.aoe_size:null} range=${act?act.aoe_range:null} />`:null}
         <span class="sc-name">${act?(act.name||slug):html`<span class="unknown">⚠ ${slug} (unknown)</span>`}</span>
         ${act?html`<span class="sc-meta">${slotMeta(act)}</span>`:null}
       </span>
-      <button class="mini" disabled=${index===0} title="Up" onClick=${onUp}>↑</button>
-      <button class="mini" disabled=${index===total-1} title="Down" onClick=${onDown}>↓</button>
+      <button class="mini" disabled=${index===0} title="Up (raise level)" onClick=${onUp}>↑</button>
+      <button class="mini" disabled=${index===total-1} title="Down (lower level)" onClick=${onDown}>↓</button>
       ${onMove?html`<button class="mini move" title=${moveTitle} onClick=${onMove}>${moveLabel}</button>`:null}
       <button class="mini del" title="Remove" onClick=${onDel}>×</button>
       <span class="sc-caret" style="cursor:pointer" onClick=${()=>setOpen(o=>!o)}>${open?"▾":"▸"}</span>
     </div>
     ${open?html`<div class="sc-body">
-      ${act?html`<div class=${"share-bar"+(uses>1?"":" solo")}>
+      ${act&&(uses>1||vis.has("usage"))?html`<div class=${"share-bar"+(uses>1?"":" solo")}>
         ${uses>1
           ? html`<span class="share-badge">⚠ shared · used by ${uses}</span>
               <span class="note" style="margin:0;flex:1">Editing this action's data changes it everywhere it's used.</span>`
@@ -2736,6 +2854,7 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
 
   const usage=usageIdx[selId]||{chars:[],classes:[]};
   const issues=a?lintAction(a,charById):[];
+  const fieldVis=useFieldVis();                                          // R5 — Name/Balance/Uses gating
 
   const groupFilterOpts=[{value:"",label:"Group: any"},{value:"Type",label:"Type actions"},{value:"Unique",label:"Unique"}]
     .concat(enums.classes.map(cn=>({value:cn,label:cn})));
@@ -2781,9 +2900,10 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
           <span class="chip">${groupOf[a.id]||"Unique"}</span>
         </div>
         <div class="detail-body" style="max-width:920px">
+          <${FieldChips} />
           <${Group} title="Identity">
             <div class="grid cols-2">
-              <${Field} label="Name"><${TextInput} value=${a.name} onInput=${v=>setField("name",v)} /></${Field}>
+              ${fieldVis.has("name")?html`<${Field} label="Name"><${TextInput} value=${a.name} onInput=${v=>setField("name",v)} /></${Field}>`:null}
               <${Field} label="id (slug)" hint="rename = no auto-rewrite">
                 <input class="mono" value=${a.id||""} onChange=${e=>{
                   const old=a.id, v=e.target.value.trim();
@@ -2800,11 +2920,11 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
             summonOptions=${summonOptions} charById=${charById} tm=${data.type_matrix} effectByName=${effectByName}
             onChangeField=${(k,v)=>setField(k,v)} />
 
-          <${Group} title="Balance lab" >
+          ${fieldVis.has("balance")?html`<${Group} title="Balance lab" >
             <${BalanceLab} action=${a} enums=${enums} types=${data.types} tm=${data.type_matrix} charById=${charById} />
-          </${Group}>
+          </${Group}>`:null}
 
-          <${Group} title=${`Used by (${usage.chars.length} chars · ${usage.classes.length} classes)`}>
+          ${fieldVis.has("usage")?html`<${Group} title=${`Used by (${usage.chars.length} chars · ${usage.classes.length} classes)`}>
             ${(!usage.chars.length && !usage.classes.length)?html`<p class="note">Not referenced by any character or class.</p>`:html`
               <div class="usages">
                 ${usage.chars.map(id=>{const cc=charById[String(id)];return html`<span class="usage-chip" onClick=${()=>jumpTo("character",String(id))}>
@@ -2812,7 +2932,7 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
                 ${usage.classes.map(cn=>html`<span class="usage-chip" onClick=${()=>jumpTo("class",cn)}>
                   <span class="ut">class</span>${cn}</span>`)}
               </div>`}
-          </${Group}>
+          </${Group}>`:null}
 
           ${a.summon_character_id?(()=>{const sc=charById[String(a.summon_character_id)];
             return html`<${Group} title="Summon resolution">
