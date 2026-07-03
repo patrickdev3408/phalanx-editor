@@ -1512,7 +1512,7 @@ function makeForkSlug(oldSlug, actionById){
 function newActionStub(slug){
   return {id:slug,name:String(slug).replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase()),
     damage_type:0,damage_modifier:0.0,aoe_pattern:"Strike",aoe_size:1,aoe_range:1,
-    trap_tick:2,zone_duration_rounds:0,energy_cost:3,effect1:null,effect2:null,summon_character_id:"",action_type:""};
+    trap_tick:2,zone_duration_turns:0,energy_cost:3,effect1:null,effect2:null,summon_character_id:"",action_type:""};
 }
 function lintAction(a, charById){
   const out=[];
@@ -1871,7 +1871,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 07-02·8</span>
+        <span class="sub">v2 · Supabase · live · build 07-02·9</span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -2158,9 +2158,9 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
         ${vis.has("trap_tick")?html`<${Field} label="Trap tick">
           <${Select} value=${action.trap_tick} options=${TRAP_TICKS} onInput=${v=>set("trap_tick",intOf(v,2))} />
         </${Field}>`:null}
-        ${intOf(action.trap_tick,2)===1?html`<${Field} label="Zone duration" hint="rounds · 0 = auto (max 3 / effect dur)">
-          <${NumSelect} value=${action.zone_duration_rounds==null?0:action.zone_duration_rounds}
-            options=${[0,1,2,3,4,5,6,8,10,12,15,20,25,30]} onInput=${v=>set("zone_duration_rounds",v)} />
+        ${intOf(action.trap_tick,2)===1?html`<${Field} label="Zone duration" hint="turns · 0 = auto (max 20 / effect dur)">
+          <${NumSelect} value=${action.zone_duration_turns==null?0:action.zone_duration_turns}
+            options=${[0,1,2,3,4,5,6,8,10,12,15,20,25,30,40,50]} onInput=${v=>set("zone_duration_turns",v)} />
         </${Field}>`:null}
       </div>`:null}
       <div class="daoe-valid">
