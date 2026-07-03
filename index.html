@@ -942,6 +942,14 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
    the auto-fit grid actually gets its 3rd/4th column.
    ════════════════════════════════════════════════════════════════════ */
 .detail-body.wide-cards{max-width:1500px}
+/* R5c — collapsible left list (Character tab): reclaim the ~380px for the cards */
+.list-toggle{height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--line-2);
+  background:var(--panel-2);color:var(--ink-2);font-size:11.5px;font-weight:600;cursor:pointer;flex:none}
+.list-toggle:hover{border-color:var(--accent-2);color:var(--accent)}
+@media (min-width:761px){
+  .split.no-list{grid-template-columns:1fr}
+  .split.no-list>.list-pane{display:none}
+}
 /* hints wrap tall in a narrow card → hide inside the grid (hover the control) */
 .cardgrid .field>label .hint{display:none}
 /* short fields must not sink to the bottom of a taller neighbour */
@@ -2270,6 +2278,10 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
   const [sort,setSort]=useState("");
   const [bulk,setBulk]=useState(new Set());
   const [tableView,setTableView]=useState(false); // R2.10 — full table toggle
+  // R5c — collapse the left character list so the card grid uses full width.
+  // Hidden by default (persisted); auto-shows when no character is selected.
+  const [listHidden,setListHidden]=useState(()=>{ try{ return localStorage.getItem("phalanx_char_list_hidden")!=="0"; }catch(e){ return true; } });
+  const toggleList=()=>setListHidden(h=>{ const nv=!h; try{ localStorage.setItem("phalanx_char_list_hidden",nv?"1":"0"); }catch(e){} return nv; });
 
   const effectRows = EFFECT_GROUPS.map(g=>({label:g.label,names:g.names}));
   const knownEffects = useMemo(()=>new Set(enums.effects),[enums]);
@@ -2334,7 +2346,7 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
   const TABLE_STATS=["health","attack","defense","special_attack","special_defense","speed","dodge","crit_chance"];
   const setSortKey=(k)=>setSort(s=> s==="-"+k ? k : "-"+k); // toggle desc/asc per click
 
-  return html`<div class="view"><div class="split wide">
+  return html`<div class="view"><div class=${"split wide"+((listHidden&&c)?" no-list":"")}>
     <div class="list-pane">
       <div class="list-head">
         <div class="search-wrap">
@@ -2408,6 +2420,9 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
     <div class="detail-pane">
       ${!c?html`<${Empty} big="Select a character" sub="Pick one from the list to edit its stats, types, synergies and action slots." />`:html`
         <div class="detail-head">
+          <button class="list-toggle" onClick=${toggleList}
+            title=${listHidden?"Show the character list":"Hide the character list (wider cards)"}>
+            ${listHidden?"☰ Characters":"◀ Hide list"}</button>
           <span class="id-tag mono">#${c.id}</span>
           <span class="title">${c.name||"(unnamed)"}</span>
           <span class=${"tier-tag tier-"+(c.tier||"minion")}>${c.tier||"minion"}</span>
