@@ -1047,12 +1047,14 @@ const FIELD_KEYS = [
   {k:"effect2",      label:"Effect 2"},
   {k:"summon",       label:"Summon"},
   {k:"trap_tick",    label:"Trap tick"},
+  {k:"unlock_round", label:"Unlock rd"},
+  {k:"corpse_raise", label:"Corpse"},
   {k:"balance",      label:"Balance"},
   {k:"usage",        label:"Uses"},
 ];
 // Default visible set = the 2026-07-02 recipe (extras summon/balance/usage stay off).
 const FIELD_VIS_DEFAULT = ["name","aoe_thumb","damage_type","damage_modifier",
-  "energy_cost","cooldown_rounds","trap_tick","aoe_pattern","aoe_size","aoe_range","effect1","effect2"];
+  "energy_cost","cooldown_rounds","trap_tick","unlock_round","aoe_pattern","aoe_size","aoe_range","effect1","effect2"];
 const FIELD_VIS_LS_KEY = "phalanx_editor_field_vis_v2";
 const _fieldVisListeners = new Set();
 function _loadFieldVis(){
@@ -1512,7 +1514,7 @@ function makeForkSlug(oldSlug, actionById){
 function newActionStub(slug){
   return {id:slug,name:String(slug).replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase()),
     damage_type:0,damage_modifier:0.0,aoe_pattern:"Strike",aoe_size:1,aoe_range:1,
-    trap_tick:2,zone_duration_turns:0,energy_cost:3,effect1:null,effect2:null,summon_character_id:"",action_type:""};
+    trap_tick:2,zone_duration_turns:0,unlock_round:0,corpse_raise:false,energy_cost:3,effect1:null,effect2:null,summon_character_id:"",action_type:""};
 }
 function lintAction(a, charById){
   const out=[];
@@ -1871,7 +1873,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 07-02·9</span>
+        <span class="sub">v2 · Supabase · live · build 07-03·1</span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -2162,6 +2164,10 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
           <${NumSelect} value=${action.zone_duration_turns==null?0:action.zone_duration_turns}
             options=${[0,1,2,3,4,5,6,8,10,12,15,20,25,30,40,50]} onInput=${v=>set("zone_duration_turns",v)} />
         </${Field}>`:null}
+        ${vis.has("unlock_round")?html`<${Field} label="Unlock round" hint="0 = from start · N = locked until round N (inverse cooldown / warmup)">
+          <${NumSelect} value=${action.unlock_round==null?0:action.unlock_round}
+            options=${[0,1,2,3,4,5,6,8,10,12,15]} onInput=${v=>set("unlock_round",v)} />
+        </${Field}>`:null}
       </div>`:null}
       <div class="daoe-valid">
         ${showThumb?html`<${AoeThumb} pattern=${action.aoe_pattern} size=${action.aoe_size} range=${action.aoe_range} big=${false} />`:null}
@@ -2180,6 +2186,9 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
       <div class="summon-row">
         <${Field} label="Summon character">
           <${Select} value=${action.summon_character_id||""} options=${summonOptions} onInput=${v=>set("summon_character_id",v)} />
+        </${Field}>
+        <${Field} label="Corpse-raise" hint="Necromancer: summon only fires on a nearby corpse hex">
+          <input type="checkbox" checked=${!!action.corpse_raise} onChange=${e=>set("corpse_raise", e.target.checked)} />
         </${Field}>
       </div>
     </${Group}>`:null}
