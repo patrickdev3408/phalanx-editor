@@ -1871,7 +1871,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 07-02·6</span>
+        <span class="sub">v2 · Supabase · live · build 07-02·7</span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -2152,8 +2152,8 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
             displayFn=${v=>(+Number(v)).toString()}
             onInput=${v=>set("cooldown_rounds",intOf(v,0))} />
         </${Field}>`:null}
-        ${vis.has("energy_cost")?html`<${Field} label="Energy cost" hint="1-3 · budget 5/turn (moves cost 1 each, max 3)">
-          <${NumSelect} value=${action.energy_cost} options=${[1,2,3]} onInput=${v=>set("energy_cost",v)} />
+        ${vis.has("energy_cost")?html`<${Field} label="Energy cost" hint="1-5 · default 3">
+          <${NumSelect} value=${action.energy_cost} options=${[1,2,3,4,5]} onInput=${v=>set("energy_cost",v)} />
         </${Field}>`:null}
         ${vis.has("trap_tick")?html`<${Field} label="Trap tick">
           <${Select} value=${action.trap_tick} options=${TRAP_TICKS} onInput=${v=>set("trap_tick",intOf(v,2))} />
