@@ -1045,6 +1045,8 @@ const FIELD_KEYS = [
   {k:"aoe_range",    label:"Range"},
   {k:"effect1",      label:"Effect 1"},
   {k:"effect2",      label:"Effect 2"},
+  {k:"self_effect1", label:"Self fx 1"},
+  {k:"self_effect2", label:"Self fx 2"},
   {k:"summon",       label:"Summon"},
   {k:"trap_tick",    label:"Trap tick"},
   {k:"unlock_round", label:"Unlock rd"},
@@ -1514,7 +1516,7 @@ function makeForkSlug(oldSlug, actionById){
 function newActionStub(slug){
   return {id:slug,name:String(slug).replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase()),
     damage_type:0,damage_modifier:0.0,aoe_pattern:"Strike",aoe_size:1,aoe_range:1,
-    trap_tick:2,zone_duration_turns:0,unlock_round:0,corpse_raise:false,energy_cost:3,effect1:null,effect2:null,summon_character_id:"",action_type:""};
+    trap_tick:2,zone_duration_turns:0,unlock_round:0,corpse_raise:false,consume_summon:false,energy_cost:3,effect1:null,effect2:null,self_effect1:null,self_effect2:null,summon_character_id:"",action_type:""};
 }
 function lintAction(a, charById){
   const out=[];
@@ -1873,7 +1875,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 07-03·1</span>
+        <span class="sub">v2 · Supabase · live · build 07-03·2</span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -2180,6 +2182,10 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
           effectByName=${effectByName} onChange=${v=>set("effect1",v)} />`:null}
         ${vis.has("effect2")?html`<${EffectBlock} label="Effect 2" ef=${action.effect2} ownerKey=${action.id} effectRows=${effectRows} knownEffects=${knownEffects}
           effectByName=${effectByName} onChange=${v=>set("effect2",v)} />`:null}
+        ${vis.has("self_effect1")?html`<${EffectBlock} label="Self effect 1 (to caster)" ef=${action.self_effect1} ownerKey=${action.id+"_s1"} effectRows=${effectRows} knownEffects=${knownEffects}
+          effectByName=${effectByName} onChange=${v=>set("self_effect1",v)} />`:null}
+        ${vis.has("self_effect2")?html`<${EffectBlock} label="Self effect 2 (to caster)" ef=${action.self_effect2} ownerKey=${action.id+"_s2"} effectRows=${effectRows} knownEffects=${knownEffects}
+          effectByName=${effectByName} onChange=${v=>set("self_effect2",v)} />`:null}
       </div>
     </${Group}>`:null}
     ${vis.has("summon")?html`<${Group} title="Summon">
@@ -2189,6 +2195,9 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
         </${Field}>
         <${Field} label="Corpse-raise" hint="Necromancer: summon only fires on a nearby corpse hex">
           <input type="checkbox" checked=${!!action.corpse_raise} onChange=${e=>set("corpse_raise", e.target.checked)} />
+        </${Field}>
+        <${Field} label="Consume summon" hint="Sacrifice your nearest own summon; the AoE re-centers on its hex (Immolate Familiar / Corpse Explosion)">
+          <input type="checkbox" checked=${!!action.consume_summon} onChange=${e=>set("consume_summon", e.target.checked)} />
         </${Field}>
       </div>
     </${Group}>`:null}
