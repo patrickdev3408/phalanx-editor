@@ -1186,7 +1186,10 @@ function magnitudeOptions(effect){
 function durationOptions(effect){
   const zero = ["Heal","Heal %","Cleanse","Push","Pull"];
   if(zero.includes(effect)) return [0];
-  const o=[]; for(let i=1;i<=30;i++) o.push(i); return o;
+  // 1..30 by 1, then 40..300 by 10s (max 300).
+  const o=[]; for(let i=1;i<=30;i++) o.push(i);
+  for(let i=40;i<=300;i+=10) o.push(i);
+  return o;
 }
 
 /* stable image path for an exported AoE pattern PNG */
@@ -1541,6 +1544,12 @@ function lintAction(a, charById){
     const c=charById[String(a.summon_character_id)];
     if(!c) out.push({k:"err",t:`summon id ${a.summon_character_id} not found`});
   }
+  // Summon-mechanic guards: corpse-raise only fires on a SUMMON action; the two
+  // summon toggles are distinct mechanics and must not both be on (see TurnManager).
+  if(a.corpse_raise && !a.summon_character_id)
+    out.push({k:"warn",t:"corpse-raise does nothing without a Summon character"});
+  if(a.corpse_raise && a.consume_summon)
+    out.push({k:"err",t:"corpse-raise + consume-summon can't both be on"});
   return out;
 }
 function lintCharacter(c){
@@ -1641,7 +1650,23 @@ function App(){
     }finally{ setLoading(false); }
   },[toast]);
 
-  useEffect(()=>{ if(session) loadAll(); },[session]);
+  /* Load ONCE per signed-in user. Supabase's onAuthStateChange (above) re-fires
+     SIGNED_IN / TOKEN_REFRESHED whenever the window regains focus or visibility
+     (alt-tab, minimize→restore, switching to another app and back). Each fire
+     hands us a fresh session object; keying the load on the object reference
+     alone would re-run loadAll() on every such churn — resetting `data` and
+     clearing `dirty`, which silently wipes unsaved edits. Guarding by user id
+     means only a real sign-in (or the manual Reload button, which calls loadAll
+     directly) fetches from Supabase. Edits now persist across screen changes,
+     tab switches, and minimize until you hit Save to Supabase. */
+  const loadedUserRef = useRef(null);
+  useEffect(()=>{
+    if(!session){ loadedUserRef.current=null; return; }
+    const uid = session.user ? session.user.id : "anon";
+    if(loadedUserRef.current===uid) return;   // already loaded for this user — ignore focus/refresh churn
+    loadedUserRef.current=uid;
+    loadAll();
+  },[session]);
 
   /* ── derived indexes ── */
   const enums = useMemo(()=> data?buildEnums(data):null, [data]);
@@ -2193,11 +2218,15 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
         <${Field} label="Summon character">
           <${Select} value=${action.summon_character_id||""} options=${summonOptions} onInput=${v=>set("summon_character_id",v)} />
         </${Field}>
-        <${Field} label="Corpse-raise" hint="Necromancer: summon only fires on a nearby corpse hex">
-          <input type="checkbox" checked=${!!action.corpse_raise} onChange=${e=>set("corpse_raise", e.target.checked)} />
+        <${Field} label="Corpse-raise" hint=${!action.summon_character_id ? "needs a Summon character above" : (action.consume_summon ? "disabled — consume-summon is on" : "Necromancer: summon only fires on a nearby corpse hex, and spawns on it")}>
+          <input type="checkbox" checked=${!!action.corpse_raise}
+            disabled=${!action.summon_character_id || !!action.consume_summon}
+            onChange=${e=>set("corpse_raise", e.target.checked)} />
         </${Field}>
-        <${Field} label="Consume summon" hint="Sacrifice your nearest own summon; the AoE re-centers on its hex (Immolate Familiar / Corpse Explosion)">
-          <input type="checkbox" checked=${!!action.consume_summon} onChange=${e=>set("consume_summon", e.target.checked)} />
+        <${Field} label="Consume summon" hint=${action.corpse_raise ? "disabled — corpse-raise is on" : "Sacrifice your nearest own summon; the AoE re-centers on its hex (Immolate Familiar / Corpse Explosion)"}>
+          <input type="checkbox" checked=${!!action.consume_summon}
+            disabled=${!!action.corpse_raise}
+            onChange=${e=>set("consume_summon", e.target.checked)} />
         </${Field}>
       </div>
     </${Group}>`:null}
