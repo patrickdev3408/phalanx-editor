@@ -1185,7 +1185,7 @@ const EFFECT_GROUPS = [
   {label:"Reflect / redirect", names:["Thorns","Protector"]},
   {label:"Damage over time", names:["Burn","Poison","Bleed"]},
   {label:"Control / disrupt", names:["Stun","Root","Anti Heal","Silence","Blind","Curse","Mark","Push","Pull"]},
-  {label:"New effects (2026-07)", names:["Dispel","Buff Block","Death Ward","Markstalker","Time Bomb","OverhealShield","Vindication","Mirage","Sequence","Riposte","Grudge","Soul Reservoir","WeaponEnchant","Braced"]},
+  {label:"New effects (2026-07)", names:["Dispel","Buff Block","Death Ward","Markstalker","Time Bomb","OverhealShield","Vindication","Mirage","Sequence","Riposte","Grudge","Soul Reservoir","WeaponEnchant","Braced","Dying Blessing"]},
   {label:"Summon", names:["Summon"]},
 ];
 
@@ -1414,6 +1414,12 @@ const ADV_FIELDS=[
   {k:"mass_swap_enemies",label:"Mass-swap enemies",kind:"bool",hint:"Grand Illusion: on cast, reverses the enemy formation (deterministic)"},
   {k:"blink_ally",label:"Blink ally",kind:"bool",hint:"Sage Guardian-Phase: teleport the ally nearest the aimed hex beside the caster (author + a self-centered heal AoE)"},
   {k:"stance_id",label:"Stance id",kind:"text",hint:"Form/Stance MODE: non-empty ENTERS this stance (self_effect1/2 = the persistent stat profile; drops the previous stance). e.g. bear / wolf"},
+  {k:"zone_team",label:"Zone team",kind:"select",options:[{value:0,label:"All (legacy)"},{value:1,label:"Allies"},{value:2,label:"Enemies"}],dflt:0,hint:"Zone team-target: 0=anyone standing, 1=allies of the source only, 2=enemies only (buff zones → Allies, control/damage zones → Enemies)"},
+  {k:"bonus_in_own_zone",label:"Bonus in own zone",kind:"numsel",float:true,options:[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.75,1.0],hint:"Templar Sanctity: ×(1 + this) damage when the caster stands in a zone it owns"},
+  {k:"pulse_own_zones",label:"Pulse own zones",kind:"bool",hint:"Shaman Totemic Resonance: on cast, re-fire every zone the caster owns to everyone standing in them"},
+  {k:"conduit_cast",label:"Conduit cast",kind:"bool",hint:"Summoner Conduit: the AoE originates from the caster's nearest own summon's hex instead of the caster's"},
+  {k:"energy_refund",label:"Energy refund",kind:"numsel",options:[0,1,2,3,4,5],hint:"Warlock Life Tap: energy returned this turn on cast (net = refund − energy_cost); capped at the turn budget"},
+  {k:"dot_max_stacks",label:"DoT max stacks",kind:"numsel",options:[0,2,3,4,5],hint:"Mage Kindling: this action's Burn/Poison/Bleed stacks up to N applications on a target (0 = legacy single application)"},
 ];
 const ADV_BY_KEY=(()=>{ const m={}; ADV_FIELDS.forEach(f=>m[f.k]=f); return m; })();
 /* is this advanced field set to a non-default value on the action? */
@@ -1431,6 +1437,8 @@ function advControl(action,f,setField){
     return html`<input type="checkbox" checked=${!!action[f.k]} onChange=${e=>setField(f.k,e.target.checked)} />`;
   if(f.kind==="text")
     return html`<input type="text" value=${action[f.k]==null?"":action[f.k]} onInput=${e=>setField(f.k,e.target.value)} />`;
+  if(f.kind==="select")
+    return html`<${Select} value=${action[f.k]==null?(f.dflt||0):action[f.k]} options=${f.options} onInput=${v=>setField(f.k,intOf(v,f.dflt||0))} />`;
   const dflt=f.dflt||0;
   return html`<${NumSelect} value=${action[f.k]==null?dflt:action[f.k]} float=${!!f.float}
     options=${f.options} onInput=${v=>setField(f.k,v)} />`;
@@ -1439,6 +1447,7 @@ function advControl(action,f,setField){
 function advChipLabel(action,f){
   if(f.kind==="bool") return f.label;
   if(f.kind==="text") return f.label.replace(/ id$/,"")+": "+action[f.k];
+  if(f.kind==="select"){ const cur=num(action[f.k],f.dflt||0); const o=(f.options||[]).find(x=>String(x.value)===String(cur)); return f.label+": "+(o?o.label:cur); }
   return f.label+" "+(+num(action[f.k], f.dflt||0));
 }
 /* keys currently worth showing for an action = set OR explicitly revealed */
