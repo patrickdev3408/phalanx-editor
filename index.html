@@ -983,6 +983,70 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
 .cardgrid .eff-fields .field{flex:1 1 84px;min-width:76px}
 /* the character slot's Action/Cooldown/Category row: tighter */
 .cardgrid .sc-body>.grid.cols-3{gap:6px 10px;margin-bottom:6px}
+
+/* ════════════════════════════════════════════════════════════════════
+   R6 (2026-07-07) — READABILITY PASS.
+   1) The action NAME is the card's real title: two-line card head (name
+      stacked over the key/meta line) + an editable name row at the top of
+      the expanded editor (gated by the existing "Name" visibility chip).
+   2) Condensed TABLE view of all class actions: one row per action with
+      the key columns at a glance; clicking a row opens the SAME full
+      inline editor beneath it. Toggle (Table ↔ Cards) persists in
+      localStorage like the other view prefs.
+   ════════════════════════════════════════════════════════════════════ */
+/* two-line card head: name (title) stacked over key + meta summary */
+.sc-titlecol{display:flex;flex-direction:column;flex:1;min-width:0;gap:1px}
+.sc-titlecol .sc-name{flex:none;font-size:13.5px;font-weight:700;line-height:1.25;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-titlecol .sc-sub{display:flex;align-items:center;gap:8px;min-width:0}
+.sc-titlecol .sc-slot{min-width:0;flex:none;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-titlecol .sc-meta{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:0 1 auto}
+/* editable name row at the top of the expanded editor */
+.act-name-row{display:flex;align-items:center;gap:9px;margin:2px 0 9px}
+.act-name-row input.act-name{flex:1;min-width:0;height:34px;font-size:14.5px;font-weight:700;letter-spacing:-.1px}
+.cardgrid .act-name-row{margin:0 0 6px}
+.cardgrid .act-name-row input.act-name{height:30px;font-size:13px}
+/* view toggle (table ↔ cards) */
+.viewtoggle{display:flex;align-items:center;gap:6px;margin:0 0 10px;flex-wrap:wrap}
+.viewtoggle .vt-lead{font-size:9.5px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;
+  color:var(--ink-3);margin-right:4px}
+/* condensed class-action table */
+.acttable-wrap{border:1px solid var(--line);border-radius:9px;background:var(--bg-2);overflow:visible}
+table.acttable{width:100%;font-size:11.5px}
+table.acttable thead th{position:static;padding:8px 10px}   /* wrap isn't a scroller — no sticky */
+table.acttable thead th:first-child{border-top-left-radius:8px}   /* wrap overflow:visible → round the th corners ourselves */
+table.acttable thead th:last-child{border-top-right-radius:8px}
+table.acttable tbody tr.act-row{cursor:pointer}
+table.acttable tbody tr.act-row td{white-space:nowrap;padding:6px 10px}
+table.acttable tbody tr.act-row.open{background:rgba(40,224,200,.06)}
+table.acttable tbody tr.act-row.open td{border-bottom-color:transparent}
+table.acttable td.a-lv{font-family:var(--mono);font-size:10px;color:var(--ink-3);width:34px}
+table.acttable td.a-name{font-weight:600;font-size:12.5px;color:var(--ink);
+  max-width:230px;overflow:hidden;text-overflow:ellipsis}
+table.acttable td.a-name .a-key{display:block;font-family:var(--mono);font-size:9.5px;
+  color:var(--ink-3);font-weight:400;line-height:1.25;overflow:hidden;text-overflow:ellipsis}
+table.acttable td.a-name .unknown{color:var(--rose)}
+table.acttable td.a-pat{font-size:11px;color:var(--ink-2)}
+table.acttable td.a-pat .pr{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-left:5px}
+table.acttable td.num{font-family:var(--mono);font-size:11px;color:var(--ink-2);text-align:right}
+table.acttable td .a-sup{color:var(--good);font-size:10px;font-weight:700;letter-spacing:.4px}
+table.acttable td.a-fx{font-size:10.5px;color:var(--ink-2);max-width:150px;overflow:hidden;text-overflow:ellipsis}
+table.acttable td.a-ops{text-align:right;white-space:nowrap;width:1%}
+table.acttable td.a-ops .mini{margin-left:3px}
+table.acttable tr.act-exp>td{background:var(--panel);padding:12px 14px;border-bottom:1px solid var(--line-2)}
+table.acttable tr.act-exp:hover{background:transparent}
+table.acttable tr.act-exp .dense-action{max-width:1100px}
+table.acttable tr.act-exp input[type=checkbox]{height:auto}   /* undo generic `table input` sizing */
+table.acttable .sc-caret{color:var(--ink-3);font-size:11px;display:inline-block;width:14px;text-align:center}
+.sc-titlecol .sc-slot{text-transform:none}                    /* keys/slugs read as authored, not SHOUTY */
+.mech-badge{font-family:var(--mono);font-size:9.5px;font-weight:800;letter-spacing:.3px;
+  color:var(--violet);background:rgba(155,140,240,.14);border:1px solid rgba(155,140,240,.3);
+  border-radius:5px;padding:1px 6px;white-space:nowrap;flex:none}
+@media (max-width:760px){
+  /* phone: let the wide table scroll sideways (dropdowns in the expanded
+     row may clip here — switch to Cards view for heavy mobile editing) */
+  .acttable-wrap{overflow-x:auto}
+}
 </style>
 </head>
 <body>
@@ -1258,6 +1322,37 @@ function actionSummaryText(a){
 function actionEffectNames(a){
   if(!a) return [];
   return [a.effect1&&a.effect1.effect_type, a.effect2&&a.effect2.effect_type].filter(Boolean);
+}
+/* R6 — which "new mechanic" (2026-07) fields are set on an action. Display
+   summary ONLY (drives the ⚙ badge in the condensed table + card heads);
+   editing still happens through the real fields in ActionEditorInline. */
+const MECH_NUM_KEYS=[["scale_isolation","isolation ×"],["scale_missing_hp","missing-HP ×"],
+  ["bonus_vs_rooted","vs Rooted ×"],["scale_per_own_debuff","per-debuff ×"],
+  ["detonate_distinct_bonus_pct","detonate +%"],["charge_gain","charge gain"],
+  ["charge_min","charge min"],["charge_damage_per_point","charge dmg/pt"],
+  ["charge_heal_per_point","charge heal/pt"],["contagion_hops","contagion hops"],
+  ["unlock_round","unlock round"]];
+const MECH_BOOL_KEYS=[["charge_spend","charge spend"],["overheal_to_shield","overheal→shield"],
+  ["mass_swap_enemies","mass swap"],["blink_ally","blink ally"],
+  ["corpse_raise","corpse raise"],["consume_summon","consume summon"]];
+function actionMechBits(a){
+  if(!a) return [];
+  const bits=[];
+  for(const [k,label] of MECH_NUM_KEYS) if(num(a[k],0)) bits.push(label+" "+(+num(a[k],0)));
+  for(const [k,label] of MECH_BOOL_KEYS) if(a[k]) bits.push(label);
+  if(a.stance_id) bits.push("stance: "+a.stance_id);
+  if(a.enchant_rider&&a.enchant_rider.effect_type) bits.push("enchant: "+a.enchant_rider.effect_type);
+  if(a.self_effect1&&a.self_effect1.effect_type) bits.push("self fx: "+a.self_effect1.effect_type);
+  if(a.self_effect2&&a.self_effect2.effect_type) bits.push("self fx 2: "+a.self_effect2.effect_type);
+  return bits;
+}
+/* R6 — short effect summary for the condensed table cell: "Burn 20 ·3t" */
+function effectCellText(ef){
+  if(!ef||!ef.effect_type) return "";
+  let s=ef.effect_type;
+  if(ef.effect_magnitude!=null&&ef.effect_magnitude!=="") s+=" "+ef.effect_magnitude;
+  if(num(ef.effect_duration,0)>0) s+=" ·"+(+num(ef.effect_duration,0))+"t";
+  return s;
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -2084,12 +2179,18 @@ function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEf
   const uses = usageCount||0;
   const effNames = actionEffectNames(act);                              // R3.5
 
+  const mechBits=actionMechBits(act);                                   // R6 — ⚙ new-mechanics badge
   return html`<div class=${"slotcard"+(filled?" filled":"")+(open?" expanded":"")}>
     <div class="sc-head" title=${actionSummaryText(act)} onClick=${()=>setOpen(o=>!o)}>
       ${vis.has("aoe_thumb")?html`<${AoeThumb} pattern=${act?act.aoe_pattern:null} size=${act?act.aoe_size:null} range=${act?act.aoe_range:null} />`:null}
-      <span class="sc-slot">${slotLabel}</span>
-      <span class="sc-name">${act?(act.name||cur):(cur?html`<span class="unknown">⚠ ${cur} (unknown)</span>`:html`<span style="color:var(--ink-3);font-weight:500">— empty —</span>`)}</span>
-      ${act?html`<span class="sc-meta">${slotMeta(act)}</span>`:null}
+      <span class="sc-titlecol">
+        <span class="sc-name">${act?(act.name||cur):(cur?html`<span class="unknown">⚠ ${cur} (unknown)</span>`:html`<span style="color:var(--ink-3);font-weight:500">— empty —</span>`)}</span>
+        <span class="sc-sub">
+          <span class="sc-slot">${slotLabel}</span>
+          ${act?html`<span class="sc-meta">${slotMeta(act)}</span>`:null}
+        </span>
+      </span>
+      ${mechBits.length?html`<span class="mech-badge" title=${"New mechanics set:\n"+mechBits.join("\n")}>⚙ ${mechBits.length}</span>`:null}
       <span class="sc-caret">${open?"▾":"▸"}</span>
     </div>
     ${open?html`<div class="sc-body">
@@ -2131,15 +2232,17 @@ function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEf
         ${filled?html`<button class="btn danger" onClick=${onClear}>Clear slot</button>`:null}
       </div>
       ${act?html`<div class="dense-action"><${ActionEditorInlineAdapter} action=${act} effectRows=${effectRows} knownEffects=${knownEffects}
-        summonOptions=${summonOptions} charById=${charById} tm=${tm} effectByName=${effectByName} onChange=${onActionChange} /></div>`:
+        summonOptions=${summonOptions} charById=${charById} tm=${tm} effectByName=${effectByName} showName=${true} onChange=${onActionChange} /></div>`:
         (cur?html`<p class="note warn-text">This slot references "${cur}" but no such action exists. Pick another, or create it.</p>`:null)}
     </div>`:null}
   </div>`;
 }
 function defenderSampleTypes(){ return [{type:"",pct:1}]; } // neutral by default for slot estimate
 
-/* shared action body editor (used in Actions tab + inline in slot cards) */
-function ActionEditorInline({action, effectRows, knownEffects, summonOptions, charById, tm, onChangeField, effectByName}){
+/* shared action body editor (used in Actions tab + inline in slot cards).
+   R6 — showName: card/table hosts pass true to get an editable NAME title
+   row (the Actions tab keeps its own Identity Name field, so it doesn't). */
+function ActionEditorInline({action, effectRows, knownEffects, summonOptions, charById, tm, onChangeField, effectByName, showName}){
   // mutate-in-place style: caller provides onChangeField(key,value)
   const vis=useFieldVis();                                    // R5 — per-field visibility
   const set=(k,v)=>onChangeField(k,v);
@@ -2149,6 +2252,13 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
   const showDaoeGroup = showDaoeFields || showThumb || issues.length>0;
   const showEffects = vis.has("effect1") || vis.has("effect2") || vis.has("enchant_rider");
   return html`<div>
+    ${(showName&&vis.has("name"))?html`<div class="act-name-row">
+      <input class="act-name" type="text" placeholder=${action.id||"action name"}
+        value=${action.name==null?"":action.name}
+        title="Display name — renaming changes it everywhere this action is used"
+        onInput=${e=>set("name",e.target.value)} />
+      <span class="slug-chip" title="action id (key)">${action.id}</span>
+    </div>`:null}
     ${showDaoeGroup?html`<${Group} title="Damage & AoE">
       ${showDaoeFields?html`<div class="daoe-grid">
         ${vis.has("aoe_pattern")?html`<${Field} label="AoE pattern">
@@ -2725,6 +2835,10 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
   const [psFilter,setPsFilter]=useState("");      // playstyle to filter by
   const [psScope,setPsScope]=useState("either");  // either | primary | secondary
   const [sortAz,setSortAz]=useState(false);
+  // R6 — class-action view: condensed "table" (default) ↔ full "cards".
+  // Persisted per-device like the other view prefs (list-hidden, field chips).
+  const [actView,setActViewRaw]=useState(()=>{ try{ return localStorage.getItem("phalanx_class_action_view")||"table"; }catch(e){ return "table"; } });
+  const setActView=(v)=>{ setActViewRaw(v); try{ localStorage.setItem("phalanx_class_action_view",v); }catch(e){} };
   const effectRows = EFFECT_GROUPS.map(g=>({label:g.label,names:g.names}));
   const knownEffects=useMemo(()=>new Set(enums.effects),[enums]);
   const summonOptions=useMemo(()=>{
@@ -2822,13 +2936,22 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
               onChange=${arr=>edit(cc=>cc.inherent_class_effects=arr)} />
           </${Group}>
 
+          <div class="viewtoggle">
+            <span class="vt-lead">Actions view</span>
+            <button class=${"expand-toggle"+(actView==="table"?" on":"")}
+              title="Condensed overview — one row per action; click a row to open its full editor"
+              onClick=${()=>setActView("table")}>▤ Table</button>
+            <button class=${"expand-toggle"+(actView==="cards"?" on":"")}
+              title="Full editor cards in a grid"
+              onClick=${()=>setActView("cards")}>▦ Cards</button>
+          </div>
           <${FieldChips} />
           <${Group} title="Core Class Actions">
-            <${ClassActionList} c=${c} keyName="core_class_actions" data=${data} actionById=${actionById}
+            <${ClassActionList} c=${c} keyName="core_class_actions" data=${data} actionById=${actionById} viewMode=${actView}
               enums=${enums} effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
           </${Group}>
           <${Group} title="Mastery Class Actions">
-            <${ClassActionList} c=${c} keyName="mastery_class_actions" data=${data} actionById=${actionById}
+            <${ClassActionList} c=${c} keyName="mastery_class_actions" data=${data} actionById=${actionById} viewMode=${actView}
               enums=${enums} effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
           </${Group}>
 
@@ -2868,8 +2991,10 @@ function InherentEditor({list, effectRows, knownEffects, onChange}){
   </div>`;
 }
 
-/* class action slug list — collapsible cards (collapsed=thumb; expanded=full editor) + reorder + create-new */
-function ClassActionList({c, keyName, data, actionById, enums, effectRows, knownEffects, summonOptions, usageIdx, commitEdit, selName}){
+/* class action slug list — R6: two views sharing the same data + handlers.
+   "table" (default) = condensed one-row-per-action overview, click a row to
+   open the full inline editor; "cards" = the original full-editor card grid. */
+function ClassActionList({c, keyName, data, actionById, enums, effectRows, knownEffects, summonOptions, usageIdx, commitEdit, selName, viewMode}){
   const slugs=Array.isArray(c[keyName])?c[keyName]:[];
   const [adding,setAdding]=useState(false);
   const [newId,setNewId]=useState("");
@@ -2910,17 +3035,26 @@ function ClassActionList({c, keyName, data, actionById, enums, effectRows, known
 
   // R5 — mastery cards carry a level badge derived from position (1st = Lv 1 … Lv N).
   const isMastery = keyName==="mastery_class_actions";
+  const swapUp=(i)=>{const a=slugs.slice();[a[i-1],a[i]]=[a[i],a[i-1]];setSlugs(a);};
+  const swapDown=(i)=>{const a=slugs.slice();[a[i+1],a[i]]=[a[i],a[i+1]];setSlugs(a);};
+  const delAt=(i)=>setSlugs(slugs.filter((_,j)=>j!==i));
   return html`<div>
-    ${slugs.length?html`<div class="cardgrid">${slugs.map((slug,i)=>html`<${ClassSlotCard} key=${slug+i} slug=${slug} index=${i} total=${slugs.length}
+    ${slugs.length?(viewMode==="cards"
+      ?html`<div class="cardgrid">${slugs.map((slug,i)=>html`<${ClassSlotCard} key=${slug+i} slug=${slug} index=${i} total=${slugs.length}
         levelBadge=${isMastery?(i+1):null}
         actionById=${actionById} data=${data} effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions}
         usageCount=${usageCountOf(usageIdx,slug)}
-        onUp=${()=>{const a=slugs.slice();[a[i-1],a[i]]=[a[i],a[i-1]];setSlugs(a);}}
-        onDown=${()=>{const a=slugs.slice();[a[i+1],a[i]]=[a[i],a[i+1]];setSlugs(a);}}
-        onDel=${()=>setSlugs(slugs.filter((_,j)=>j!==i))}
+        onUp=${()=>swapUp(i)}
+        onDown=${()=>swapDown(i)}
+        onDel=${()=>delAt(i)}
         onFork=${()=>onFork(i,slug)}
         onMove=${()=>onMove(i)} moveLabel=${moveLabel} moveTitle=${moveTitle}
         onActionChange=${onActionChange} />`)}</div>`
+      :html`<${ClassActionTable} slugs=${slugs} isMastery=${isMastery} data=${data} actionById=${actionById}
+        effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx}
+        onUp=${swapUp} onDown=${swapDown} onDel=${delAt} onFork=${(i)=>onFork(i,slugs[i])}
+        onMove=${onMove} moveLabel=${moveLabel} moveTitle=${moveTitle}
+        onActionChange=${onActionChange} />`)
       :html`<p class="note">None.</p>`}
     <div class="add-slug" style="margin-top:8px">
       <select class="mono" onChange=${e=>{ if(e.target.value){ setSlugs([...slugs,e.target.value]); e.target.value=""; } }}>
@@ -2951,13 +3085,20 @@ function ClassSlotCard({slug, index, total, levelBadge, actionById, data, effect
   const charById=useMemo(()=>{ const m={}; (data.characters||[]).forEach(c=>{ if(c&&c.id!=null) m[String(c.id)]=c; }); return m; },[data.characters]);
   const effectByName=useMemo(()=>{ const m={}; (data.effects||[]).forEach(e=>{ if(e&&e.name) m[e.name]=e; }); return m; },[data.effects]);
   const effNames = actionEffectNames(act);                              // R3.5
+  const mechBits=actionMechBits(act);                                   // R6 — ⚙ new-mechanics badge
   return html`<div class=${"slotcard"+(act?" filled":"")+(open?" expanded":"")}>
     <div class="sc-head" title=${actionSummaryText(act)}>
       <span class="sc-headmain" style="cursor:pointer;display:flex;align-items:center;gap:10px;flex:1;min-width:0" onClick=${()=>setOpen(o=>!o)}>
         ${levelBadge!=null?html`<span class="lv-badge" title="Mastery level (from order)">Lv ${levelBadge}</span>`:null}
         ${vis.has("aoe_thumb")?html`<${AoeThumb} pattern=${act?act.aoe_pattern:null} size=${act?act.aoe_size:null} range=${act?act.aoe_range:null} />`:null}
-        <span class="sc-name">${act?(act.name||slug):html`<span class="unknown">⚠ ${slug} (unknown)</span>`}</span>
-        ${act?html`<span class="sc-meta">${slotMeta(act)}</span>`:null}
+        <span class="sc-titlecol">
+          <span class="sc-name">${act?(act.name||slug):html`<span class="unknown">⚠ ${slug} (unknown)</span>`}</span>
+          <span class="sc-sub">
+            <span class="sc-slot" title="action id (key)">${slug}</span>
+            ${act?html`<span class="sc-meta">${slotMeta(act)}</span>`:null}
+          </span>
+        </span>
+        ${mechBits.length?html`<span class="mech-badge" title=${"New mechanics set:\n"+mechBits.join("\n")}>⚙ ${mechBits.length}</span>`:null}
       </span>
       <button class="mini" disabled=${index===0} title="Up (raise level)" onClick=${onUp}>↑</button>
       <button class="mini" disabled=${index===total-1} title="Down (lower level)" onClick=${onDown}>↓</button>
@@ -2977,10 +3118,86 @@ function ClassSlotCard({slug, index, total, levelBadge, actionById, data, effect
           onClick=${onFork}>⑂ Duplicate to new action</button>`:null}
       </div>`:null}
       ${act?html`<div class="dense-action"><${ActionEditorInlineAdapter} action=${act} effectRows=${effectRows} knownEffects=${knownEffects}
-        summonOptions=${summonOptions||[{value:"",label:"— none —"}]} charById=${charById} tm=${data.type_matrix} effectByName=${effectByName} onChange=${onActionChange} /></div>`
+        summonOptions=${summonOptions||[{value:"",label:"— none —"}]} charById=${charById} tm=${data.type_matrix} effectByName=${effectByName} showName=${true} onChange=${onActionChange} /></div>`
         :html`<p class="note warn-text">Action "${slug}" not found in the library.</p>`}
     </div>`:null}
   </div>`;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   R6 — CONDENSED CLASS-ACTION TABLE
+   One row per action: Name/key · Pattern s/r · Dmg · Energy · Cooldown ·
+   Effect 1/2 · ⚙ new-mech badge · uses · reorder/move/remove ops.
+   Clicking a row expands the SAME full inline editor (ActionEditorInline
+   via the adapter — not a fork) directly beneath it. Same handlers as the
+   card grid, so every edit path is identical.
+   ════════════════════════════════════════════════════════════════════ */
+function ClassActionTable({slugs, isMastery, data, actionById, effectRows, knownEffects, summonOptions, usageIdx,
+                           onUp, onDown, onDel, onFork, onMove, moveLabel, moveTitle, onActionChange}){
+  const [openSlug,setOpenSlug]=useState(null);   // track by slug: survives reorders
+  const vis=useFieldVis();
+  const charById=useMemo(()=>{ const m={}; (data.characters||[]).forEach(ch=>{ if(ch&&ch.id!=null) m[String(ch.id)]=ch; }); return m; },[data.characters]);
+  const effectByName=useMemo(()=>{ const m={}; (data.effects||[]).forEach(e=>{ if(e&&e.name) m[e.name]=e; }); return m; },[data.effects]);
+  const NCOLS=11;
+  return html`<div class="acttable-wrap"><table class="acttable">
+    <thead><tr>
+      <th>${isMastery?"Lv":"#"}</th><th>Name</th><th>Pattern</th>
+      <th style="text-align:right">Dmg</th><th style="text-align:right" title="Energy cost">En</th>
+      <th style="text-align:right" title="Cooldown (rounds)">CD</th>
+      <th>Effect 1</th><th>Effect 2</th>
+      <th title="New-mechanic fields (2026-07) set on this action">Mech</th>
+      <th style="text-align:right" title="Characters + classes using this action">Uses</th><th></th>
+    </tr></thead>
+    <tbody>
+      ${slugs.map((slug,i)=>{
+        const act=actionById[slug];
+        const open=openSlug===slug;
+        const uses=usageCountOf(usageIdx,slug);
+        const mechBits=actionMechBits(act);
+        const dmgMod=act?num(act.damage_modifier,0):0;
+        const dtL=act?({0:"N",1:"S",2:"H"}[intOf(act.damage_type,0)]||""):"";
+        const fx1=act?effectCellText(act.effect1):"", fx2=act?effectCellText(act.effect2):"";
+        return html`
+          <tr class=${"act-row"+(open?" open":"")} key=${slug+i} title=${actionSummaryText(act)}
+              onClick=${()=>setOpenSlug(open?null:slug)}>
+            <td class="a-lv">${isMastery?("Lv "+(i+1)):(i+1)}</td>
+            <td class="a-name">${act?(act.name||slug):html`<span class="unknown">⚠ ${slug} (unknown)</span>`}<span class="a-key">${slug}</span></td>
+            <td class="a-pat">${act?html`${act.aoe_pattern||"—"}<span class="pr" title="size / range">s${act.aoe_size!=null?act.aoe_size:"?"} r${act.aoe_range!=null?act.aoe_range:"?"}</span>`:""}</td>
+            <td class="num">${act?(dmgMod>0?("×"+(+dmgMod)+(dtL?" "+dtL:"")):html`<span class="a-sup">support</span>`):""}</td>
+            <td class="num">${act?(act.energy_cost!=null?act.energy_cost:""):""}</td>
+            <td class="num">${act?(+num(act.cooldown_rounds,0)):""}</td>
+            <td class="a-fx" title=${fx1}>${fx1||"—"}</td>
+            <td class="a-fx" title=${fx2}>${fx2||"—"}</td>
+            <td>${mechBits.length?html`<span class="mech-badge" title=${"New mechanics set:\n"+mechBits.join("\n")}>⚙ ${mechBits.length}</span>`:""}</td>
+            <td class="num" title="characters + classes referencing this action">${uses||0}</td>
+            <td class="a-ops" onClick=${e=>e.stopPropagation()}>
+              <button class="mini" disabled=${i===0} title="Up (raise level)" onClick=${()=>onUp(i)}>↑</button>
+              <button class="mini" disabled=${i===slugs.length-1} title="Down (lower level)" onClick=${()=>onDown(i)}>↓</button>
+              ${onMove?html`<button class="mini move" title=${moveTitle} onClick=${()=>onMove(i)}>${moveLabel}</button>`:null}
+              <button class="mini del" title="Remove from this class" onClick=${()=>onDel(i)}>×</button>
+              <span class="sc-caret" style="margin-left:6px;cursor:pointer" onClick=${()=>setOpenSlug(open?null:slug)}>${open?"▾":"▸"}</span>
+            </td>
+          </tr>
+          ${open?html`<tr class="act-exp" key=${slug+i+"_x"}><td colspan=${NCOLS}>
+            ${act?html`
+              ${(uses>1||vis.has("usage"))?html`<div class=${"share-bar"+(uses>1?"":" solo")}>
+                ${uses>1
+                  ? html`<span class="share-badge">⚠ shared · used by ${uses}</span>
+                      <span class="note" style="margin:0;flex:1">Editing this action's data changes it everywhere it's used.</span>`
+                  : html`<span class="share-badge solo">● used by ${uses||1}</span>
+                      <span class="note" style="margin:0;flex:1">This action is only used here.</span>`}
+                <span class="slug-chip">key: ${slug}</span>
+                ${onFork?html`<button class="fork-btn" title="Create a copy of this action with a new slug and point this slot at it"
+                  onClick=${()=>onFork(i)}>⑂ Duplicate to new action</button>`:null}
+              </div>`:null}
+              <div class="dense-action"><${ActionEditorInlineAdapter} action=${act} effectRows=${effectRows} knownEffects=${knownEffects}
+                summonOptions=${summonOptions||[{value:"",label:"— none —"}]} charById=${charById} tm=${data.type_matrix}
+                effectByName=${effectByName} showName=${true} onChange=${onActionChange} /></div>`
+              :html`<p class="note warn-text">Action "${slug}" not found in the library. Pick another below, or create it.</p>`}
+          </td></tr>`:null}`;
+      })}
+    </tbody>
+  </table></div>`;
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -3291,9 +3508,13 @@ function TypeSlotCard({type, data, actionById, effectRows, knownEffects, effectB
   return html`<div class=${"slotcard"+(act?" filled":"")+(open?" expanded":"")}>
     <div class="sc-head" title=${actionSummaryText(act)} onClick=${()=>setOpen(o=>!o)}>
       <${AoeThumb} pattern=${act?act.aoe_pattern:null} size=${act?act.aoe_size:null} range=${act?act.aoe_range:null} />
-      <span class="sc-slot">type_attack</span>
-      <span class="sc-name">${act?(act.name||slug):(slug?html`<span class="unknown">⚠ ${slug} (unknown)</span>`:html`<span style="color:var(--ink-3);font-weight:500">— none —</span>`)}</span>
-      ${act?html`<span class="sc-meta">${slotMeta(act)}</span>`:null}
+      <span class="sc-titlecol">
+        <span class="sc-name">${act?(act.name||slug):(slug?html`<span class="unknown">⚠ ${slug} (unknown)</span>`:html`<span style="color:var(--ink-3);font-weight:500">— none —</span>`)}</span>
+        <span class="sc-sub">
+          <span class="sc-slot">type_attack${slug?(" · "+slug):""}</span>
+          ${act?html`<span class="sc-meta">${slotMeta(act)}</span>`:null}
+        </span>
+      </span>
       <span class="sc-caret">${open?"▾":"▸"}</span>
     </div>
     ${open?html`<div class="sc-body">
@@ -3321,7 +3542,7 @@ function TypeSlotCard({type, data, actionById, effectRows, knownEffects, effectB
         ${slug?html`<button class="btn danger" onClick=${()=>setSlug("")}>Clear</button>`:null}
       </div>
       ${act?html`<div class="dense-action"><${ActionEditorInlineAdapter} action=${act} effectRows=${effectRows} knownEffects=${knownEffects}
-        summonOptions=${summonOptions||[{value:"",label:"— none —"}]} charById=${charById} tm=${data.type_matrix} effectByName=${effectByName} onChange=${onActionChange} /></div>`
+        summonOptions=${summonOptions||[{value:"",label:"— none —"}]} charById=${charById} tm=${data.type_matrix} effectByName=${effectByName} showName=${true} onChange=${onActionChange} /></div>`
         :(slug?html`<p class="note warn-text">This type references "${slug}" but no such action exists. Pick another, or create it.</p>`:null)}
     </div>`:null}
   </div>`;
