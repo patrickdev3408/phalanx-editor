@@ -1838,7 +1838,7 @@ function App(){
   const [session,setSession]=useState(undefined);  // undefined=unknown, null=signed out, obj=in
   const [loading,setLoading]=useState(false);
   const [data,setData]=useState(null);             // working copy {characters,actions,classes,effects,types,type_matrix,aoe_patterns}
-  const [dirty,setDirty]=useState({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false});
+  const [dirty,setDirty]=useState({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false});
   const [tab,setTab]=useState("characters");
   const [toasts,setToasts]=useState([]);
   const [cmdk,setCmdk]=useState(false);
@@ -1890,7 +1890,7 @@ function App(){
         tunables: tun.map(r=>r.data).filter(Boolean),
       };
       setData(next);
-      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false});
+      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false});
       setUndo([]); setRedo([]);
       if(!silent) toast("Data loaded",
         `${next.characters.length} characters · ${next.actions.length} actions · ${next.classes.classes.length} classes`,"ok",3000);
@@ -1940,17 +1940,17 @@ function App(){
     return opts;
   },[data]);
 
-  const dirtyCount = dirty.chars.size + dirty.actions.size + (dirty.classes?1:0) + (dirty.effects?1:0) + (dirty.matrix?1:0) + (dirty.types?1:0) + (dirty.tunables?1:0);
+  const dirtyCount = dirty.chars.size + dirty.actions.size + (dirty.classes?1:0) + (dirty.effects?1:0) + (dirty.matrix?1:0) + (dirty.types?1:0) + (dirty.tunables?1:0) + (dirty.aoe_patterns?1:0);
   /* always-current snapshot so unload/hidden flush handlers never use stale closures */
   const liveRef = useRef(); liveRef.current = { data, dirty, dirtyCount };
 
   /* ── mutation helper: snapshot for undo, mutate working copy in place, bump dirty ── */
   const commitEdit = useCallback((mutate, dirtyPatch)=>{
-    setUndo(u=>[...u.slice(-49), {data:clone(data), dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables}}]);
+    setUndo(u=>[...u.slice(-49), {data:clone(data), dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns}}]);
     setRedo([]);
     setData(prev=>{ const next=clone(prev); mutate(next); return next; });
     setDirty(prev=>{
-      const nx={chars:new Set(prev.chars),actions:new Set(prev.actions),classes:prev.classes,effects:prev.effects,matrix:prev.matrix,types:prev.types,tunables:prev.tunables};
+      const nx={chars:new Set(prev.chars),actions:new Set(prev.actions),classes:prev.classes,effects:prev.effects,matrix:prev.matrix,types:prev.types,tunables:prev.tunables,aoe_patterns:prev.aoe_patterns};
       if(dirtyPatch) dirtyPatch(nx);
       return nx;
     });
@@ -1960,7 +1960,7 @@ function App(){
     setUndo(u=>{
       if(!u.length) return u;
       const last=u[u.length-1];
-      setRedo(r=>[...r,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables}}]);
+      setRedo(r=>[...r,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns}}]);
       setData(last.data); setDirty(last.dirty);
       return u.slice(0,-1);
     });
@@ -1969,7 +1969,7 @@ function App(){
     setRedo(r=>{
       if(!r.length) return r;
       const last=r[r.length-1];
-      setUndo(u=>[...u,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables}}]);
+      setUndo(u=>[...u,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns}}]);
       setData(last.data); setDirty(last.dirty);
       return r.slice(0,-1);
     });
@@ -1989,6 +1989,7 @@ function App(){
         matrix: dy.matrix? d.type_matrix : null,
         types: dy.types? d.types : null,
         tunables: dy.tunables? d.tunables : null,
+        aoe_patterns: dy.aoe_patterns? d.aoe_patterns : null,
         progression: dy.chars.size? Object.fromEntries([...dy.chars].filter(id=>d.progression&&d.progression[id]).map(id=>[id,d.progression[id]])) : null,
       }));
     }catch(e){}
@@ -2014,7 +2015,7 @@ function App(){
     let raw; try{ raw=localStorage.getItem(DRAFT_KEY); }catch(e){ return; }
     if(!raw) return;
     let d; try{ d=JSON.parse(raw); }catch(e){ return; }
-    const n=(d.chars?.length||0)+(d.actions?.length||0)+(d.classes?1:0)+(d.effects?1:0)+(d.matrix?1:0)+(d.types?1:0)+(d.tunables?1:0);
+    const n=(d.chars?.length||0)+(d.actions?.length||0)+(d.classes?1:0)+(d.effects?1:0)+(d.matrix?1:0)+(d.types?1:0)+(d.tunables?1:0)+(d.aoe_patterns?1:0);
     if(!n) return;
     setData(prev=>{
       const next=clone(prev);
@@ -2025,13 +2026,14 @@ function App(){
       if(d.matrix) next.type_matrix=d.matrix;
       if(d.types) next.types=d.types;
       if(d.tunables) next.tunables=d.tunables;
+      if(d.aoe_patterns) next.aoe_patterns=d.aoe_patterns;
       if(d.progression){ next.progression=next.progression||{}; Object.assign(next.progression,d.progression); }
       return next;
     });
     setDirty({
       chars:new Set((d.chars||[]).map(c=>String(c.id))),
       actions:new Set((d.actions||[]).map(a=>String(a.id))),
-      classes:!!d.classes, effects:!!d.effects, matrix:!!d.matrix, types:!!d.types, tunables:!!d.tunables,
+      classes:!!d.classes, effects:!!d.effects, matrix:!!d.matrix, types:!!d.types, tunables:!!d.tunables, aoe_patterns:!!d.aoe_patterns,
     });
     const discard=()=>{ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} location.reload(); };
     toast("Restored unsaved edits",
@@ -2071,6 +2073,10 @@ function App(){
         const rows=(data.effects||[]).filter(e=>e&&e.name).map(e=>({name:e.name,category:e.category,data:e}));
         if(rows.length){const{error}=await db.from("effects").upsert(rows,{onConflict:"name"});if(error)throw error;}
       }
+      if(dirty.aoe_patterns){
+        const rows=(data.aoe_patterns||[]).filter(p=>p&&p.name).map(p=>({name:p.name,category:p.category,data:p}));
+        if(rows.length){const{error}=await db.from("aoe_patterns").upsert(rows,{onConflict:"name"});if(error)throw error;}
+      }
       if(dirty.matrix){
         const rows=Object.entries(data.type_matrix).map(([k,v])=>{const p=k.split(":");return{attacker:p[0],defender:p[1],multiplier:Number(v)};});
         if(rows.length){const{error}=await db.from("type_matrix").upsert(rows,{onConflict:"attacker,defender"});if(error)throw error;}
@@ -2083,7 +2089,7 @@ function App(){
         const rows=(data.tunables||[]).filter(t=>t&&t.id).map(t=>({id:String(t.id),data:t}));
         if(rows.length){const{error}=await db.from("balance_tunables").upsert(rows,{onConflict:"id"});if(error)throw error;}
       }
-      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false});
+      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false});
       try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
       toast("Saved to Supabase",
         'Edits are live. Run the GitHub Action ("Publish data from Supabase") to write them into the game data files.',"ok",9000);
@@ -2142,7 +2148,7 @@ function App(){
     {id:"types",label:"Types",n:data?.types.length,dirty:dirty.types},
     {id:"effects",label:"Effects",n:data?.effects.length,dirty:dirty.effects},
     {id:"matrix",label:"Type Matrix",n:null,dirty:dirty.matrix},
-    {id:"aoe",label:"AoE Patterns",n:data?.aoe_patterns.length,dirty:false},
+    {id:"aoe",label:"AoE Patterns",n:data?.aoe_patterns.length,dirty:dirty.aoe_patterns},
     {id:"tunables",label:"Tunables",n:data?.tunables?.length,dirty:dirty.tunables},
   ];
 
@@ -2184,9 +2190,9 @@ function App(){
         ${tab==="classes" && html`<${ClassesTab} ...${{data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo}} />`}
         ${tab==="actions" && html`<${ActionsTab} ...${{data,enums,charById,actionById,usageIdx,summonOptions,commitEdit,sel,setSel,jumpTo}} />`}
         ${tab==="types" && html`<${TypesTab} ...${{data,enums,charById,actionById,usageIdx,summonOptions,commitEdit,sel,setSel,jumpTo}} />`}
-        ${tab==="effects" && html`<${EffectsTab} effects=${data.effects} />`}
+        ${tab==="effects" && html`<${EffectsTab} effects=${data.effects} commitEdit=${commitEdit} />`}
         ${tab==="matrix" && html`<${MatrixTab} types=${enums.types} matrix=${data.type_matrix} commitEdit=${commitEdit} />`}
-        ${tab==="aoe" && html`<${AoeTab} patterns=${data.aoe_patterns} />`}
+        ${tab==="aoe" && html`<${AoeTab} patterns=${data.aoe_patterns} commitEdit=${commitEdit} />`}
         ${tab==="tunables" && html`<${TunablesTab} tunables=${data.tunables} commitEdit=${commitEdit} />`}
       </${ErrorBoundary}>
     `}
@@ -3826,13 +3832,18 @@ function emphasize(text){
   if(last<s.length) out.push(s.slice(last));
   return out;
 }
-function EffectsTab({effects}){
+function EffectsTab({effects, commitEdit}){
   const byName=useMemo(()=>{ const m={}; (effects||[]).forEach(e=>{ if(e&&e.name) m[e.name]=e; }); return m; },[effects]);
   const [open,setOpen]=useState(()=>new Set(EFFECT_GROUPS.map((_,i)=>i))); // all open
   const grouped=new Set();
   EFFECT_GROUPS.forEach(g=>g.names.forEach(n=>grouped.add(n)));
   const ungrouped=(effects||[]).filter(e=>e&&e.name&&!grouped.has(e.name));
   const toggle=i=>setOpen(s=>{const n=new Set(s);n.has(i)?n.delete(i):n.add(i);return n;});
+  // Edit an effect field in place → marks the effects table dirty → Save to Supabase upserts it.
+  const setField=(name,field,val)=>commitEdit(next=>{
+    const eff=(next.effects||[]).find(x=>x&&x.name===name); if(eff) eff[field]=val;
+  }, dy=>dy.effects=true);
+  const editStyle="width:100%;box-sizing:border-box;background:var(--bg-2);color:var(--ink-2);border:1px solid var(--line-2);border-radius:6px;font:inherit;font-size:11.5px;padding:3px 6px;margin-top:2px";
 
   const card=(name)=>{
     const e=byName[name];
@@ -3841,16 +3852,20 @@ function EffectsTab({effects}){
     return html`<div class="ref-card tight" key=${name}>
       <h3>${e.name}</h3><span class="cat">${e.category||"effect"}</span>
       <dl>
-        ${e.magnitude_meaning?html`<dd><span class="dlbl">mag</span>${emphasize(e.magnitude_meaning)}</dd>`:null}
+        <dd><span class="dlbl">note</span>
+          <textarea style=${editStyle} rows="2" placeholder="in-game hover / glossary text…"
+            value=${e.notes||""} onInput=${ev=>setField(e.name,"notes",ev.target.value)}></textarea></dd>
+        <dd><span class="dlbl">mag</span>
+          <input style=${editStyle} placeholder="magnitude meaning (hover fallback when note is blank)"
+            value=${e.magnitude_meaning||""} onInput=${ev=>setField(e.name,"magnitude_meaning",ev.target.value)} /></dd>
         ${e.duration_meaning?html`<dd><span class="dlbl">dur</span>${emphasize(e.duration_meaning)}</dd>`:null}
-        ${e.notes?html`<dd><span class="dlbl">note</span>${emphasize(e.notes)}</dd>`:null}
       </dl>
     </div>`;
   };
 
   return html`<div class="view"><div class="full-pane">
-    <div class="group-title">Effects reference <span class="hint" style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">read-only · source of truth = effects.json / effects editor</span></div>
-    <p class="note">${(effects||[]).length} effects. Grouped per the editor's effect taxonomy. Editing happens in the Godot effects editor, not here.</p>
+    <div class="group-title">Effects — hover / glossary text <span class="hint" style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">editable · the <b>note</b> is what the in-game hover shows (falls back to <b>mag</b>)</span></div>
+    <p class="note">${(effects||[]).length} effects. Edit the <b>note</b> to change what pops when you hover that effect in-game (timeline chips, encyclopedia, explainers). Save to Supabase → publish to apply. (An authored entry in data/glossary.json, if any, still overrides.)</p>
     ${EFFECT_GROUPS.map((g,i)=>html`<div style="margin-bottom:12px" key=${i}>
       <div class="group-title" style="cursor:pointer;margin-bottom:6px" onClick=${()=>toggle(i)}>
         <span style="color:var(--ink-3);margin-right:6px">${open.has(i)?"▾":"▸"}</span>${g.label}
@@ -3923,8 +3938,12 @@ function MatrixTab({types, matrix, commitEdit}){
 /* ════════════════════════════════════════════════════════════════════
    AOE PATTERNS TAB (reference; exported PNG matrix; exclude even lines)
    ════════════════════════════════════════════════════════════════════ */
-function AoeTab({patterns}){
+function AoeTab({patterns, commitEdit}){
   const byName=useMemo(()=>{ const m={}; (patterns||[]).forEach(p=>{ if(p&&p.name) m[p.name]=p; }); return m; },[patterns]);
+  // Edit a pattern field in place → marks aoe_patterns dirty → Save to Supabase upserts it.
+  const setPatField=(name,field,val)=>commitEdit(next=>{
+    const p=(next.aoe_patterns||[]).find(x=>x&&x.name===name); if(p) p[field]=val;
+  }, dy=>dy.aoe_patterns=true);
   const [openPat,setOpenPat]=useState(null);
   // ordered list from the matrix rows; only patterns that actually exist
   const ordered=AOE_ROWS.flat().filter(n=>byName[n]);
@@ -3943,7 +3962,7 @@ function AoeTab({patterns}){
       <dl style="margin:0 0 12px;display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:11.5px">
         ${p.size_meaning?html`<dt style="color:var(--ink-3);font-family:var(--mono);font-size:10px;text-transform:uppercase">size</dt><dd style="margin:0;color:var(--ink-2)">${p.size_meaning}</dd>`:null}
         ${p.range_meaning?html`<dt style="color:var(--ink-3);font-family:var(--mono);font-size:10px;text-transform:uppercase">range</dt><dd style="margin:0;color:var(--ink-2)">${p.range_meaning}</dd>`:null}
-        ${p.notes?html`<dt style="color:var(--ink-3);font-family:var(--mono);font-size:10px;text-transform:uppercase">notes</dt><dd style="margin:0;color:var(--ink-2)">${p.notes}</dd>`:null}
+        <dt style="color:var(--ink-3);font-family:var(--mono);font-size:10px;text-transform:uppercase">notes</dt><dd style="margin:0;color:var(--ink-2)"><textarea style="width:100%;box-sizing:border-box;background:var(--bg-2);color:var(--ink-2);border:1px solid var(--line-2);border-radius:6px;font:inherit;font-size:11.5px;padding:3px 6px" rows="2" placeholder="in-game hover / glossary text…" value=${p.notes||""} onInput=${ev=>setPatField(p.name,"notes",ev.target.value)}></textarea></dd>
       </dl>
       <div class="note" style="margin-bottom:6px">Exported card images (~half size) — size (rows) × range (cols). Placeholder shown until the Godot PNG export exists.</div>
       <div style="overflow:auto">
