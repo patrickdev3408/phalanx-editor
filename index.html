@@ -3211,7 +3211,6 @@ function ClassActionTable({slugs, isMastery, data, actionById, effectRows, known
   const closeEdit=useCallback(()=>setEdit(null),[]);
   const charById=useMemo(()=>{ const m={}; (data.characters||[]).forEach(ch=>{ if(ch&&ch.id!=null) m[String(ch.id)]=ch; }); return m; },[data.characters]);
   const effectByName=useMemo(()=>{ const m={}; (data.effects||[]).forEach(e=>{ if(e&&e.name) m[e.name]=e; }); return m; },[data.effects]);
-  const NCOLS=11;
   const openCell=(slug,field,e,wide)=>{ if(e&&e.stopPropagation) e.stopPropagation();
     setEdit({slug, field, rect:e.currentTarget.getBoundingClientRect(), wide:!!wide}); };
   const reveal=(slug,k)=>setRevealed(r=>{ const cur=r[slug]||[]; return cur.indexOf(k)>=0?r:{...r,[slug]:[...cur,k]}; });
@@ -3252,6 +3251,20 @@ function ClassActionTable({slugs, isMastery, data, actionById, effectRows, known
     if(f==="effect1"||f==="effect2") return html`<${EffectBlock} label=${f==="effect1"?"Effect 1":"Effect 2"}
       ef=${act[f]} ownerKey=${act.id+"_"+f} effectRows=${effectRows} knownEffects=${knownEffects}
       effectByName=${effectByName} onChange=${v=>commit(f,v)} />`;
+    if(f==="self_effect1"||f==="self_effect2") return html`<${EffectBlock}
+      label=${f==="self_effect1"?"Self effect 1 (to caster)":"Self effect 2 (to caster)"}
+      ef=${act[f]} ownerKey=${act.id+"_"+f} effectRows=${effectRows} knownEffects=${knownEffects}
+      effectByName=${effectByName} onChange=${v=>commit(f,v)} />`;
+    if(f==="enchant_rider") return html`<${EffectBlock} label="Enchant rider"
+      hint="Spellblade Enchant Weapon: the effect an enchanted ally's next attack applies to whoever it hits"
+      ef=${act.enchant_rider} ownerKey=${act.id+"_ench"} effectRows=${effectRows} knownEffects=${knownEffects}
+      effectByName=${effectByName} onChange=${v=>commit("enchant_rider",v)} />`;
+    if(f==="trap_tick") return html`<div class="cp-field"><label>Trap tick <span class="hint">Trap / Zone / None</span></label>
+      <${Select} value=${act.trap_tick} options=${TRAP_TICKS} onInput=${v=>commitClose("trap_tick",intOf(v,2))} /></div>`;
+    if(f==="unlock_round") return html`<div class="cp-field"><label>Unlock round <span class="hint">0 = from start · N = locked until round N</span></label>
+      <${NumSelect} value=${act.unlock_round==null?0:act.unlock_round} options=${[0,1,2,3,4,5,6,8,10,12,15]} onInput=${v=>commit("unlock_round",v)} /></div>`;
+    if(f==="corpse_raise") return html`<div class="cp-field"><label>Corpse raise <span class="hint">summon only fires on a recent corpse hex</span></label>
+      <label class="cp-check"><input type="checkbox" checked=${!!act.corpse_raise} onChange=${e=>commit("corpse_raise",e.target.checked)} /> enabled</label></div>`;
     if(f==="__add"){
       const shown=advShownFor(act, revealed[edit.slug]);
       const addable=ADV_FIELDS.filter(x=> shown.indexOf(x)<0);
@@ -3265,56 +3278,82 @@ function ClassActionTable({slugs, isMastery, data, actionById, effectRows, known
       ${advControl(act, af, commit)}</div>`;
     return null;
   };
-  const wideField = edit && (edit.wide || ["aoe_pattern","effect1","effect2","__add"].indexOf(edit.field)>=0);
+  const wideField = edit && (edit.wide || ["aoe_pattern","effect1","effect2","self_effect1","self_effect2","enchant_rider","__add"].indexOf(edit.field)>=0);
+
+  // Column model — the middle columns follow the SHOW FIELDS chips, so enabling a
+  // field surfaces it as a compact per-cell-editable column (fills the empty row
+  // space) and disabling it removes the column. `always` cols never toggle.
+  const trapCell=(tt)=>{ const v=intOf(tt,2); return v===2?"—":(v===0?"Trap":"Zone"); };
+  const COLS=[
+    {k:"idx",always:true,th:isMastery?"Lv":"#",
+      cell:(c)=>html`<td class="a-lv">${isMastery?("Lv "+(c.i+1)):(c.i+1)}</td>`},
+    {k:"name",always:true,th:"Name",
+      cell:(c)=>html`<td class=${"a-name"+(c.act?" cell-edit":"")} onClick=${c.ed("name")} title=${c.act?"Click to rename":""}>
+        ${c.act?(c.act.name||c.slug):html`<span class="unknown">⚠ ${c.slug} (unknown)</span>`}<span class="a-key">${c.slug}</span></td>`},
+    {vk:"aoe_pattern",th:"Pattern",
+      cell:(c)=>html`<td class=${"a-pat"+(c.act?" cell-edit":"")} onClick=${c.ed("aoe_pattern")}>
+        ${c.act?html`${c.act.aoe_pattern||"—"}<span class="pr" title="size / range">s${c.act.aoe_size!=null?c.act.aoe_size:"?"} r${c.act.aoe_range!=null?c.act.aoe_range:"?"}</span>`:""}</td>`},
+    {vk:"damage_modifier",th:"Dmg",right:true,
+      cell:(c)=>{ const m=c.act?num(c.act.damage_modifier,0):0, dt=c.act?({0:"N",1:"S",2:"H"}[intOf(c.act.damage_type,0)]||""):"";
+        return html`<td class=${"num"+(c.act?" cell-edit":"")} onClick=${c.ed("dmg")}>
+          ${c.act?(m>0?("×"+(+m)+(dt?" "+dt:"")):html`<span class="a-sup">support</span>`):""}</td>`; }},
+    {vk:"energy_cost",th:"En",right:true,title:"Energy cost",
+      cell:(c)=>html`<td class=${"num"+(c.act?" cell-edit":"")} onClick=${c.ed("energy_cost")}>${c.act?(c.act.energy_cost!=null?c.act.energy_cost:"—"):""}</td>`},
+    {vk:"cooldown_rounds",th:"CD",right:true,title:"Cooldown (rounds)",
+      cell:(c)=>html`<td class=${"num"+(c.act?" cell-edit":"")} onClick=${c.ed("cooldown_rounds")}>${c.act?(+num(c.act.cooldown_rounds,0)):""}</td>`},
+    {vk:"effect1",th:"Effect 1",
+      cell:(c)=>{ const t=c.act?effectCellText(c.act.effect1):""; return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("effect1")} title=${t}>${t||"—"}</td>`; }},
+    {vk:"effect2",th:"Effect 2",
+      cell:(c)=>{ const t=c.act?effectCellText(c.act.effect2):""; return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("effect2")} title=${t}>${t||"—"}</td>`; }},
+    {vk:"self_effect1",th:"Self fx 1",title:"Self effect 1 (to caster)",
+      cell:(c)=>{ const t=c.act?effectCellText(c.act.self_effect1):""; return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("self_effect1")} title=${t}>${t||"—"}</td>`; }},
+    {vk:"self_effect2",th:"Self fx 2",title:"Self effect 2 (to caster)",
+      cell:(c)=>{ const t=c.act?effectCellText(c.act.self_effect2):""; return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("self_effect2")} title=${t}>${t||"—"}</td>`; }},
+    {vk:"enchant_rider",th:"Enchant",title:"Enchant rider (ally's next-hit effect)",
+      cell:(c)=>{ const t=c.act?effectCellText(c.act.enchant_rider):""; return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("enchant_rider")} title=${t}>${t||"—"}</td>`; }},
+    {vk:"trap_tick",th:"Trap",center:true,title:"Trap tick — Trap / Zone / None",
+      cell:(c)=>html`<td class=${c.act?"cell-edit":""} style="text-align:center;font-size:12px" onClick=${c.ed("trap_tick")}>${c.act?trapCell(c.act.trap_tick):""}</td>`},
+    {vk:"unlock_round",th:"Unlk",right:true,title:"Unlock round (warmup gate)",
+      cell:(c)=>html`<td class=${"num"+(c.act?" cell-edit":"")} onClick=${c.ed("unlock_round")}>${c.act?(intOf(c.act.unlock_round,0)||"—"):""}</td>`},
+    {vk:"corpse_raise",th:"Corpse",center:true,title:"Corpse-raise summon",
+      cell:(c)=>html`<td class=${c.act?"cell-edit":""} style="text-align:center" onClick=${c.ed("corpse_raise")}>${c.act?(c.act.corpse_raise?"✓":"—"):""}</td>`},
+    {k:"adv",always:true,th:"Advanced",title:"Mechanic / advanced fields SET on this action (2026-07) — click a chip to edit, + to add",
+      cell:(c)=>html`<td class="a-adv">
+        ${c.act?html`${c.advList.map(f=>html`<button class="adv-chip" key=${f.k} title=${f.hint+"\n(click to edit)"}
+             onClick=${e=>openCell(c.slug,f.k,e)}>${advChipLabel(c.act,f)}</button>`)}
+           <button class="adv-add" title="Add a mechanic / advanced field to this action" onClick=${e=>openCell(c.slug,"__add",e,true)}>+ field</button>`:""}</td>`},
+    {k:"uses",always:true,th:"Uses",right:true,title:"Characters + classes using this action",
+      cell:(c)=>html`<td class="num" title="characters + classes referencing this action">${c.uses||0}</td>`},
+    {k:"ops",always:true,th:"",
+      cell:(c)=>html`<td class="a-ops">
+        <button class="mini" disabled=${c.i===0} title="Up (raise level)" onClick=${()=>onUp(c.i)}>↑</button>
+        <button class="mini" disabled=${c.i===slugs.length-1} title="Down (lower level)" onClick=${()=>onDown(c.i)}>↓</button>
+        ${onMove?html`<button class="mini move" title=${moveTitle} onClick=${()=>onMove(c.i)}>${moveLabel}</button>`:null}
+        <button class="mini del" title="Remove from this class" onClick=${()=>onDel(c.i)}>×</button>
+        <button class=${"mini exp"+(c.open?" on":"")} title="Open the full editor for this action" onClick=${()=>setOpenSlug(c.open?null:c.slug)}>⤢</button></td>`},
+  ];
+  const visCols=COLS.filter(cc=>cc.always || vis.has(cc.vk));
+  const NC=visCols.length;
 
   return html`<div>
     <div class="acttable-wrap"><table class="acttable">
     <thead><tr>
-      <th>${isMastery?"Lv":"#"}</th><th>Name</th><th>Pattern</th>
-      <th style="text-align:right">Dmg</th><th style="text-align:right" title="Energy cost">En</th>
-      <th style="text-align:right" title="Cooldown (rounds)">CD</th>
-      <th>Effect 1</th><th>Effect 2</th>
-      <th title="Mechanic / advanced fields SET on this action (2026-07) — click a chip to edit, + to add">Advanced</th>
-      <th style="text-align:right" title="Characters + classes using this action">Uses</th><th></th>
+      ${visCols.map(cc=>html`<th key=${cc.k||cc.vk} title=${cc.title||""}
+        style=${cc.right?"text-align:right":(cc.center?"text-align:center":"")}>${cc.th}</th>`)}
     </tr></thead>
     <tbody>
       ${slugs.map((slug,i)=>{
         const act=actionById[slug];
         const open=openSlug===slug;
         const uses=usageCountOf(usageIdx,slug);
-        const dmgMod=act?num(act.damage_modifier,0):0;
-        const dtL=act?({0:"N",1:"S",2:"H"}[intOf(act.damage_type,0)]||""):"";
-        const fx1=act?effectCellText(act.effect1):"", fx2=act?effectCellText(act.effect2):"";
         const advList=act?advShownFor(act, revealed[slug]):[];
         const ed=(f)=>act?(e=>openCell(slug,f,e)):null;   // cell click handler (only when action exists)
+        const ctx={ act, slug, i, open, uses, advList, ed };
         return html`
           <tr class="act-row" key=${slug+i} title=${actionSummaryText(act)}>
-            <td class="a-lv">${isMastery?("Lv "+(i+1)):(i+1)}</td>
-            <td class=${"a-name"+(act?" cell-edit":"")} onClick=${ed("name")} title=${act?"Click to rename":""}>
-              ${act?(act.name||slug):html`<span class="unknown">⚠ ${slug} (unknown)</span>`}<span class="a-key">${slug}</span></td>
-            <td class=${"a-pat"+(act?" cell-edit":"")} onClick=${ed("aoe_pattern")}>
-              ${act?html`${act.aoe_pattern||"—"}<span class="pr" title="size / range">s${act.aoe_size!=null?act.aoe_size:"?"} r${act.aoe_range!=null?act.aoe_range:"?"}</span>`:""}</td>
-            <td class=${"num"+(act?" cell-edit":"")} onClick=${ed("dmg")}>
-              ${act?(dmgMod>0?("×"+(+dmgMod)+(dtL?" "+dtL:"")):html`<span class="a-sup">support</span>`):""}</td>
-            <td class=${"num"+(act?" cell-edit":"")} onClick=${ed("energy_cost")}>${act?(act.energy_cost!=null?act.energy_cost:"—"):""}</td>
-            <td class=${"num"+(act?" cell-edit":"")} onClick=${ed("cooldown_rounds")}>${act?(+num(act.cooldown_rounds,0)):""}</td>
-            <td class=${"a-fx"+(act?" cell-edit":"")} onClick=${ed("effect1")} title=${fx1}>${fx1||"—"}</td>
-            <td class=${"a-fx"+(act?" cell-edit":"")} onClick=${ed("effect2")} title=${fx2}>${fx2||"—"}</td>
-            <td class="a-adv">
-              ${act?html`${advList.map(f=>html`<button class="adv-chip" key=${f.k} title=${f.hint+"\n(click to edit)"}
-                   onClick=${e=>openCell(slug,f.k,e)}>${advChipLabel(act,f)}</button>`)}
-                 <button class="adv-add" title="Add a mechanic / advanced field to this action" onClick=${e=>openCell(slug,"__add",e,true)}>+ field</button>`:""}
-            </td>
-            <td class="num" title="characters + classes referencing this action">${uses||0}</td>
-            <td class="a-ops">
-              <button class="mini" disabled=${i===0} title="Up (raise level)" onClick=${()=>onUp(i)}>↑</button>
-              <button class="mini" disabled=${i===slugs.length-1} title="Down (lower level)" onClick=${()=>onDown(i)}>↓</button>
-              ${onMove?html`<button class="mini move" title=${moveTitle} onClick=${()=>onMove(i)}>${moveLabel}</button>`:null}
-              <button class="mini del" title="Remove from this class" onClick=${()=>onDel(i)}>×</button>
-              <button class=${"mini exp"+(open?" on":"")} title="Open the full editor for this action" onClick=${()=>setOpenSlug(open?null:slug)}>⤢</button>
-            </td>
+            ${visCols.map(cc=>cc.cell(ctx))}
           </tr>
-          ${open?html`<tr class="act-exp" key=${slug+i+"_x"}><td colspan=${NCOLS}>
+          ${open?html`<tr class="act-exp" key=${slug+i+"_x"}><td colspan=${NC}>
             ${act?html`
               ${(uses>1||vis.has("usage"))?html`<div class=${"share-bar"+(uses>1?"":" solo")}>
                 ${uses>1
