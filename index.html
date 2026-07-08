@@ -2659,6 +2659,9 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
   // R2.10 — columns for the full table view
   const TABLE_STATS=["health","attack","defense","special_attack","special_defense","speed","dodge","crit_chance"];
   const setSortKey=(k)=>setSort(s=> s==="-"+k ? k : "-"+k); // toggle desc/asc per click
+  // Action-slots view (shares the class-tab toggle preference)
+  const [actView,setActViewS]=useState(()=>{ try{ return localStorage.getItem("phalanx_class_action_view")||"table"; }catch(e){ return "table"; } });
+  const setActView=(v)=>{ setActViewS(v); try{ localStorage.setItem("phalanx_class_action_view",v); }catch(e){} };
 
   return html`<div class="view"><div class=${"split wide"+((listHidden&&c)?" no-list":"")}>
     <div class="list-pane">
@@ -2795,15 +2798,33 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
           </${Group}>
 
           <${Group} title="Action Slots">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">Standard attack + unique actions (Type / Class actions are inherited, not edited here). Cards open by default so several moves show at once; use the chips below to control which fields appear. Pick an existing action or create a brand-new one.</p>
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Standard attack + unique actions (Type / Class actions are inherited, not edited here). Use the chips to control which fields show. <b>Table</b> edits fields per-cell (one row per filled slot); <b>Cards</b> lets you pick / create / fork / clear a slot's action.</p>
             <${FieldChips} />
-            <div class="cardgrid">
-              ${CHAR_EDIT_SLOTS.map(slot=>html`<${SlotCardBound}
-                key=${slot} slot=${slot} owner=${c} ownerKind="char"
-                data=${data} actionById=${actionById} enums=${enums}
-                effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions}
-                charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selId=${selId} />`)}
+            <div class="viewtoggle" style="margin-bottom:8px">
+              <span class="vt-lead">Actions view</span>
+              <button class=${"expand-toggle"+(actView==="table"?" on":"")}
+                title="Condensed table — one row per filled slot; click a cell to edit that field" onClick=${()=>setActView("table")}>▤ Table</button>
+              <button class=${"expand-toggle"+(actView==="cards"?" on":"")}
+                title="Full editor cards — pick / create / fork / clear a slot's action" onClick=${()=>setActView("cards")}>▦ Cards</button>
             </div>
+            ${actView==="table"
+              ? (()=>{
+                  const filled=CHAR_EDIT_SLOTS.map(slot=>{ const w=c[slot]; const id=(w&&typeof w==="object"&&w.id)?w.id:(typeof w==="string"?w:""); return id?{slot,id}:null; }).filter(Boolean);
+                  if(!filled.length) return html`<p class="note">No actions on this character yet — switch to <b>Cards</b> to pick or create one.</p>`;
+                  const labels=filled.map(f=> f.slot==="standard_attack"?"Standard":f.slot.replace(/^unique_action_/,"Unique "));
+                  const onBody=(u)=>commitEdit(next=>{ const i=next.actions.findIndex(a=>a.id===u.id); if(i>=0) next.actions[i]=u; }, dy=>dy.actions.add(String(u.id)));
+                  const onClear=(i)=>{ const slot=filled[i].slot; commitEdit(next=>{ const o=next.characters.find(x=>String(x.id)===String(selId)); if(o) o[slot]={}; }, dy=>dy.chars.add(String(selId))); };
+                  return html`<${ClassActionTable} slugs=${filled.map(f=>f.id)} rowLabels=${labels} data=${data} actionById=${actionById}
+                    effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx}
+                    onDel=${onClear} onActionChange=${onBody} />`;
+                })()
+              : html`<div class="cardgrid">
+                  ${CHAR_EDIT_SLOTS.map(slot=>html`<${SlotCardBound}
+                    key=${slot} slot=${slot} owner=${c} ownerKind="char"
+                    data=${data} actionById=${actionById} enums=${enums}
+                    effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions}
+                    charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selId=${selId} />`)}
+                </div>`}
           </${Group}>
 
           <${Group} title="Card art">
@@ -3208,7 +3229,7 @@ function ClassSlotCard({slug, index, total, levelBadge, actionById, data, effect
    appear when SET, plus a per-row "+ field" picker to introduce one. The
    ⤢ button per row is the escape hatch to the full inline editor.
    ════════════════════════════════════════════════════════════════════ */
-function ClassActionTable({slugs, isMastery, data, actionById, effectRows, knownEffects, summonOptions, usageIdx,
+function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effectRows, knownEffects, summonOptions, usageIdx,
                            onUp, onDown, onDel, onFork, onMove, moveLabel, moveTitle, onActionChange}){
   const [openSlug,setOpenSlug]=useState(null);   // ⤢ full-editor escape hatch (by slug)
   const [edit,setEdit]=useState(null);           // {slug, field, rect, wide} active cell popover
@@ -3302,8 +3323,8 @@ function ClassActionTable({slugs, isMastery, data, actionById, effectRows, known
   // space) and disabling it removes the column. `always` cols never toggle.
   const trapCell=(tt)=>{ const v=intOf(tt,2); return v===2?"—":(v===0?"Trap":"Zone"); };
   const COLS=[
-    {k:"idx",always:true,th:isMastery?"Lv":"#",
-      cell:(c)=>html`<td class="a-lv">${isMastery?("Lv "+(c.i+1)):(c.i+1)}</td>`},
+    {k:"idx",always:true,th:isMastery?"Lv":(rowLabels?"Slot":"#"),
+      cell:(c)=>html`<td class="a-lv" style=${rowLabels?"width:auto;white-space:nowrap;color:var(--ink-2);font-size:11px":""}>${rowLabels?(rowLabels[c.i]||c.slug):(isMastery?("Lv "+(c.i+1)):(c.i+1))}</td>`},
     {k:"name",always:true,th:"Name",
       cell:(c)=>html`<td class=${"a-name"+(c.act?" cell-edit":"")} onClick=${c.ed("name")} title=${c.act?"Click to rename":""}>
         ${c.act?(c.act.name||c.slug):html`<span class="unknown">⚠ ${c.slug} (unknown)</span>`}<span class="a-key">${c.slug}</span></td>`},
@@ -3330,8 +3351,8 @@ function ClassActionTable({slugs, isMastery, data, actionById, effectRows, known
       cell:(c)=>{ const t=c.act?effectCellText(c.act.self_effect2):""; return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("self_effect2")} title=${t}>${t||"—"}</td>`; }},
     {vk:"enchant_rider",th:"Enchant",title:"Enchant rider (ally's next-hit effect)",
       cell:(c)=>{ const t=c.act?effectCellText(c.act.enchant_rider):""; return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("enchant_rider")} title=${t}>${t||"—"}</td>`; }},
-    {vk:"summon",th:"Summon",title:"Summon character",
-      cell:(c)=>{ let t="—"; if(c.act&&c.act.summon_character_id){ const ch=charById[String(c.act.summon_character_id)]; t=ch?(ch.name||String(ch.id)):String(c.act.summon_character_id); } return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("summon")} title=${t}>${t}</td>`; }},
+    {vk:"summon",th:"Summon",title:"Summon character / consume-summon",
+      cell:(c)=>{ let t="—"; if(c.act){ if(c.act.summon_character_id){ const ch=charById[String(c.act.summon_character_id)]; t=ch?(ch.name||String(ch.id)):String(c.act.summon_character_id); if(c.act.consume_summon) t+=" ⊗"; } else if(c.act.consume_summon){ t="⊗ consume"; } } return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("summon")} title=${t}>${t}</td>`; }},
     {vk:"trap_tick",th:"Trap",center:true,title:"Trap tick — Trap / Zone / None",
       cell:(c)=>html`<td class=${c.act?"cell-edit":""} style="text-align:center;font-size:12px" onClick=${c.ed("trap_tick")}>${c.act?trapCell(c.act.trap_tick):""}</td>`},
     {vk:"unlock_round",th:"Unlk",right:true,title:"Unlock round (warmup gate)",
@@ -3347,10 +3368,10 @@ function ClassActionTable({slugs, isMastery, data, actionById, effectRows, known
       cell:(c)=>html`<td class="num" title="characters + classes referencing this action">${c.uses||0}</td>`},
     {k:"ops",always:true,th:"",
       cell:(c)=>html`<td class="a-ops">
-        <button class="mini" disabled=${c.i===0} title="Up (raise level)" onClick=${()=>onUp(c.i)}>↑</button>
-        <button class="mini" disabled=${c.i===slugs.length-1} title="Down (lower level)" onClick=${()=>onDown(c.i)}>↓</button>
+        ${onUp?html`<button class="mini" disabled=${c.i===0} title="Up (raise level)" onClick=${()=>onUp(c.i)}>↑</button>`:null}
+        ${onDown?html`<button class="mini" disabled=${c.i===slugs.length-1} title="Down (lower level)" onClick=${()=>onDown(c.i)}>↓</button>`:null}
         ${onMove?html`<button class="mini move" title=${moveTitle} onClick=${()=>onMove(c.i)}>${moveLabel}</button>`:null}
-        <button class="mini del" title="Remove from this class" onClick=${()=>onDel(c.i)}>×</button>
+        ${onDel?html`<button class="mini del" title=${rowLabels?"Clear this slot":"Remove from this class"} onClick=${()=>onDel(c.i)}>×</button>`:null}
         <button class=${"mini exp"+(c.open?" on":"")} title="Open the full editor for this action" onClick=${()=>setOpenSlug(c.open?null:c.slug)}>⤢</button></td>`},
   ];
   const visCols=COLS.filter(cc=>cc.always || vis.has(cc.vk));
@@ -3644,7 +3665,8 @@ function TypesTab({data,enums,charById,actionById,usageIdx,summonOptions,commitE
           <span class="chip">type action</span></div>
         <div class="detail-body" style="max-width:960px">
           <${Group} title="Type Action">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">Bound to this type's <span class="mono">type_attack</span>. Editing the action's data changes it everywhere it's used. Collapsed = AoE thumbnail; expand to edit.</p>
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Bound to this type's <span class="mono">type_attack</span>. Editing the action's data changes it everywhere it's used. Collapsed = AoE thumbnail; expand to edit. Use the chips to control which fields show (incl. the 2026-07 mechanics).</p>
+            <${FieldChips} />
             <${TypeSlotCard} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows}
               knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions}
               charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
