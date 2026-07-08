@@ -1047,10 +1047,12 @@ const FIELD_KEYS = [
   {k:"effect2",      label:"Effect 2"},
   {k:"self_effect1", label:"Self fx 1"},
   {k:"self_effect2", label:"Self fx 2"},
+  {k:"enchant_rider",label:"Enchant"},
   {k:"summon",       label:"Summon"},
   {k:"trap_tick",    label:"Trap tick"},
   {k:"unlock_round", label:"Unlock rd"},
   {k:"corpse_raise", label:"Corpse"},
+  {k:"newmech",      label:"New mech"},
   {k:"balance",      label:"Balance"},
   {k:"usage",        label:"Uses"},
 ];
@@ -1087,6 +1089,7 @@ const EFFECT_GROUPS = [
   {label:"Reflect / redirect", names:["Thorns","Protector"]},
   {label:"Damage over time", names:["Burn","Poison","Bleed"]},
   {label:"Control / disrupt", names:["Stun","Root","Anti Heal","Silence","Blind","Curse","Mark","Push","Pull"]},
+  {label:"New effects (2026-07)", names:["Dispel","Buff Block","Death Ward","Markstalker","Time Bomb","OverhealShield","Vindication","Mirage","Sequence","Riposte","Grudge","Soul Reservoir","WeaponEnchant","Braced"]},
   {label:"Summon", names:["Summon"]},
 ];
 
@@ -1519,7 +1522,8 @@ function makeForkSlug(oldSlug, actionById){
 function newActionStub(slug){
   return {id:slug,name:String(slug).replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase()),
     damage_type:0,damage_modifier:0.0,aoe_pattern:"Strike",aoe_size:1,aoe_range:1,
-    trap_tick:2,zone_duration_turns:0,unlock_round:0,corpse_raise:false,consume_summon:false,energy_cost:3,effect1:null,effect2:null,self_effect1:null,self_effect2:null,summon_character_id:"",action_type:""};
+    trap_tick:2,zone_duration_turns:0,unlock_round:0,corpse_raise:false,consume_summon:false,energy_cost:3,effect1:null,effect2:null,self_effect1:null,self_effect2:null,enchant_rider:null,summon_character_id:"",action_type:"",
+    scale_isolation:0.0,scale_missing_hp:0.0,bonus_vs_rooted:0.0,overheal_to_shield:false,overheal_shield_pct:100.0,scale_per_own_debuff:0.0,detonate_distinct_bonus_pct:0,charge_gain:0,charge_min:0,charge_spend:false,charge_damage_per_point:0.0,charge_heal_per_point:0.0,bonus_vs_marked:0.0,contagion_hops:0,mass_swap_enemies:false,blink_ally:false,stance_id:""};
 }
 function lintAction(a, charById){
   const out=[];
@@ -2000,7 +2004,7 @@ function AoeThumb({pattern, size, range, big}){
 /* ════════════════════════════════════════════════════════════════════
    EFFECT EDITOR BLOCK (shared, with magnitude/duration matrix dropdowns)
    ════════════════════════════════════════════════════════════════════ */
-function EffectBlock({label, ef, effectRows, knownEffects, onChange, ownerKey, effectByName}){
+function EffectBlock({label, hint, ef, effectRows, knownEffects, onChange, ownerKey, effectByName}){
   const on=!!ef;
   const ebn = effectByName||{};
   const optTitle=(n)=>effectDescText(ebn[n]);                          // R3.4 — per-option hover
@@ -2014,7 +2018,7 @@ function EffectBlock({label, ef, effectRows, knownEffects, onChange, ownerKey, e
   useEffect(()=>{ if(stashOwner.current!==ownerKey){ stash.current=null; stashOwner.current=ownerKey; } },[ownerKey]);
   useEffect(()=>{ if(ef){ stash.current=clone(ef); stashOwner.current=ownerKey; } },[ef,ownerKey]);
   return html`<div class=${"subgroup"+(on?"":" off")}>
-    <div class="sg-head"><h4>${label}</h4>
+    <div class="sg-head"><h4>${label}${hint?html`<span class="hint">${hint}</span>`:null}</h4>
       <${Toggle} label="Active" on=${on} onInput=${v=>{
         if(v){
           const s=(stashOwner.current===ownerKey)?stash.current:null;
@@ -2143,7 +2147,7 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
   const showDaoeFields = ["damage_type","damage_modifier","energy_cost","cooldown_rounds","trap_tick","aoe_pattern","aoe_size","aoe_range"].some(k=>vis.has(k));
   const showThumb = vis.has("aoe_thumb");
   const showDaoeGroup = showDaoeFields || showThumb || issues.length>0;
-  const showEffects = vis.has("effect1") || vis.has("effect2");
+  const showEffects = vis.has("effect1") || vis.has("effect2") || vis.has("enchant_rider");
   return html`<div>
     ${showDaoeGroup?html`<${Group} title="Damage & AoE">
       ${showDaoeFields?html`<div class="daoe-grid">
@@ -2211,6 +2215,8 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
           effectByName=${effectByName} onChange=${v=>set("self_effect1",v)} />`:null}
         ${vis.has("self_effect2")?html`<${EffectBlock} label="Self effect 2 (to caster)" ef=${action.self_effect2} ownerKey=${action.id+"_s2"} effectRows=${effectRows} knownEffects=${knownEffects}
           effectByName=${effectByName} onChange=${v=>set("self_effect2",v)} />`:null}
+        ${vis.has("enchant_rider")?html`<${EffectBlock} label="Enchant rider" hint="Spellblade Enchant Weapon: the effect an enchanted ally's next attack applies to whoever it hits" ef=${action.enchant_rider} ownerKey=${action.id+"_ench"} effectRows=${effectRows} knownEffects=${knownEffects}
+          effectByName=${effectByName} onChange=${v=>set("enchant_rider",v)} />`:null}
       </div>
     </${Group}>`:null}
     ${vis.has("summon")?html`<${Group} title="Summon">
@@ -2227,6 +2233,78 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
           <input type="checkbox" checked=${!!action.consume_summon}
             disabled=${!!action.corpse_raise}
             onChange=${e=>set("consume_summon", e.target.checked)} />
+        </${Field}>
+      </div>
+    </${Group}>`:null}
+    ${vis.has("newmech")?html`<${Group} title="New mechanics (2026-07)">
+      <div class="daoe-grid">
+        <${Field} label="Isolation dmg ×" hint="Knight Isolation: ×damage bonus when the caster has ≤1 adjacent enemy (0.5 = +50%)">
+          <${NumSelect} value=${action.scale_isolation==null?0:action.scale_isolation} float=${true}
+            options=${[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.6,0.75,1.0]} onInput=${v=>set("scale_isolation",v)} />
+        </${Field}>
+        <${Field} label="Missing-HP dmg ×" hint="Reaver Last Rite: damage ×(1 + this × caster's missing-HP fraction)">
+          <${NumSelect} value=${action.scale_missing_hp==null?0:action.scale_missing_hp} float=${true}
+            options=${[0,0.25,0.5,0.75,1.0,1.25,1.5,2.0]} onInput=${v=>set("scale_missing_hp",v)} />
+        </${Field}>
+        <${Field} label="Bonus vs Rooted" hint="Warden Captive Quarry: ×bonus vs a Rooted target (0.5 = +50%)">
+          <${NumSelect} value=${action.bonus_vs_rooted==null?0:action.bonus_vs_rooted} float=${true}
+            options=${[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.6,0.75,1.0]} onInput=${v=>set("bonus_vs_rooted",v)} />
+        </${Field}>
+        <${Field} label="Per-own-debuff dmg ×" hint="Inquisitor Sentence Stack: damage ×(1 + this × harmful-effects-on-target-from-caster)">
+          <${NumSelect} value=${action.scale_per_own_debuff==null?0:action.scale_per_own_debuff} float=${true}
+            options=${[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5]} onInput=${v=>set("scale_per_own_debuff",v)} />
+        </${Field}>
+        <${Field} label="Detonate distinct bonus %" hint="Rogue Rupture: a Detonate bursts ×(1 + pct/100 × (distinct DoT types − 1))">
+          <${NumSelect} value=${action.detonate_distinct_bonus_pct==null?0:action.detonate_distinct_bonus_pct}
+            options=${[0,10,15,20,25,30,40,50,75,100]} onInput=${v=>set("detonate_distinct_bonus_pct",v)} />
+        </${Field}>
+        <${Field} label="Charge gain" hint="S1 Charge: charges banked on the caster when this action is cast">
+          <${NumSelect} value=${action.charge_gain==null?0:action.charge_gain}
+            options=${[0,1,2,3,4,5]} onInput=${v=>set("charge_gain",v)} />
+        </${Field}>
+        <${Field} label="Charge min" hint="S1 Charge: action LOCKED until the caster holds ≥ N charges (finisher gate)">
+          <${NumSelect} value=${action.charge_min==null?0:action.charge_min}
+            options=${[0,1,2,3,4,5,6]} onInput=${v=>set("charge_min",v)} />
+        </${Field}>
+        <${Field} label="Charge dmg / point" hint="S1 Charge: extra damage_modifier per charge consumed">
+          <${NumSelect} value=${action.charge_damage_per_point==null?0:action.charge_damage_per_point} float=${true}
+            options=${[0,0.05,0.1,0.15,0.2,0.25,0.3,0.5,0.75,1.0]} onInput=${v=>set("charge_damage_per_point",v)} />
+        </${Field}>
+        <${Field} label="Charge heal / point" hint="Dawnblade blessing: a charge_spend HEAL restores this many extra HP per charge">
+          <${NumSelect} value=${action.charge_heal_per_point==null?0:action.charge_heal_per_point} float=${true}
+            options=${[0,5,10,15,20,25,30,40,50]} onInput=${v=>set("charge_heal_per_point",v)} />
+        </${Field}>
+        <${Field} label="Overheal → Shield" hint="Cleric: healing beyond max HP banks as Shield">
+          <input type="checkbox" checked=${!!action.overheal_to_shield}
+            onChange=${e=>set("overheal_to_shield", e.target.checked)} />
+        </${Field}>
+        <${Field} label="Overheal → Shield %" hint="% of the overflow banked when Overheal → Shield is on (100 = all)">
+          <${NumSelect} value=${action.overheal_shield_pct==null?100:action.overheal_shield_pct} float=${true}
+            options=${[25,50,75,100]} onInput=${v=>set("overheal_shield_pct",v)} />
+        </${Field}>
+        <${Field} label="Charge spend" hint="S1 Charge: cast consumes ALL of the caster's charges">
+          <input type="checkbox" checked=${!!action.charge_spend}
+            onChange=${e=>set("charge_spend", e.target.checked)} />
+        </${Field}>
+        <${Field} label="Bonus vs Marked" hint="Falcon Quarry: ×(1 + this) vs a target that has Mark">
+          <${NumSelect} value=${action.bonus_vs_marked==null?0:action.bonus_vs_marked} float=${true}
+            options=${[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5]} onInput=${v=>set("bonus_vs_marked",v)} />
+        </${Field}>
+        <${Field} label="Contagion hops" hint="S6 Contagion: harmful effects jump to the nearest enemy on expiry/death (0 = none)">
+          <${NumSelect} value=${action.contagion_hops==null?0:action.contagion_hops}
+            options=${[0,1,2,3]} onInput=${v=>set("contagion_hops",v)} />
+        </${Field}>
+        <${Field} label="Mass-swap enemies" hint="Grand Illusion: on cast, reverses the enemy formation (deterministic)">
+          <input type="checkbox" checked=${!!action.mass_swap_enemies}
+            onChange=${e=>set("mass_swap_enemies", e.target.checked)} />
+        </${Field}>
+        <${Field} label="Blink ally" hint="Sage Guardian-Phase: teleport the ally nearest the aimed hex beside the caster (author + a self-centered heal AoE)">
+          <input type="checkbox" checked=${!!action.blink_ally}
+            onChange=${e=>set("blink_ally", e.target.checked)} />
+        </${Field}>
+        <${Field} label="Stance id" hint="Form/Stance MODE: non-empty ENTERS this stance (self_effect1/2 = the persistent stat profile; drops the previous stance). e.g. bear / wolf">
+          <input type="text" value=${action.stance_id==null?"":action.stance_id}
+            onInput=${e=>set("stance_id", e.target.value)} />
         </${Field}>
       </div>
     </${Group}>`:null}
