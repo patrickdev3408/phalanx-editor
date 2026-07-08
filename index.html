@@ -1047,6 +1047,38 @@ table.acttable .sc-caret{color:var(--ink-3);font-size:11px;display:inline-block;
      row may clip here — switch to Cards view for heavy mobile editing) */
   .acttable-wrap{overflow-x:auto}
 }
+
+/* ── R6b — per-cell editing: clickable cells + floating popover ── */
+table.acttable td.cell-edit{cursor:pointer}
+table.acttable td.cell-edit:hover{background:rgba(40,224,200,.07);box-shadow:inset 0 0 0 1px var(--line-2)}
+/* Advanced cell: chips wrap; not a single-field cell so it doesn't hover-highlight */
+table.acttable tr.act-row td.a-adv{white-space:normal;max-width:260px}
+.adv-chip{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--violet);
+  background:rgba(155,140,240,.13);border:1px solid rgba(155,140,240,.32);border-radius:5px;
+  padding:2px 6px;margin:1px 3px 1px 0;cursor:pointer;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.adv-chip:hover{border-color:var(--violet);color:#cabff7}
+.adv-add{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--ink-3);background:transparent;
+  border:1px dashed var(--line-2);border-radius:5px;padding:2px 7px;cursor:pointer;white-space:nowrap;vertical-align:middle}
+.adv-add:hover{border-color:var(--accent-2);color:var(--accent)}
+table.acttable td.a-ops .mini.exp{margin-left:6px}
+table.acttable td.a-ops .mini.exp.on{color:var(--accent);border-color:var(--accent-2);background:var(--accent-dim)}
+/* the floating cell-editor popover */
+.cellpop{background:var(--panel-2);border:1px solid var(--line-2);border-radius:9px;
+  box-shadow:0 20px 54px rgba(0,0,0,.6);padding:10px 11px}
+.cellpop .cp-field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.cellpop .cp-field>label{font-size:10px;color:var(--ink-3);font-weight:600;letter-spacing:.3px;
+  display:flex;align-items:center;gap:6px}
+.cellpop .cp-field>label .hint{color:var(--ink-3);opacity:.7;font-weight:400;font-family:var(--mono);font-size:9px}
+.cellpop input[type=text],.cellpop select{height:32px}
+.cellpop input[type=checkbox]{width:18px;height:18px}
+/* EffectBlock renders its own subgroup box; flatten it inside the popover */
+.cellpop .subgroup{border:none;padding:0;background:transparent}
+.cellpop .subgroup .sg-head{margin-bottom:8px}
+.cellpop .cp-add-h{font-size:9.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+  color:var(--accent);margin-bottom:8px}
+.cellpop .cp-add-opt{display:block;width:100%;text-align:left;border:1px solid var(--line-2);background:var(--panel);
+  color:var(--ink-2);border-radius:6px;padding:6px 9px;font-size:11.5px;cursor:pointer;margin-bottom:4px}
+.cellpop .cp-add-opt:hover{border-color:var(--accent-2);color:var(--accent)}
 </style>
 </head>
 <body>
@@ -1356,6 +1388,111 @@ function effectCellText(ef){
 }
 
 /* ════════════════════════════════════════════════════════════════════
+   R6b (2026-07-07) — ADVANCED / "NEW-MECHANIC" FIELD MODEL.
+   The 2026-07 mechanic fields are hidden until RELEVANT: shown only when a
+   value is set on an action (or explicitly added via the "+ add" picker).
+   ONE data-driven catalog drives (a) the full-card "New mechanics" group and
+   (b) the class-table Advanced cell — both write the SAME action keys through
+   the SAME onChangeField path (no binding is dropped; controls mirror the
+   originals: options / float / defaults are identical to the old wall).
+   ════════════════════════════════════════════════════════════════════ */
+const ADV_FIELDS=[
+  {k:"scale_isolation",label:"Isolation dmg ×",kind:"numsel",float:true,options:[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.6,0.75,1.0],hint:"Knight Isolation: ×damage bonus when the caster has ≤1 adjacent enemy (0.5 = +50%)"},
+  {k:"scale_missing_hp",label:"Missing-HP dmg ×",kind:"numsel",float:true,options:[0,0.25,0.5,0.75,1.0,1.25,1.5,2.0],hint:"Reaver Last Rite: damage ×(1 + this × caster's missing-HP fraction)"},
+  {k:"bonus_vs_rooted",label:"Bonus vs Rooted",kind:"numsel",float:true,options:[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.6,0.75,1.0],hint:"Warden Captive Quarry: ×bonus vs a Rooted target (0.5 = +50%)"},
+  {k:"scale_per_own_debuff",label:"Per-own-debuff dmg ×",kind:"numsel",float:true,options:[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5],hint:"Inquisitor Sentence Stack: damage ×(1 + this × harmful-effects-on-target-from-caster)"},
+  {k:"detonate_distinct_bonus_pct",label:"Detonate distinct bonus %",kind:"numsel",options:[0,10,15,20,25,30,40,50,75,100],hint:"Rogue Rupture: a Detonate bursts ×(1 + pct/100 × (distinct DoT types − 1))"},
+  {k:"charge_gain",label:"Charge gain",kind:"numsel",options:[0,1,2,3,4,5],hint:"S1 Charge: charges banked on the caster when this action is cast"},
+  {k:"charge_min",label:"Charge min",kind:"numsel",options:[0,1,2,3,4,5,6],hint:"S1 Charge: action LOCKED until the caster holds ≥ N charges (finisher gate)"},
+  {k:"charge_damage_per_point",label:"Charge dmg / point",kind:"numsel",float:true,options:[0,0.05,0.1,0.15,0.2,0.25,0.3,0.5,0.75,1.0],hint:"S1 Charge: extra damage_modifier per charge consumed"},
+  {k:"charge_heal_per_point",label:"Charge heal / point",kind:"numsel",float:true,options:[0,5,10,15,20,25,30,40,50],hint:"Dawnblade blessing: a charge_spend HEAL restores this many extra HP per charge"},
+  {k:"charge_spend",label:"Charge spend",kind:"bool",hint:"S1 Charge: cast consumes ALL of the caster's charges"},
+  {k:"overheal_to_shield",label:"Overheal → Shield",kind:"bool",hint:"Cleric: healing beyond max HP banks as Shield"},
+  {k:"overheal_shield_pct",label:"Overheal → Shield %",kind:"numsel",float:true,options:[25,50,75,100],dflt:100,hint:"% of the overflow banked when Overheal → Shield is on (100 = all)"},
+  {k:"bonus_vs_marked",label:"Bonus vs Marked",kind:"numsel",float:true,options:[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5],hint:"Falcon Quarry: ×(1 + this) vs a target that has Mark"},
+  {k:"contagion_hops",label:"Contagion hops",kind:"numsel",options:[0,1,2,3],hint:"S6 Contagion: harmful effects jump to the nearest enemy on expiry/death (0 = none)"},
+  {k:"mass_swap_enemies",label:"Mass-swap enemies",kind:"bool",hint:"Grand Illusion: on cast, reverses the enemy formation (deterministic)"},
+  {k:"blink_ally",label:"Blink ally",kind:"bool",hint:"Sage Guardian-Phase: teleport the ally nearest the aimed hex beside the caster (author + a self-centered heal AoE)"},
+  {k:"stance_id",label:"Stance id",kind:"text",hint:"Form/Stance MODE: non-empty ENTERS this stance (self_effect1/2 = the persistent stat profile; drops the previous stance). e.g. bear / wolf"},
+];
+const ADV_BY_KEY=(()=>{ const m={}; ADV_FIELDS.forEach(f=>m[f.k]=f); return m; })();
+/* is this advanced field set to a non-default value on the action? */
+function isAdvSet(action,f){
+  if(!action) return false;
+  const v=action[f.k];
+  if(f.kind==="bool") return !!v;
+  if(f.kind==="text") return v!=null && String(v)!=="";
+  return num(v, f.dflt||0) !== (f.dflt||0);   // numsel: differs from its default
+}
+/* the editable control for one advanced field — mirrors the original wall's
+   controls exactly (same options / float / defaults), same set() binding. */
+function advControl(action,f,setField){
+  if(f.kind==="bool")
+    return html`<input type="checkbox" checked=${!!action[f.k]} onChange=${e=>setField(f.k,e.target.checked)} />`;
+  if(f.kind==="text")
+    return html`<input type="text" value=${action[f.k]==null?"":action[f.k]} onInput=${e=>setField(f.k,e.target.value)} />`;
+  const dflt=f.dflt||0;
+  return html`<${NumSelect} value=${action[f.k]==null?dflt:action[f.k]} float=${!!f.float}
+    options=${f.options} onInput=${v=>setField(f.k,v)} />`;
+}
+/* compact chip label for a SET advanced field (table Advanced cell) */
+function advChipLabel(action,f){
+  if(f.kind==="bool") return f.label;
+  if(f.kind==="text") return f.label.replace(/ id$/,"")+": "+action[f.k];
+  return f.label+" "+(+num(action[f.k], f.dflt||0));
+}
+/* keys currently worth showing for an action = set OR explicitly revealed */
+function advShownFor(action, revealedList){
+  const rvl=revealedList||[];
+  return ADV_FIELDS.filter(f=> isAdvSet(action,f) || rvl.indexOf(f.k)>=0);
+}
+
+/* Full-card "New mechanics" body: only SET (or added) fields + an add-picker.
+   Replaces the always-on 17-control wall. `setField(k,v)` = onChangeField. */
+function AdvancedFields({action, setField}){
+  const [revealed,setRevealed]=useState([]);
+  useEffect(()=>{ setRevealed([]); },[action.id]);   // don't carry adds across actions
+  const shown=advShownFor(action, revealed);
+  const addable=ADV_FIELDS.filter(f=> shown.indexOf(f)<0);
+  return html`<div>
+    ${shown.length?html`<div class="daoe-grid">
+      ${shown.map(f=>html`<${Field} key=${f.k} label=${f.label} hint=${f.hint}>${advControl(action,f,setField)}</${Field}>`)}
+    </div>`:html`<p class="note">No mechanic fields set on this action. Only fields a class actually uses show here — use “+ add mechanic field” to introduce one.</p>`}
+    ${addable.length?html`<div class="add-slug" style="margin-top:8px">
+      <select class="mono" value="" onChange=${e=>{ const k=e.target.value; if(k){ setRevealed(r=>r.indexOf(k)>=0?r:[...r,k]); e.target.value=""; } }}>
+        <option value="">+ add mechanic field…</option>
+        ${addable.map(f=>html`<option value=${f.k}>${f.label}</option>`)}
+      </select>
+    </div>`:null}
+  </div>`;
+}
+
+/* R6 — floating cell-editor popover (class-table per-cell editing). Anchored
+   to the clicked cell's rect; closes on outside-click / Escape / scroll. */
+function CellPopover({rect, wide, onClose, children}){
+  const ref=useRef(null);
+  useEffect(()=>{
+    const onDown=(e)=>{ if(ref.current && !ref.current.contains(e.target)) onClose(); };
+    const onKey=(e)=>{ if(e.key==="Escape"){ onClose(); } };
+    const onScroll=()=>onClose();
+    document.addEventListener("mousedown",onDown,true);
+    document.addEventListener("keydown",onKey);
+    window.addEventListener("scroll",onScroll,true);
+    const t=setTimeout(()=>{ try{ const el=ref.current&&ref.current.querySelector("input:not([type=checkbox]),select,textarea"); if(el) el.focus(); }catch(e){} },0);
+    return ()=>{ document.removeEventListener("mousedown",onDown,true); document.removeEventListener("keydown",onKey);
+      window.removeEventListener("scroll",onScroll,true); clearTimeout(t); };
+  },[onClose]);
+  const W = wide?330:230;
+  const vw = window.innerWidth||1200, vh = window.innerHeight||800;
+  let left = Math.min(rect.left, Math.max(8, vw - W - 10));
+  let top = rect.bottom + 4;
+  if(top > vh - 80) top = Math.max(8, rect.top - 8 - 220);   // flip above if near the bottom
+  return html`<div class="cellpop" ref=${ref} style=${`position:fixed;left:${left}px;top:${top}px;width:${W}px;z-index:400`}>
+    ${children}
+  </div>`;
+}
+
+/* ════════════════════════════════════════════════════════════════════
    ERROR BOUNDARY (per-tab)
    ════════════════════════════════════════════════════════════════════ */
 class ErrorBoundary extends Component {
@@ -1444,8 +1581,8 @@ function Empty({big, sub}){
    - popClass: extra width class on the popup (stat / modmtx).
    - noClear: hide the "clear" link (stats/modifier should not go empty).
    - displayFn: optional formatter for the closed-button label. */
-function MatrixDropdown({value, rows, placeholder, onInput, knownSet, numeric, popClass, noClear, displayFn, optTitleFn, btnTitle}){
-  const [open,setOpen]=useState(false);
+function MatrixDropdown({value, rows, placeholder, onInput, knownSet, numeric, popClass, noClear, displayFn, optTitleFn, btnTitle, autoOpen}){
+  const [open,setOpen]=useState(!!autoOpen);   // R6 — cell popovers open the grid immediately
   const [up,setUp]=useState(false);
   const [q,setQ]=useState("");
   const [custom,setCustom]=useState("");
@@ -2346,77 +2483,9 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
         </${Field}>
       </div>
     </${Group}>`:null}
-    ${vis.has("newmech")?html`<${Group} title="New mechanics (2026-07)">
-      <div class="daoe-grid">
-        <${Field} label="Isolation dmg ×" hint="Knight Isolation: ×damage bonus when the caster has ≤1 adjacent enemy (0.5 = +50%)">
-          <${NumSelect} value=${action.scale_isolation==null?0:action.scale_isolation} float=${true}
-            options=${[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.6,0.75,1.0]} onInput=${v=>set("scale_isolation",v)} />
-        </${Field}>
-        <${Field} label="Missing-HP dmg ×" hint="Reaver Last Rite: damage ×(1 + this × caster's missing-HP fraction)">
-          <${NumSelect} value=${action.scale_missing_hp==null?0:action.scale_missing_hp} float=${true}
-            options=${[0,0.25,0.5,0.75,1.0,1.25,1.5,2.0]} onInput=${v=>set("scale_missing_hp",v)} />
-        </${Field}>
-        <${Field} label="Bonus vs Rooted" hint="Warden Captive Quarry: ×bonus vs a Rooted target (0.5 = +50%)">
-          <${NumSelect} value=${action.bonus_vs_rooted==null?0:action.bonus_vs_rooted} float=${true}
-            options=${[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.6,0.75,1.0]} onInput=${v=>set("bonus_vs_rooted",v)} />
-        </${Field}>
-        <${Field} label="Per-own-debuff dmg ×" hint="Inquisitor Sentence Stack: damage ×(1 + this × harmful-effects-on-target-from-caster)">
-          <${NumSelect} value=${action.scale_per_own_debuff==null?0:action.scale_per_own_debuff} float=${true}
-            options=${[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5]} onInput=${v=>set("scale_per_own_debuff",v)} />
-        </${Field}>
-        <${Field} label="Detonate distinct bonus %" hint="Rogue Rupture: a Detonate bursts ×(1 + pct/100 × (distinct DoT types − 1))">
-          <${NumSelect} value=${action.detonate_distinct_bonus_pct==null?0:action.detonate_distinct_bonus_pct}
-            options=${[0,10,15,20,25,30,40,50,75,100]} onInput=${v=>set("detonate_distinct_bonus_pct",v)} />
-        </${Field}>
-        <${Field} label="Charge gain" hint="S1 Charge: charges banked on the caster when this action is cast">
-          <${NumSelect} value=${action.charge_gain==null?0:action.charge_gain}
-            options=${[0,1,2,3,4,5]} onInput=${v=>set("charge_gain",v)} />
-        </${Field}>
-        <${Field} label="Charge min" hint="S1 Charge: action LOCKED until the caster holds ≥ N charges (finisher gate)">
-          <${NumSelect} value=${action.charge_min==null?0:action.charge_min}
-            options=${[0,1,2,3,4,5,6]} onInput=${v=>set("charge_min",v)} />
-        </${Field}>
-        <${Field} label="Charge dmg / point" hint="S1 Charge: extra damage_modifier per charge consumed">
-          <${NumSelect} value=${action.charge_damage_per_point==null?0:action.charge_damage_per_point} float=${true}
-            options=${[0,0.05,0.1,0.15,0.2,0.25,0.3,0.5,0.75,1.0]} onInput=${v=>set("charge_damage_per_point",v)} />
-        </${Field}>
-        <${Field} label="Charge heal / point" hint="Dawnblade blessing: a charge_spend HEAL restores this many extra HP per charge">
-          <${NumSelect} value=${action.charge_heal_per_point==null?0:action.charge_heal_per_point} float=${true}
-            options=${[0,5,10,15,20,25,30,40,50]} onInput=${v=>set("charge_heal_per_point",v)} />
-        </${Field}>
-        <${Field} label="Overheal → Shield" hint="Cleric: healing beyond max HP banks as Shield">
-          <input type="checkbox" checked=${!!action.overheal_to_shield}
-            onChange=${e=>set("overheal_to_shield", e.target.checked)} />
-        </${Field}>
-        <${Field} label="Overheal → Shield %" hint="% of the overflow banked when Overheal → Shield is on (100 = all)">
-          <${NumSelect} value=${action.overheal_shield_pct==null?100:action.overheal_shield_pct} float=${true}
-            options=${[25,50,75,100]} onInput=${v=>set("overheal_shield_pct",v)} />
-        </${Field}>
-        <${Field} label="Charge spend" hint="S1 Charge: cast consumes ALL of the caster's charges">
-          <input type="checkbox" checked=${!!action.charge_spend}
-            onChange=${e=>set("charge_spend", e.target.checked)} />
-        </${Field}>
-        <${Field} label="Bonus vs Marked" hint="Falcon Quarry: ×(1 + this) vs a target that has Mark">
-          <${NumSelect} value=${action.bonus_vs_marked==null?0:action.bonus_vs_marked} float=${true}
-            options=${[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5]} onInput=${v=>set("bonus_vs_marked",v)} />
-        </${Field}>
-        <${Field} label="Contagion hops" hint="S6 Contagion: harmful effects jump to the nearest enemy on expiry/death (0 = none)">
-          <${NumSelect} value=${action.contagion_hops==null?0:action.contagion_hops}
-            options=${[0,1,2,3]} onInput=${v=>set("contagion_hops",v)} />
-        </${Field}>
-        <${Field} label="Mass-swap enemies" hint="Grand Illusion: on cast, reverses the enemy formation (deterministic)">
-          <input type="checkbox" checked=${!!action.mass_swap_enemies}
-            onChange=${e=>set("mass_swap_enemies", e.target.checked)} />
-        </${Field}>
-        <${Field} label="Blink ally" hint="Sage Guardian-Phase: teleport the ally nearest the aimed hex beside the caster (author + a self-centered heal AoE)">
-          <input type="checkbox" checked=${!!action.blink_ally}
-            onChange=${e=>set("blink_ally", e.target.checked)} />
-        </${Field}>
-        <${Field} label="Stance id" hint="Form/Stance MODE: non-empty ENTERS this stance (self_effect1/2 = the persistent stat profile; drops the previous stance). e.g. bear / wolf">
-          <input type="text" value=${action.stance_id==null?"":action.stance_id}
-            onInput=${e=>set("stance_id", e.target.value)} />
-        </${Field}>
-      </div>
+    ${vis.has("newmech")?html`<${Group} title="Mechanics (advanced)">
+      <p class="note" style="margin-top:-4px;margin-bottom:8px">Only fields SET on this action show here (a class that uses none shows nothing) — add one with the picker below. These are the 2026-07 mechanic fields.</p>
+      <${AdvancedFields} action=${action} setField=${set} />
     </${Group}>`:null}
   </div>`;
 }
@@ -3125,27 +3194,87 @@ function ClassSlotCard({slug, index, total, levelBadge, actionById, data, effect
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   R6 — CONDENSED CLASS-ACTION TABLE
-   One row per action: Name/key · Pattern s/r · Dmg · Energy · Cooldown ·
-   Effect 1/2 · ⚙ new-mech badge · uses · reorder/move/remove ops.
-   Clicking a row expands the SAME full inline editor (ActionEditorInline
-   via the adapter — not a fork) directly beneath it. Same handlers as the
-   card grid, so every edit path is identical.
+   R6 — CONDENSED CLASS-ACTION TABLE (per-cell editing, R6b)
+   One row per action. Clicking an individual CELL opens a small floating
+   popover that edits JUST that field (name / pattern+size+range / dmg /
+   energy / cooldown / effect1 / effect2) through the SAME onActionChange
+   path — no row-expansion on click. Advanced ("new mechanic") fields only
+   appear when SET, plus a per-row "+ field" picker to introduce one. The
+   ⤢ button per row is the escape hatch to the full inline editor.
    ════════════════════════════════════════════════════════════════════ */
 function ClassActionTable({slugs, isMastery, data, actionById, effectRows, knownEffects, summonOptions, usageIdx,
                            onUp, onDown, onDel, onFork, onMove, moveLabel, moveTitle, onActionChange}){
-  const [openSlug,setOpenSlug]=useState(null);   // track by slug: survives reorders
+  const [openSlug,setOpenSlug]=useState(null);   // ⤢ full-editor escape hatch (by slug)
+  const [edit,setEdit]=useState(null);           // {slug, field, rect, wide} active cell popover
+  const [revealed,setRevealed]=useState({});     // slug -> [advKey…] explicitly added this session
   const vis=useFieldVis();
+  const closeEdit=useCallback(()=>setEdit(null),[]);
   const charById=useMemo(()=>{ const m={}; (data.characters||[]).forEach(ch=>{ if(ch&&ch.id!=null) m[String(ch.id)]=ch; }); return m; },[data.characters]);
   const effectByName=useMemo(()=>{ const m={}; (data.effects||[]).forEach(e=>{ if(e&&e.name) m[e.name]=e; }); return m; },[data.effects]);
   const NCOLS=11;
-  return html`<div class="acttable-wrap"><table class="acttable">
+  const openCell=(slug,field,e,wide)=>{ if(e&&e.stopPropagation) e.stopPropagation();
+    setEdit({slug, field, rect:e.currentTarget.getBoundingClientRect(), wide:!!wide}); };
+  const reveal=(slug,k)=>setRevealed(r=>{ const cur=r[slug]||[]; return cur.indexOf(k)>=0?r:{...r,[slug]:[...cur,k]}; });
+
+  // active-popover body — reads the LIVE action each render so edits reflect
+  const popBody=()=>{
+    const act=actionById[edit.slug];
+    if(!act) return html`<p class="note warn-text">Action “${edit.slug}” not found. Use the ⤢ full editor to fix.</p>`;
+    const f=edit.field;
+    const commit=(k,v)=>onActionChange({...act,[k]:v});
+    const commitClose=(k,v)=>{ onActionChange({...act,[k]:v}); closeEdit(); };
+    if(f==="name") return html`<div class="cp-field"><label>Name</label>
+      <input type="text" value=${act.name==null?"":act.name} placeholder=${act.id}
+        onInput=${e=>commit("name",e.target.value)} onKeyDown=${e=>{ if(e.key==="Enter") closeEdit(); }} />
+      <span class="note" style="margin-top:5px">key: <span class="mono">${act.id}</span></span></div>`;
+    if(f==="aoe_pattern") return html`<div class="cp-field"><label>AoE pattern</label>
+      <${MatrixDropdown} autoOpen=${true} value=${act.aoe_pattern} rows=${AOE_ROW_DEFS} placeholder="— pattern —" knownSet=${AOE_PATTERN_SET}
+        onInput=${v=>{ const opts=aoeSizeOptions(v),ropts=aoeRangeOptions(v); const patch={aoe_pattern:v};
+          if(!opts.includes(Number(act.aoe_size))) patch.aoe_size=opts[0];
+          if(!ropts.includes(Number(act.aoe_range))) patch.aoe_range=ropts[0];
+          onActionChange({...act,...patch}); }} />
+      <div class="grid cols-2" style="margin-top:9px;gap:8px">
+        <div class="cp-field"><label>Size</label><${NumSelect} value=${act.aoe_size} options=${aoeSizeOptions(act.aoe_pattern)} onInput=${v=>commit("aoe_size",v)} /></div>
+        <div class="cp-field"><label>Range</label><${NumSelect} value=${act.aoe_range} options=${aoeRangeOptions(act.aoe_pattern)} onInput=${v=>commit("aoe_range",v)} /></div>
+      </div></div>`;
+    if(f==="dmg") return html`<div class="cp-field"><label>Damage modifier <span class="hint">×stat · 0 = support</span></label>
+      <${MatrixDropdown} numeric=${true} noClear=${true} popClass="modmtx" autoOpen=${true}
+        value=${act.damage_modifier==null?"":act.damage_modifier} rows=${DMG_MOD_ROWS} knownSet=${DMG_MOD_SET} placeholder="0"
+        displayFn=${v=>(+Number(v)).toString()} onInput=${v=>commit("damage_modifier",v)} />
+      <label style="margin-top:9px">Damage type</label>
+      <${Select} value=${act.damage_type} options=${DAMAGE_TYPES} onInput=${v=>commit("damage_type",intOf(v,0))} /></div>`;
+    if(f==="energy_cost") return html`<div class="cp-field"><label>Energy cost <span class="hint">1-5 · default 3</span></label>
+      <${NumSelect} value=${act.energy_cost} options=${[1,2,3,4,5]} onInput=${v=>commitClose("energy_cost",v)} /></div>`;
+    if(f==="cooldown_rounds") return html`<div class="cp-field"><label>Cooldown (rounds)</label>
+      <${MatrixDropdown} numeric=${true} noClear=${true} popClass="modmtx" autoOpen=${true}
+        value=${act.cooldown_rounds==null?"0":String(act.cooldown_rounds)} rows=${COOLDOWN_ROWS} knownSet=${COOLDOWN_SET} placeholder="0"
+        displayFn=${v=>(+Number(v)).toString()} onInput=${v=>commit("cooldown_rounds",intOf(v,0))} /></div>`;
+    if(f==="effect1"||f==="effect2") return html`<${EffectBlock} label=${f==="effect1"?"Effect 1":"Effect 2"}
+      ef=${act[f]} ownerKey=${act.id+"_"+f} effectRows=${effectRows} knownEffects=${knownEffects}
+      effectByName=${effectByName} onChange=${v=>commit(f,v)} />`;
+    if(f==="__add"){
+      const shown=advShownFor(act, revealed[edit.slug]);
+      const addable=ADV_FIELDS.filter(x=> shown.indexOf(x)<0);
+      return html`<div><div class="cp-add-h">Add mechanic field</div>
+        ${addable.length?addable.map(x=>html`<button class="cp-add-opt" key=${x.k} title=${x.hint}
+          onClick=${()=>{ reveal(edit.slug,x.k); setEdit(prev=>({...prev,field:x.k,wide:false})); }}>${x.label}</button>`)
+          :html`<p class="note">All mechanic fields are already set on this action.</p>`}</div>`;
+    }
+    const af=ADV_BY_KEY[f];
+    if(af) return html`<div class="cp-field"><label>${af.label}${af.hint?html`<span class="hint">${af.hint}</span>`:null}</label>
+      ${advControl(act, af, commit)}</div>`;
+    return null;
+  };
+  const wideField = edit && (edit.wide || ["aoe_pattern","effect1","effect2","__add"].indexOf(edit.field)>=0);
+
+  return html`<div>
+    <div class="acttable-wrap"><table class="acttable">
     <thead><tr>
       <th>${isMastery?"Lv":"#"}</th><th>Name</th><th>Pattern</th>
       <th style="text-align:right">Dmg</th><th style="text-align:right" title="Energy cost">En</th>
       <th style="text-align:right" title="Cooldown (rounds)">CD</th>
       <th>Effect 1</th><th>Effect 2</th>
-      <th title="New-mechanic fields (2026-07) set on this action">Mech</th>
+      <th title="Mechanic / advanced fields SET on this action (2026-07) — click a chip to edit, + to add">Advanced</th>
       <th style="text-align:right" title="Characters + classes using this action">Uses</th><th></th>
     </tr></thead>
     <tbody>
@@ -3153,29 +3282,36 @@ function ClassActionTable({slugs, isMastery, data, actionById, effectRows, known
         const act=actionById[slug];
         const open=openSlug===slug;
         const uses=usageCountOf(usageIdx,slug);
-        const mechBits=actionMechBits(act);
         const dmgMod=act?num(act.damage_modifier,0):0;
         const dtL=act?({0:"N",1:"S",2:"H"}[intOf(act.damage_type,0)]||""):"";
         const fx1=act?effectCellText(act.effect1):"", fx2=act?effectCellText(act.effect2):"";
+        const advList=act?advShownFor(act, revealed[slug]):[];
+        const ed=(f)=>act?(e=>openCell(slug,f,e)):null;   // cell click handler (only when action exists)
         return html`
-          <tr class=${"act-row"+(open?" open":"")} key=${slug+i} title=${actionSummaryText(act)}
-              onClick=${()=>setOpenSlug(open?null:slug)}>
+          <tr class="act-row" key=${slug+i} title=${actionSummaryText(act)}>
             <td class="a-lv">${isMastery?("Lv "+(i+1)):(i+1)}</td>
-            <td class="a-name">${act?(act.name||slug):html`<span class="unknown">⚠ ${slug} (unknown)</span>`}<span class="a-key">${slug}</span></td>
-            <td class="a-pat">${act?html`${act.aoe_pattern||"—"}<span class="pr" title="size / range">s${act.aoe_size!=null?act.aoe_size:"?"} r${act.aoe_range!=null?act.aoe_range:"?"}</span>`:""}</td>
-            <td class="num">${act?(dmgMod>0?("×"+(+dmgMod)+(dtL?" "+dtL:"")):html`<span class="a-sup">support</span>`):""}</td>
-            <td class="num">${act?(act.energy_cost!=null?act.energy_cost:""):""}</td>
-            <td class="num">${act?(+num(act.cooldown_rounds,0)):""}</td>
-            <td class="a-fx" title=${fx1}>${fx1||"—"}</td>
-            <td class="a-fx" title=${fx2}>${fx2||"—"}</td>
-            <td>${mechBits.length?html`<span class="mech-badge" title=${"New mechanics set:\n"+mechBits.join("\n")}>⚙ ${mechBits.length}</span>`:""}</td>
+            <td class=${"a-name"+(act?" cell-edit":"")} onClick=${ed("name")} title=${act?"Click to rename":""}>
+              ${act?(act.name||slug):html`<span class="unknown">⚠ ${slug} (unknown)</span>`}<span class="a-key">${slug}</span></td>
+            <td class=${"a-pat"+(act?" cell-edit":"")} onClick=${ed("aoe_pattern")}>
+              ${act?html`${act.aoe_pattern||"—"}<span class="pr" title="size / range">s${act.aoe_size!=null?act.aoe_size:"?"} r${act.aoe_range!=null?act.aoe_range:"?"}</span>`:""}</td>
+            <td class=${"num"+(act?" cell-edit":"")} onClick=${ed("dmg")}>
+              ${act?(dmgMod>0?("×"+(+dmgMod)+(dtL?" "+dtL:"")):html`<span class="a-sup">support</span>`):""}</td>
+            <td class=${"num"+(act?" cell-edit":"")} onClick=${ed("energy_cost")}>${act?(act.energy_cost!=null?act.energy_cost:"—"):""}</td>
+            <td class=${"num"+(act?" cell-edit":"")} onClick=${ed("cooldown_rounds")}>${act?(+num(act.cooldown_rounds,0)):""}</td>
+            <td class=${"a-fx"+(act?" cell-edit":"")} onClick=${ed("effect1")} title=${fx1}>${fx1||"—"}</td>
+            <td class=${"a-fx"+(act?" cell-edit":"")} onClick=${ed("effect2")} title=${fx2}>${fx2||"—"}</td>
+            <td class="a-adv">
+              ${act?html`${advList.map(f=>html`<button class="adv-chip" key=${f.k} title=${f.hint+"\n(click to edit)"}
+                   onClick=${e=>openCell(slug,f.k,e)}>${advChipLabel(act,f)}</button>`)}
+                 <button class="adv-add" title="Add a mechanic / advanced field to this action" onClick=${e=>openCell(slug,"__add",e,true)}>+ field</button>`:""}
+            </td>
             <td class="num" title="characters + classes referencing this action">${uses||0}</td>
-            <td class="a-ops" onClick=${e=>e.stopPropagation()}>
+            <td class="a-ops">
               <button class="mini" disabled=${i===0} title="Up (raise level)" onClick=${()=>onUp(i)}>↑</button>
               <button class="mini" disabled=${i===slugs.length-1} title="Down (lower level)" onClick=${()=>onDown(i)}>↓</button>
               ${onMove?html`<button class="mini move" title=${moveTitle} onClick=${()=>onMove(i)}>${moveLabel}</button>`:null}
               <button class="mini del" title="Remove from this class" onClick=${()=>onDel(i)}>×</button>
-              <span class="sc-caret" style="margin-left:6px;cursor:pointer" onClick=${()=>setOpenSlug(open?null:slug)}>${open?"▾":"▸"}</span>
+              <button class=${"mini exp"+(open?" on":"")} title="Open the full editor for this action" onClick=${()=>setOpenSlug(open?null:slug)}>⤢</button>
             </td>
           </tr>
           ${open?html`<tr class="act-exp" key=${slug+i+"_x"}><td colspan=${NCOLS}>
@@ -3197,7 +3333,9 @@ function ClassActionTable({slugs, isMastery, data, actionById, effectRows, known
           </td></tr>`:null}`;
       })}
     </tbody>
-  </table></div>`;
+  </table></div>
+    ${edit?html`<${CellPopover} rect=${edit.rect} wide=${wideField} onClose=${closeEdit}>${popBody()}</${CellPopover}>`:null}
+  </div>`;
 }
 
 /* ════════════════════════════════════════════════════════════════════
