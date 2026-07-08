@@ -2662,6 +2662,8 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
   // Action-slots view (shares the class-tab toggle preference)
   const [actView,setActViewS]=useState(()=>{ try{ return localStorage.getItem("phalanx_class_action_view")||"table"; }catch(e){ return "table"; } });
   const setActView=(v)=>{ setActViewS(v); try{ localStorage.setItem("phalanx_class_action_view",v); }catch(e){} };
+  const [charAdding,setCharAdding]=useState(false);
+  const [charNewId,setCharNewId]=useState("");
 
   return html`<div class="view"><div class=${"split wide"+((listHidden&&c)?" no-list":"")}>
     <div class="list-pane">
@@ -2809,14 +2811,29 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
             </div>
             ${actView==="table"
               ? (()=>{
-                  const filled=CHAR_EDIT_SLOTS.map(slot=>{ const w=c[slot]; const id=(w&&typeof w==="object"&&w.id)?w.id:(typeof w==="string"?w:""); return id?{slot,id}:null; }).filter(Boolean);
-                  if(!filled.length) return html`<p class="note">No actions on this character yet — switch to <b>Cards</b> to pick or create one.</p>`;
+                  const slotInfo=CHAR_EDIT_SLOTS.map(slot=>{ const w=c[slot]; const id=(w&&typeof w==="object"&&w.id)?w.id:(typeof w==="string"?w:""); return {slot,id}; });
+                  const filled=slotInfo.filter(x=>x.id);
+                  const emptySlot=(slotInfo.find(x=>!x.id)||{}).slot;
                   const labels=filled.map(f=> f.slot==="standard_attack"?"Standard":f.slot.replace(/^unique_action_/,"Unique "));
                   const onBody=(u)=>commitEdit(next=>{ const i=next.actions.findIndex(a=>a.id===u.id); if(i>=0) next.actions[i]=u; }, dy=>dy.actions.add(String(u.id)));
                   const onClear=(i)=>{ const slot=filled[i].slot; commitEdit(next=>{ const o=next.characters.find(x=>String(x.id)===String(selId)); if(o) o[slot]={}; }, dy=>dy.chars.add(String(selId))); };
-                  return html`<${ClassActionTable} slugs=${filled.map(f=>f.id)} rowLabels=${labels} data=${data} actionById=${actionById}
-                    effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx}
-                    onDel=${onClear} onActionChange=${onBody} />`;
+                  const assign=(id,stub)=>{ if(!emptySlot) return; commitEdit(next=>{ if(stub && !next.actions.find(a=>a.id===id)) next.actions.push(newActionStub(id)); const o=next.characters.find(x=>String(x.id)===String(selId)); if(o) o[emptySlot]={id,cooldown_rounds:0,category:""}; }, dy=>{ dy.chars.add(String(selId)); if(stub) dy.actions.add(String(id)); }); };
+                  return html`
+                    ${filled.length?html`<${ClassActionTable} slugs=${filled.map(f=>f.id)} rowLabels=${labels} data=${data} actionById=${actionById}
+                      effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx}
+                      onDel=${onClear} onActionChange=${onBody} />`:html`<p class="note">No actions on this character yet — add one below.</p>`}
+                    <div class="add-slug" style="margin-top:8px">
+                      ${emptySlot?html`
+                        <select class="mono" onChange=${e=>{ if(e.target.value){ assign(e.target.value,false); e.target.value=""; } }}>
+                          <option value="">+ Add existing action…</option>
+                          ${(data.actions||[]).map(a=>html`<option value=${a.id}>${a.id}</option>`)}
+                        </select>
+                        ${!charAdding?html`<button class="btn" onClick=${()=>{setCharAdding(true);setCharNewId("");}}>+ New action</button>`:html`
+                          <input class="mono" style="flex:1" placeholder="new action slug" value=${charNewId} onInput=${e=>setCharNewId(e.target.value.trim())} />
+                          <button class="btn primary" disabled=${!charNewId} onClick=${()=>{ if(charNewId){ assign(charNewId,true); setCharAdding(false); } }}>Create</button>
+                          <button class="btn ghost" onClick=${()=>setCharAdding(false)}>Cancel</button>`}
+                      `:html`<span class="note" style="margin:0">All 16 action slots are full.</span>`}
+                    </div>`;
                 })()
               : html`<div class="cardgrid">
                   ${CHAR_EDIT_SLOTS.map(slot=>html`<${SlotCardBound}
