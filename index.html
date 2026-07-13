@@ -557,6 +557,7 @@ table input:focus{background:var(--panel);border-color:var(--accent-2)}
 .bulkbar .bb-count{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:700}
 .cb{width:15px;height:15px;border:1px solid var(--line-2);border-radius:3px;background:var(--panel);
   flex:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:var(--accent)}
+.cb-hit{width:15px;height:15px;display:inline-flex;align-items:center;justify-content:center;flex:none}
 .cb.on{background:var(--accent-dim);border-color:var(--accent-2)}
 
 .login-wrap{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(8,9,12,.93)}
@@ -759,6 +760,8 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
 /* base: mobile-only chrome is hidden on desktop (shown in the media query) */
 .mobile-backbar{display:none}
 .save-fab{display:none}
+.mobile-info{display:none}
+.mobile-sheet-scrim{display:none}
 
 /* ════════════════════════════════════════════════════════════════════
    MOBILE / RESPONSIVE PASS (2026-06-17) — tablet ≤760, phone ≤480.
@@ -816,15 +819,45 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
   .grid.cols-2,.grid.cols-3,.grid.cols-4,.grid.cols-5{grid-template-columns:1fr 1fr}
 
   /* tap targets + STOP iOS focus-zoom (needs ≥16px font on the control) */
-  input[type=text],input[type=number],select,textarea{height:44px;font-size:16px}
+  input[type=text],input[type=number],select,textarea{min-height:44px;height:44px;font-size:16px}
   textarea{height:auto;min-height:80px}
-  .btn{height:40px;font-size:14px}
+  .btn,.mini,.fork-btn,.expand-toggle,.fc-chip,.fc-mini,.pill,.usage-chip,.cc-chip,
+  .mdd-opt,.mdd-clear,.rep-del,.collapsible-header,.list-toggle{min-height:44px}
+  .btn{height:44px;font-size:14px}
   .toggle{padding:11px 14px;font-size:14px}
   .pill{padding:7px 13px;font-size:13px}
   .add-row{padding:10px 14px;font-size:13px}
-  .mini{width:34px;height:34px;font-size:15px}
-  .stat-step{width:36px;font-size:18px}
-  .rep-del{width:40px;height:44px}
+  .mini{min-width:44px;width:44px;height:44px;font-size:15px}
+  .stat-step{min-width:44px;width:44px;font-size:18px}
+  .fork-btn,.expand-toggle,.fc-chip,.fc-mini,.pill,.usage-chip,.cc-chip,.mdd-opt,.mdd-clear{display:inline-flex;align-items:center}
+  .rep-del{min-width:44px;width:44px;height:44px}
+  .topbar .btn,.mobile-backbar .mb-back,.slot select,.slot input,table input,
+  .mdd-search,.bulkbar select,.bulkbar input{min-height:44px;height:44px!important}
+  .tm-cell{min-width:44px;width:44px!important;min-height:44px;height:44px!important}
+  .cb-hit{width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;flex:none;cursor:pointer}
+  .cb-hit .cb{pointer-events:none}
+
+  /* create/add/fork/clear and bulk-control rows */
+  .action-create-row,.add-slug,.share-bar,.bulkbar{flex-wrap:wrap}
+  .action-create-row>input,.add-slug>input,.bulkbar input,.bulkbar select{flex:1 1 100%!important;width:100%!important}
+
+  /* shared mobile sheets (class moves + title hints) */
+  .mobile-sheet-scrim{display:flex;position:fixed;inset:0;z-index:520;background:rgba(4,7,9,.68);
+    align-items:flex-end;justify-content:center}
+  .mobile-sheet{width:100%;max-height:72vh;overflow:auto;background:var(--panel);border:1px solid var(--line-2);
+    border-bottom:0;border-radius:14px 14px 0 0;box-shadow:0 -16px 50px rgba(0,0,0,.6);
+    padding:14px 14px calc(14px + env(safe-area-inset-bottom))}
+  .mobile-sheet h3{margin:0 0 4px;font-size:17px}
+  .mobile-sheet .sheet-sub{color:var(--ink-3);font-size:12px;margin-bottom:12px;white-space:pre-wrap}
+  .mobile-sheet-actions{display:grid;grid-template-columns:1fr;gap:8px}
+  .mobile-sheet-actions .btn{width:100%;justify-content:center}
+  .mobile-sheet-actions .btn.selected{border-color:var(--accent-2);color:var(--accent);background:var(--accent-dim)}
+  .mobile-hint-text{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink-2);line-height:1.5;margin:4px 0 14px}
+  .mobile-info{display:inline-flex;align-items:center;justify-content:center;min-width:44px;width:44px;min-height:44px;height:44px;
+    padding:0;border:0;background:transparent;color:var(--accent);font-size:16px;cursor:pointer;flex:none}
+  .sg-title{display:flex;align-items:center;min-width:0}
+  .chip{min-height:44px;display:inline-flex;align-items:center}
+  .effect-ref-input,.aoe-notes{font-size:16px!important}
 
   /* slot rows + collapsible slot cards */
   .slot{grid-template-columns:1fr 1fr;gap:8px}
@@ -854,8 +887,8 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
   .mdd-search{height:42px;font-size:16px}
 
   /* tables: touch sizing (the wrappers already scroll-x) */
-  table input{height:38px;font-size:15px}
-  .tm-cell{width:48px;height:38px;font-size:13px}
+  table input{height:44px;font-size:15px}
+  .tm-cell{width:44px;height:44px;font-size:13px}
   table.chartable tbody td{padding:8px 9px}
   table.chartable thead th{padding:9px 9px}
 
@@ -884,6 +917,8 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
   .grid.cols-2,.grid.cols-3,.grid.cols-4,.grid.cols-5{grid-template-columns:1fr}
   .slot{grid-template-columns:1fr}
   .detail-head .title{font-size:16px}
+  .rep-item.synergy-row,.rep-item.inherent-row{grid-template-columns:1fr!important}
+  .synergy-row .rep-del,.inherent-row .rep-del{justify-self:end}
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -1337,7 +1372,19 @@ function effectDescText(eff){
   return bits.join("\n");
 }
 /* R3.4 — short one-line summary of an action for a hover `title`. */
-function actionSummaryText(a){
+function effectHintText(ef, effectByName){
+  const instance=effectCellText(ef);
+  if(!instance) return "";
+  const desc=effectDescText((effectByName||{})[ef.effect_type]);
+  return desc?instance+"\n\n"+desc:instance;
+}
+function effectShortDesc(eff){
+  if(!eff) return "";
+  const text=eff.notes||eff.magnitude_meaning||eff.duration_meaning||"";
+  const match=String(text).match(/^.*?(?:[.!?](?=\s|$)|$)/);
+  return match?match[0].trim():String(text).trim();
+}
+function actionSummaryText(a, effectByName){
   if(!a) return "";
   const bits=[];
   bits.push((a.name||a.id||"action")+(a.id?" ("+a.id+")":""));
@@ -1345,8 +1392,12 @@ function actionSummaryText(a){
   const dt=DAMAGE_TYPES.find(d=>d.value===a.damage_type);
   if(num(a.damage_modifier,0)>0) bits.push((dt?dt.label:"")+" ×"+(+num(a.damage_modifier,0))+" dmg");
   else bits.push("support");
-  const e1=a.effect1&&a.effect1.effect_type, e2=a.effect2&&a.effect2.effect_type;
-  if(e1||e2) bits.push("Effects: "+[e1,e2].filter(Boolean).join(" + "));
+  const slots=[["FX1",a.effect1],["FX2",a.effect2],["Self FX1",a.self_effect1],["Self FX2",a.self_effect2],["Enchant",a.enchant_rider]];
+  for(const [label,ef] of slots){
+    if(!ef||!ef.effect_type) continue;
+    const short=effectShortDesc((effectByName||{})[ef.effect_type]);
+    bits.push(label+": "+effectCellText(ef)+(short?" — "+short:""));
+  }
   if(a.notes) bits.push(a.notes);
   return bits.join("\n");
 }
@@ -1553,7 +1604,7 @@ function TextInput({value, onInput, mono, placeholder}){
     value=${value==null?"":value} onInput=${e=>onInput(e.target.value)} />`;
 }
 function NumInput({value, onInput, step=1, min, max, int, invalid}){
-  return html`<input type="number" class=${"mono"+(invalid?" invalid":"")} step=${step} min=${min} max=${max}
+  return html`<input type="number" inputmode=${int?"numeric":"decimal"} class=${"mono"+(invalid?" invalid":"")} step=${step} min=${min} max=${max}
     value=${value==null||value===""?"":value}
     onInput=${e=>{const r=e.target.value; if(r===""){onInput(0);return;} onInput(int?intOf(r,0):num(r,0));}} />`;
 }
@@ -1832,6 +1883,88 @@ function useMedia(query){
     return ()=>{ try{ mq.removeEventListener("change",on); }catch(e){ mq.removeListener(on); } };
   },[query]);
   return m;
+}
+
+const MOBILE_HINT_NOTE_KEY="phalanx_mobile_hint_note_seen";
+const MOBILE_HINT_NOTE="Hold any labeled item (or tap ⓘ) for details.";
+function MobileInfoButton({text}){
+  if(!text) return null;
+  return html`<button class="mobile-info" title=${text} aria-label="Show details"
+    onClick=${e=>{e.preventDefault();e.stopPropagation();window.dispatchEvent(new CustomEvent("phalanx-mobile-hint",{detail:String(text)}));}}>ⓘ</button>`;
+}
+function MobileHintLayer({mobile}){
+  const [hint,setHint]=useState(null);
+  const timerRef=useRef(null);
+  const startRef=useRef(null);
+  const suppressRef=useRef(false);
+  const suppressTimerRef=useRef(null);
+  const noteRef=useRef(false);
+  const dismissNote=()=>{ if(!noteRef.current) return; noteRef.current=false; try{localStorage.setItem(MOBILE_HINT_NOTE_KEY,"1");}catch(e){} };
+  const close=()=>{dismissNote();setHint(null);};
+
+  useEffect(()=>{
+    if(!mobile){ setHint(null); return; }
+    try{
+      if(!localStorage.getItem(MOBILE_HINT_NOTE_KEY)){
+        noteRef.current=true;
+        setHint(MOBILE_HINT_NOTE);
+      }
+    }catch(e){ noteRef.current=true; setHint(MOBILE_HINT_NOTE); }
+    const clearHold=()=>{ if(timerRef.current){clearTimeout(timerRef.current);timerRef.current=null;} startRef.current=null; };
+    const onDown=e=>{
+      clearHold();
+      let el=e.target&&e.target.nodeType===1?e.target:null, text="";
+      while(el){
+        if(el.hasAttribute&&el.hasAttribute("title")){ text=String(el.getAttribute("title")||"").trim(); if(text) break; }
+        el=el.parentElement;
+      }
+      if(!text) return;
+      startRef.current={x:e.clientX,y:e.clientY};
+      timerRef.current=setTimeout(()=>{
+        timerRef.current=null;
+        suppressRef.current=true;
+        clearTimeout(suppressTimerRef.current);
+        suppressTimerRef.current=setTimeout(()=>{suppressRef.current=false;},1200);
+        dismissNote();
+        setHint(text);
+      },500);
+    };
+    const onMove=e=>{
+      const s=startRef.current;
+      if(s&&Math.hypot(e.clientX-s.x,e.clientY-s.y)>10) clearHold();
+    };
+    const onEnd=()=>clearHold();
+    const onClick=e=>{
+      if(!suppressRef.current) return;
+      suppressRef.current=false; clearTimeout(suppressTimerRef.current);
+      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    };
+    const onHint=e=>{dismissNote();setHint(String(e.detail||""));};
+    document.addEventListener("pointerdown",onDown,true);
+    document.addEventListener("pointermove",onMove,true);
+    document.addEventListener("pointerup",onEnd,true);
+    document.addEventListener("pointercancel",onEnd,true);
+    document.addEventListener("click",onClick,true);
+    window.addEventListener("phalanx-mobile-hint",onHint);
+    return ()=>{
+      clearHold(); clearTimeout(suppressTimerRef.current); suppressRef.current=false;
+      document.removeEventListener("pointerdown",onDown,true);
+      document.removeEventListener("pointermove",onMove,true);
+      document.removeEventListener("pointerup",onEnd,true);
+      document.removeEventListener("pointercancel",onEnd,true);
+      document.removeEventListener("click",onClick,true);
+      window.removeEventListener("phalanx-mobile-hint",onHint);
+    };
+  },[mobile]);
+
+  if(!mobile||!hint) return null;
+  return html`<div class="mobile-sheet-scrim" onClick=${e=>{if(e.target===e.currentTarget)close();}}>
+    <div class="mobile-sheet" role="dialog" aria-modal="true" aria-label="Details">
+      <h3>Details</h3>
+      <div class="mobile-hint-text">${hint}</div>
+      <div class="mobile-sheet-actions"><button class="btn ghost" onClick=${close}>Close</button></div>
+    </div>
+  </div>`;
 }
 
 function App(){
@@ -2201,6 +2334,7 @@ function App(){
     ${saveDlg?html`<${SaveDialog} data=${data} dirty=${dirty} onCancel=${()=>setSaveDlg(false)} onConfirm=${doSave} />`:null}
     ${cmdk?html`<${CommandPalette} data=${data} onJump=${jumpTo} onClose=${()=>setCmdk(false)} />`:null}
     ${isMobile && dirtyCount>0 ? html`<button class="save-fab" onClick=${()=>setSaveDlg(true)}>Save <span class="count">${dirtyCount}</span></button>` : null}
+    <${MobileHintLayer} mobile=${isMobile} />
 
     <div class="toast-wrap">
       ${toasts.map(t=>html`<div class=${"toast "+(t.kind==="ok"?"":t.kind)} key=${t.id}>
@@ -2261,7 +2395,7 @@ function EffectBlock({label, hint, ef, effectRows, knownEffects, onChange, owner
   const on=!!ef;
   const ebn = effectByName||{};
   const optTitle=(n)=>effectDescText(ebn[n]);                          // R3.4 — per-option hover
-  const curDesc = (ef&&ef.effect_type) ? effectDescText(ebn[ef.effect_type]) : ""; // selected effect hover
+  const curDesc = effectHintText(ef,ebn);                              // instance + selected effect hover
   // R2.4 — retain the effect's data when toggled off→on (local stash; saved
   // value stays null while off so game data isn't polluted). The stash is
   // scoped to ownerKey (the action id) so navigating to a DIFFERENT action
@@ -2271,7 +2405,7 @@ function EffectBlock({label, hint, ef, effectRows, knownEffects, onChange, owner
   useEffect(()=>{ if(stashOwner.current!==ownerKey){ stash.current=null; stashOwner.current=ownerKey; } },[ownerKey]);
   useEffect(()=>{ if(ef){ stash.current=clone(ef); stashOwner.current=ownerKey; } },[ef,ownerKey]);
   return html`<div class=${"subgroup"+(on?"":" off")}>
-    <div class="sg-head"><h4>${label}${hint?html`<span class="hint">${hint}</span>`:null}</h4>
+    <div class="sg-head"><div class="sg-title"><h4 title=${curDesc}>${label}${hint?html`<span class="hint">${hint}</span>`:null}</h4><${MobileInfoButton} text=${curDesc} /></div>
       <${Toggle} label="Active" on=${on} onInput=${v=>{
         if(v){
           const s=(stashOwner.current===ownerKey)?stash.current:null;
@@ -2301,7 +2435,7 @@ function EffectBlock({label, hint, ef, effectRows, knownEffects, onChange, owner
           onInput=${v=>onChange({...ef,effect_duration:v})} />
       </${Field}>
     </div>
-    ${(ef.effect_type&&curDesc)?html`<p class="note" style="margin-top:5px" title=${curDesc}>${curDesc.split("\n").join(" · ")}</p>`:null}`
+    ${(ef.effect_type&&curDesc)?html`<p class="note" style="margin-top:5px" title=${curDesc}>${effectDescText(ebn[ef.effect_type]).split("\n").join(" · ")}</p>`:null}`
     :html`<p class="note">No effect. Toggle Active to add one.</p>`}
   </div>`;
 }
@@ -2339,16 +2473,17 @@ function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEf
 
   const mechBits=actionMechBits(act);                                   // R6 — ⚙ new-mechanics badge
   return html`<div class=${"slotcard"+(filled?" filled":"")+(open?" expanded":"")}>
-    <div class="sc-head" title=${actionSummaryText(act)} onClick=${()=>setOpen(o=>!o)}>
+    <div class="sc-head" title=${actionSummaryText(act,effectByName)} onClick=${()=>setOpen(o=>!o)}>
       ${vis.has("aoe_thumb")?html`<${AoeThumb} pattern=${act?act.aoe_pattern:null} size=${act?act.aoe_size:null} range=${act?act.aoe_range:null} />`:null}
       <span class="sc-titlecol">
         <span class="sc-name">${act?(act.name||cur):(cur?html`<span class="unknown">⚠ ${cur} (unknown)</span>`:html`<span style="color:var(--ink-3);font-weight:500">— empty —</span>`)}</span>
         <span class="sc-sub">
           <span class="sc-slot">${slotLabel}</span>
-          ${act?html`<span class="sc-meta">${slotMeta(act)}</span>`:null}
+          ${act?html`<span class="sc-meta" title=${actionSummaryText(act,effectByName)}>${slotMeta(act)}</span>`:null}
         </span>
       </span>
       ${mechBits.length?html`<span class="mech-badge" title=${"New mechanics set:\n"+mechBits.join("\n")}>⚙ ${mechBits.length}</span>`:null}
+      <${MobileInfoButton} text=${actionSummaryText(act,effectByName)} />
       <span class="sc-caret">${open?"▾":"▸"}</span>
     </div>
     ${open?html`<div class="sc-body">
@@ -2376,7 +2511,7 @@ function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEf
         ${onFork?html`<button class="fork-btn" title="Create a copy of this action with a new slug and point this slot at it"
           onClick=${()=>onFork(cur)}>⑂ Duplicate to new action</button>`:null}
       </div>`:null}
-      <div style="display:flex;gap:8px;margin-bottom:8px">
+      <div class="action-create-row" style="display:flex;gap:8px;margin-bottom:8px">
         ${!adding?html`<button class="add-row" onClick=${()=>{setAdding(true);setNewId("");}}>+ Create a brand-new action</button>`:html`
           <input class="mono" style="flex:1" placeholder="new action slug (e.g. shadow_lunge)" value=${newId} onInput=${e=>setNewId(e.target.value.trim())} />
           <button class="btn primary" disabled=${!newId} onClick=${()=>{
@@ -2544,8 +2679,11 @@ function classBucket(prog, cls){
   return (tier && PROG_KEYS.has(tier)) ? tier : PROG_DEFAULT_TIER;
 }
 function ClassBuckets({selId, data, enums, commitEdit}){
+  const isMobile=useMedia("(max-width:760px)");
   const [drag,setDrag]=useState(null);
   const [over,setOver]=useState(null);
+  const [selectedClass,setSelectedClass]=useState(null);
+  useEffect(()=>setSelectedClass(null),[selId,isMobile]);
   const prog=(data.progression&&data.progression[String(selId)])||emptyProg();
 
   // class -> {p:primary, s:secondary} playstyle, for diagonal-split chip coloring
@@ -2585,10 +2723,10 @@ function ClassBuckets({selId, data, enums, commitEdit}){
         <div class="bk-body">
           ${byBucket[b.key].map((cn,i)=>{
             const primary = b.key==="starting" && i===0;
-            return html`<div class=${"chip"+(primary?" primary":"")+(drag===cn?" dragging":"")} key=${cn} draggable=${true}
+            return html`<div class=${"chip"+(primary?" primary":"")+(drag===cn?" dragging":"")} key=${cn} draggable=${!isMobile}
               style=${"background:"+chipBg(cn)}
               title=${(b.key==="starting" ? (primary?cn+" — primary default (shown in TeamBuilder)":cn+" — click to make primary") : cn)+"  ·  "+psTitle(cn)}
-              onClick=${b.key==="starting"&&!primary?()=>makePrimary(cn):null}
+              onClick=${isMobile?()=>setSelectedClass(cn):(b.key==="starting"&&!primary?()=>makePrimary(cn):null)}
               onDragStart=${e=>{setDrag(cn);e.dataTransfer.effectAllowed="move";try{e.dataTransfer.setData("text/plain",cn);}catch(_){}}}
               onDragEnd=${()=>{setDrag(null);setOver(null);}}>
               ${primary?html`<span class="primary-star">★</span>`:null}${cn}</div>`;
@@ -2596,10 +2734,27 @@ function ClassBuckets({selId, data, enums, commitEdit}){
           ${byBucket[b.key].length===0?html`<span class="bk-empty">drop here</span>`:null}
         </div>
       </div>`)}
-  </div>`;
+  </div>
+  ${isMobile&&selectedClass?(()=>{
+    const current=classBucket(prog,selectedClass);
+    const primary=(prog.starting_classes||[])[0]===selectedClass;
+    return html`<div class="mobile-sheet-scrim" onClick=${e=>{if(e.target===e.currentTarget)setSelectedClass(null);}}>
+      <div class="mobile-sheet" role="dialog" aria-modal="true" aria-label=${"Move "+selectedClass}>
+        <h3>${selectedClass}</h3>
+        <div class="sheet-sub">${psTitle(selectedClass)}</div>
+        <div class="mobile-sheet-actions">
+          ${PROG_BUCKETS.map(b=>html`<button key=${b.key} class=${"btn ghost"+(current===b.key?" selected":"")} disabled=${current===b.key}
+            onClick=${()=>{move(selectedClass,b.key);setSelectedClass(null);}}>${b.label}</button>`)}
+          ${current==="starting"&&!primary?html`<button class="btn primary" onClick=${()=>{makePrimary(selectedClass);setSelectedClass(null);}}>Make primary</button>`:null}
+          <button class="btn ghost" onClick=${()=>setSelectedClass(null)}>Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  })():null}`;
 }
 
 function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,commitEdit,sel,setSel,toast}){
+  const isMobile=useMedia("(max-width:760px)");
   const [q,setQ]=useState("");
   const [tier,setTier]=useState("");
   const [t1,setT1]=useState("");
@@ -2674,9 +2829,11 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
   // R2.10 — columns for the full table view
   const TABLE_STATS=["health","attack","defense","special_attack","special_defense","speed","dodge","crit_chance"];
   const setSortKey=(k)=>setSort(s=> s==="-"+k ? k : "-"+k); // toggle desc/asc per click
-  // Action-slots view (shares the class-tab toggle preference)
-  const [actView,setActViewS]=useState(()=>{ try{ return localStorage.getItem("phalanx_class_action_view")||"table"; }catch(e){ return "table"; } });
-  const setActView=(v)=>{ setActViewS(v); try{ localStorage.setItem("phalanx_class_action_view",v); }catch(e){} };
+  // Action-slots view: mobile has its own cards-first preference.
+  const actViewKey=isMobile?"phalanx_mobile_action_view":"phalanx_class_action_view";
+  const [actView,setActViewS]=useState(()=>{ try{ return localStorage.getItem(actViewKey)||(isMobile?"cards":"table"); }catch(e){ return isMobile?"cards":"table"; } });
+  useEffect(()=>{ try{ setActViewS(localStorage.getItem(actViewKey)||(isMobile?"cards":"table")); }catch(e){ setActViewS(isMobile?"cards":"table"); } },[actViewKey]);
+  const setActView=(v)=>{ setActViewS(v); try{ localStorage.setItem(actViewKey,v); }catch(e){} };
   const [charAdding,setCharAdding]=useState(false);
   const [charNewId,setCharNewId]=useState("");
 
@@ -2741,7 +2898,7 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
           // R3.1 — single condensed line: id · tier letter · Name · Type1 % / Type2 %
           return html`<div class=${"row row-one"+(String(selId)===id?" sel":"")} key=${id}
             onClick=${()=>setSel(s=>({...s,character:id}))}>
-            <div class=${"cb"+(bulk.has(id)?" on":"")} onClick=${e=>{e.stopPropagation();toggleBulk(id);}}>${bulk.has(id)?"✓":""}</div>
+            <div class="cb-hit" onClick=${e=>{e.stopPropagation();toggleBulk(id);}}><span class=${"cb"+(bulk.has(id)?" on":"")}>${bulk.has(id)?"✓":""}</span></div>
             <span class="rid mono">${id}</span>
             <span class=${"tier-letter tier-"+(ch.tier||"minion")} title=${ch.tier||"minion"}>${tierLetter(ch.tier)}</span>
             <span class="rname">${ch.name||"(unnamed)"}${issues.length?html`<span class="lint-flag" title=${issues.map(i=>i.t).join("; ")}>⚠</span>`:null}</span>
@@ -2820,7 +2977,7 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
             <div class="viewtoggle" style="margin-bottom:8px">
               <span class="vt-lead">Actions view</span>
               <button class=${"expand-toggle"+(actView==="table"?" on":"")}
-                title="Condensed table — one row per filled slot; click a cell to edit that field" onClick=${()=>setActView("table")}>▤ Table</button>
+                title="Condensed table — one row per filled slot; click a cell to edit that field" onClick=${()=>setActView("table")}>▤ ${isMobile?"Wide table":"Table"}</button>
               <button class=${"expand-toggle"+(actView==="cards"?" on":"")}
                 title="Full editor cards — pick / create / fork / clear a slot's action" onClick=${()=>setActView("cards")}>▦ Cards</button>
             </div>
@@ -2874,7 +3031,7 @@ function SynergyEditor({list, max, kind, enums, onChange}){
   const cols = kind==="type"?"1.2fr .7fr .7fr 1.2fr .8fr auto":"1.3fr .8fr .7fr 1.2fr .8fr auto";
   const qtyOpts=[1,2,3,4,5,6,7,8,9,10];
   return html`<div class="rep">
-    ${rows.map((s,i)=>html`<div class="rep-item" style=${"grid-template-columns:"+cols} key=${i}>
+    ${rows.map((s,i)=>html`<div class="rep-item synergy-row" style=${"grid-template-columns:"+cols} key=${i}>
       ${kind==="type"
         ? html`<${Field} label="Type"><${Select} value=${s.type} options=${[""].concat(enums.types)} onInput=${v=>upd(i,{type:v})} /></${Field}>`
         : html`<${Field} label="Class"><${Select} value=${s.class_name} options=${[""].concat(enums.classes)} onInput=${v=>upd(i,{class_name:v})} /></${Field}>`}
@@ -2959,16 +3116,19 @@ function SlotCardBound({slot, owner, ownerKind, data, actionById, enums, effectR
    CLASSES TAB
    ════════════════════════════════════════════════════════════════════ */
 function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo}){
+  const isMobile=useMedia("(max-width:760px)");
   const [q,setQ]=useState("");
   const [psFilter,setPsFilter]=useState("");      // playstyle to filter by
   const [psScope,setPsScope]=useState("either");  // either | primary | secondary
   const [sortAz,setSortAz]=useState(false);
-  // R6 — class-action view: condensed "table" (default) ↔ full "cards".
-  // Persisted per-device like the other view prefs (list-hidden, field chips).
-  const [actView,setActViewRaw]=useState(()=>{ try{ return localStorage.getItem("phalanx_class_action_view")||"table"; }catch(e){ return "table"; } });
-  const setActView=(v)=>{ setActViewRaw(v); try{ localStorage.setItem("phalanx_class_action_view",v); }catch(e){} };
+  // R6 — class-action view; mobile has its own cards-first preference.
+  const actViewKey=isMobile?"phalanx_mobile_action_view":"phalanx_class_action_view";
+  const [actView,setActViewRaw]=useState(()=>{ try{ return localStorage.getItem(actViewKey)||(isMobile?"cards":"table"); }catch(e){ return isMobile?"cards":"table"; } });
+  useEffect(()=>{ try{ setActViewRaw(localStorage.getItem(actViewKey)||(isMobile?"cards":"table")); }catch(e){ setActViewRaw(isMobile?"cards":"table"); } },[actViewKey]);
+  const setActView=(v)=>{ setActViewRaw(v); try{ localStorage.setItem(actViewKey,v); }catch(e){} };
   const effectRows = EFFECT_GROUPS.map(g=>({label:g.label,names:g.names}));
   const knownEffects=useMemo(()=>new Set(enums.effects),[enums]);
+  const effectByName=useMemo(()=>{ const m={}; (data.effects||[]).forEach(e=>{ if(e&&e.name) m[e.name]=e; }); return m; },[data.effects]);
   const summonOptions=useMemo(()=>{
     const opts=[{value:"",label:"— none —"}];
     (data.characters||[]).forEach(ch=>{ if(ch.tier==="lieutenant"||ch.tier==="minion")
@@ -3060,7 +3220,7 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
 
           <${Group} title="Inherent Class Effects">
             <p class="note" style="margin-top:-4px;margin-bottom:8px">Blank duration = permanent. 0 = instant.</p>
-            <${InherentEditor} list=${c.inherent_class_effects||[]} effectRows=${effectRows} knownEffects=${knownEffects}
+            <${InherentEditor} list=${c.inherent_class_effects||[]} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName}
               onChange=${arr=>edit(cc=>cc.inherent_class_effects=arr)} />
           </${Group}>
 
@@ -3068,7 +3228,7 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
             <span class="vt-lead">Actions view</span>
             <button class=${"expand-toggle"+(actView==="table"?" on":"")}
               title="Condensed overview — one row per action; click a row to open its full editor"
-              onClick=${()=>setActView("table")}>▤ Table</button>
+              onClick=${()=>setActView("table")}>▤ ${isMobile?"Wide table":"Table"}</button>
             <button class=${"expand-toggle"+(actView==="cards"?" on":"")}
               title="Full editor cards in a grid"
               onClick=${()=>setActView("cards")}>▦ Cards</button>
@@ -3099,13 +3259,14 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
   </div></div>`;
 }
 
-function InherentEditor({list, effectRows, knownEffects, onChange}){
+function InherentEditor({list, effectRows, knownEffects, effectByName, onChange}){
   const rows=Array.isArray(list)?list:[];
   const upd=(i,patch)=>onChange(rows.map((r,j)=>j===i?{...r,...patch}:r));
   return html`<div class="rep">
-    ${rows.map((e,i)=>html`<div class="rep-item" style="grid-template-columns:1.4fr .9fr 1fr auto" key=${i}>
+    ${rows.map((e,i)=>html`<div class="rep-item inherent-row" style="grid-template-columns:1.4fr .9fr 1fr auto" key=${i}>
       <${Field} label="Effect">
         <${MatrixDropdown} value=${e.effect_id} rows=${effectRows} placeholder="— effect —" knownSet=${knownEffects}
+          optTitleFn=${n=>effectDescText((effectByName||{})[n])} btnTitle=${effectDescText((effectByName||{})[e.effect_id])}
           onInput=${v=>upd(i,{effect_id:v})} /></${Field}>
       <${Field} label="Magnitude">
         <${NumInput} float=${true} step=${0.01} value=${e.magnitude} onInput=${v=>upd(i,{magnitude:v})} /></${Field}>
@@ -3215,7 +3376,7 @@ function ClassSlotCard({slug, index, total, levelBadge, actionById, data, effect
   const effNames = actionEffectNames(act);                              // R3.5
   const mechBits=actionMechBits(act);                                   // R6 — ⚙ new-mechanics badge
   return html`<div class=${"slotcard"+(act?" filled":"")+(open?" expanded":"")}>
-    <div class="sc-head" title=${actionSummaryText(act)}>
+    <div class="sc-head" title=${actionSummaryText(act,effectByName)}>
       <span class="sc-headmain" style="cursor:pointer;display:flex;align-items:center;gap:10px;flex:1;min-width:0" onClick=${()=>setOpen(o=>!o)}>
         ${levelBadge!=null?html`<span class="lv-badge" title="Mastery level (from order)">Lv ${levelBadge}</span>`:null}
         ${vis.has("aoe_thumb")?html`<${AoeThumb} pattern=${act?act.aoe_pattern:null} size=${act?act.aoe_size:null} range=${act?act.aoe_range:null} />`:null}
@@ -3223,11 +3384,12 @@ function ClassSlotCard({slug, index, total, levelBadge, actionById, data, effect
           <span class="sc-name">${act?(act.name||slug):html`<span class="unknown">⚠ ${slug} (unknown)</span>`}</span>
           <span class="sc-sub">
             <span class="sc-slot" title="action id (key)">${slug}</span>
-            ${act?html`<span class="sc-meta">${slotMeta(act)}</span>`:null}
+            ${act?html`<span class="sc-meta" title=${actionSummaryText(act,effectByName)}>${slotMeta(act)}</span>`:null}
           </span>
         </span>
         ${mechBits.length?html`<span class="mech-badge" title=${"New mechanics set:\n"+mechBits.join("\n")}>⚙ ${mechBits.length}</span>`:null}
       </span>
+      <${MobileInfoButton} text=${actionSummaryText(act,effectByName)} />
       <button class="mini" disabled=${index===0} title="Up (raise level)" onClick=${onUp}>↑</button>
       <button class="mini" disabled=${index===total-1} title="Down (lower level)" onClick=${onDown}>↓</button>
       ${onMove?html`<button class="mini move" title=${moveTitle} onClick=${onMove}>${moveLabel}</button>`:null}
@@ -3373,16 +3535,12 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
       cell:(c)=>html`<td class=${"num"+(c.act?" cell-edit":"")} onClick=${c.ed("energy_cost")}>${c.act?(c.act.energy_cost!=null?c.act.energy_cost:"—"):""}</td>`},
     {vk:"cooldown_rounds",th:"CD",right:true,title:"Cooldown (rounds)",
       cell:(c)=>html`<td class=${"num"+(c.act?" cell-edit":"")} onClick=${c.ed("cooldown_rounds")}>${c.act?(+num(c.act.cooldown_rounds,0)):""}</td>`},
-    {vk:"effect1",th:"Effect 1",
-      cell:(c)=>{ const t=c.act?effectCellText(c.act.effect1):""; return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("effect1")} title=${t}>${t||"—"}</td>`; }},
-    {vk:"effect2",th:"Effect 2",
-      cell:(c)=>{ const t=c.act?effectCellText(c.act.effect2):""; return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("effect2")} title=${t}>${t||"—"}</td>`; }},
-    {vk:"self_effect1",th:"Self fx 1",title:"Self effect 1 (to caster)",
-      cell:(c)=>{ const t=c.act?effectCellText(c.act.self_effect1):""; return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("self_effect1")} title=${t}>${t||"—"}</td>`; }},
-    {vk:"self_effect2",th:"Self fx 2",title:"Self effect 2 (to caster)",
-      cell:(c)=>{ const t=c.act?effectCellText(c.act.self_effect2):""; return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("self_effect2")} title=${t}>${t||"—"}</td>`; }},
-    {vk:"enchant_rider",th:"Enchant",title:"Enchant rider (ally's next-hit effect)",
-      cell:(c)=>{ const t=c.act?effectCellText(c.act.enchant_rider):""; return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("enchant_rider")} title=${t}>${t||"—"}</td>`; }},
+    ...["effect1","effect2","self_effect1","self_effect2","enchant_rider"].map((fk,fi)=>({
+      vk:fk, th:["Effect 1","Effect 2","Self fx 1","Self fx 2","Enchant"][fi],
+      title:["","","Self effect 1 (to caster)","Self effect 2 (to caster)","Enchant rider (ally's next-hit effect)"][fi]||undefined,
+      cell:(c)=>{ const t=c.act?effectCellText(c.act[fk]):"";
+        const hint=[effectHintText(c.act&&c.act[fk],effectByName), c.act?"Click to edit":""].filter(Boolean).join("\n");
+        return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed(fk)} title=${hint}>${t||"—"}</td>`; }})),
     {vk:"summon",th:"Summon",title:"Summon character / consume-summon",
       cell:(c)=>{ let t="—"; if(c.act){ if(c.act.summon_character_id){ const ch=charById[String(c.act.summon_character_id)]; t=ch?(ch.name||String(ch.id)):String(c.act.summon_character_id); if(c.act.consume_summon) t+=" ⊗"; } else if(c.act.consume_summon){ t="⊗ consume"; } } return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("summon")} title=${t}>${t}</td>`; }},
     {vk:"trap_tick",th:"Trap",center:true,title:"Trap tick — Trap / Zone / None",
@@ -3424,7 +3582,7 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
         const ed=(f)=>act?(e=>openCell(slug,f,e)):null;   // cell click handler (only when action exists)
         const ctx={ act, slug, i, open, uses, advList, ed };
         return html`
-          <tr class="act-row" key=${slug+i} title=${actionSummaryText(act)}>
+          <tr class="act-row" key=${slug+i} title=${actionSummaryText(act,effectByName)}>
             ${visCols.map(cc=>cc.cell(ctx))}
           </tr>
           ${open?html`<tr class="act-exp" key=${slug+i+"_x"}><td colspan=${NC}>
@@ -3537,7 +3695,7 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
         ${list.map(ac=>{
           const li=lintAction(ac,charById);
           const dt=DAMAGE_TYPES.find(d=>d.value===ac.damage_type);
-          return html`<div class=${"row"+(ac.id===selId?" sel":"")} key=${ac.id} title=${actionSummaryText(ac)}
+          return html`<div class=${"row"+(ac.id===selId?" sel":"")} key=${ac.id} title=${actionSummaryText(ac,effectByName)}
             onClick=${()=>setSel(s=>({...s,action:ac.id}))}>
             <${AoeThumb} pattern=${ac.aoe_pattern} size=${ac.aoe_size} range=${ac.aoe_range} />
             <span class="rname">${ac.name||"(unnamed)"}${li.some(x=>x.k==="err")?html`<span class="lint-flag" title=${li.map(x=>x.t).join("; ")}>⚠</span>`:null}</span>
@@ -3758,15 +3916,16 @@ function TypeSlotCard({type, data, actionById, effectRows, knownEffects, effectB
   }, dy=>dy.actions.add(String(updatedAction.id)));
 
   return html`<div class=${"slotcard"+(act?" filled":"")+(open?" expanded":"")}>
-    <div class="sc-head" title=${actionSummaryText(act)} onClick=${()=>setOpen(o=>!o)}>
+    <div class="sc-head" title=${actionSummaryText(act,effectByName)} onClick=${()=>setOpen(o=>!o)}>
       <${AoeThumb} pattern=${act?act.aoe_pattern:null} size=${act?act.aoe_size:null} range=${act?act.aoe_range:null} />
       <span class="sc-titlecol">
         <span class="sc-name">${act?(act.name||slug):(slug?html`<span class="unknown">⚠ ${slug} (unknown)</span>`:html`<span style="color:var(--ink-3);font-weight:500">— none —</span>`)}</span>
         <span class="sc-sub">
           <span class="sc-slot">type_attack${slug?(" · "+slug):""}</span>
-          ${act?html`<span class="sc-meta">${slotMeta(act)}</span>`:null}
+          ${act?html`<span class="sc-meta" title=${actionSummaryText(act,effectByName)}>${slotMeta(act)}</span>`:null}
         </span>
       </span>
+      <${MobileInfoButton} text=${actionSummaryText(act,effectByName)} />
       <span class="sc-caret">${open?"▾":"▸"}</span>
     </div>
     ${open?html`<div class="sc-body">
@@ -3785,7 +3944,7 @@ function TypeSlotCard({type, data, actionById, effectRows, knownEffects, effectB
         <button class="fork-btn" title="Create a copy of this action with a new slug and point this type at it"
           onClick=${onFork}>⑂ Duplicate to new action</button>
       </div>`:null}
-      <div style="display:flex;gap:8px;margin-bottom:8px">
+      <div class="action-create-row" style="display:flex;gap:8px;margin-bottom:8px">
         ${!adding?html`<button class="add-row" onClick=${()=>{setAdding(true);setNewId("");}}>+ Create a brand-new action</button>`:html`
           <input class="mono" style="flex:1" placeholder="new action slug (e.g. flame_lash)" value=${newId} onInput=${e=>setNewId(e.target.value.trim())} />
           <button class="btn primary" disabled=${!newId} onClick=${()=>onCreate(newId)}>Create & assign</button>
@@ -3849,14 +4008,14 @@ function EffectsTab({effects, commitEdit}){
     const e=byName[name];
     if(!e) return html`<div class="ref-card tight" key=${name}><h3>${name}</h3><span class="cat">missing</span>
       <dl><dd class="warn-text">Not found in effects.json.</dd></dl></div>`;
-    return html`<div class="ref-card tight" key=${name}>
+    return html`<div class="ref-card tight" key=${name} title=${effectDescText(e)}>
       <h3>${e.name}</h3><span class="cat">${e.category||"effect"}</span>
       <dl>
         <dd><span class="dlbl">note</span>
-          <textarea style=${editStyle} rows="2" placeholder="in-game hover / glossary text…"
+          <textarea class="effect-ref-input" style=${editStyle} rows="2" placeholder="in-game hover / glossary text…"
             value=${e.notes||""} onInput=${ev=>setField(e.name,"notes",ev.target.value)}></textarea></dd>
         <dd><span class="dlbl">mag</span>
-          <input style=${editStyle} placeholder="magnitude meaning (hover fallback when note is blank)"
+          <input class="effect-ref-input" style=${editStyle} placeholder="magnitude meaning (hover fallback when note is blank)"
             value=${e.magnitude_meaning||""} onInput=${ev=>setField(e.name,"magnitude_meaning",ev.target.value)} /></dd>
         ${e.duration_meaning?html`<dd><span class="dlbl">dur</span>${emphasize(e.duration_meaning)}</dd>`:null}
       </dl>
@@ -3867,7 +4026,7 @@ function EffectsTab({effects, commitEdit}){
     <div class="group-title">Effects — hover / glossary text <span class="hint" style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">editable · the <b>note</b> is what the in-game hover shows (falls back to <b>mag</b>)</span></div>
     <p class="note">${(effects||[]).length} effects. Edit the <b>note</b> to change what pops when you hover that effect in-game (timeline chips, encyclopedia, explainers). Save to Supabase → publish to apply. (An authored entry in data/glossary.json, if any, still overrides.)</p>
     ${EFFECT_GROUPS.map((g,i)=>html`<div style="margin-bottom:12px" key=${i}>
-      <div class="group-title" style="cursor:pointer;margin-bottom:6px" onClick=${()=>toggle(i)}>
+      <div class="group-title collapsible-header" style="cursor:pointer;margin-bottom:6px" onClick=${()=>toggle(i)}>
         <span style="color:var(--ink-3);margin-right:6px">${open.has(i)?"▾":"▸"}</span>${g.label}
         <span class="badge" style="margin-left:8px;color:var(--ink-3);border:1px solid var(--line);border-radius:99px;padding:0 6px">${g.names.length}</span>
       </div>
@@ -3962,7 +4121,7 @@ function AoeTab({patterns, commitEdit}){
       <dl style="margin:0 0 12px;display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:11.5px">
         ${p.size_meaning?html`<dt style="color:var(--ink-3);font-family:var(--mono);font-size:10px;text-transform:uppercase">size</dt><dd style="margin:0;color:var(--ink-2)">${p.size_meaning}</dd>`:null}
         ${p.range_meaning?html`<dt style="color:var(--ink-3);font-family:var(--mono);font-size:10px;text-transform:uppercase">range</dt><dd style="margin:0;color:var(--ink-2)">${p.range_meaning}</dd>`:null}
-        <dt style="color:var(--ink-3);font-family:var(--mono);font-size:10px;text-transform:uppercase">notes</dt><dd style="margin:0;color:var(--ink-2)"><textarea style="width:100%;box-sizing:border-box;background:var(--bg-2);color:var(--ink-2);border:1px solid var(--line-2);border-radius:6px;font:inherit;font-size:11.5px;padding:3px 6px" rows="2" placeholder="in-game hover / glossary text…" value=${p.notes||""} onInput=${ev=>setPatField(p.name,"notes",ev.target.value)}></textarea></dd>
+        <dt style="color:var(--ink-3);font-family:var(--mono);font-size:10px;text-transform:uppercase">notes</dt><dd style="margin:0;color:var(--ink-2)"><textarea class="aoe-notes" style="width:100%;box-sizing:border-box;background:var(--bg-2);color:var(--ink-2);border:1px solid var(--line-2);border-radius:6px;font:inherit;font-size:11.5px;padding:3px 6px" rows="2" placeholder="in-game hover / glossary text…" value=${p.notes||""} onInput=${ev=>setPatField(p.name,"notes",ev.target.value)}></textarea></dd>
       </dl>
       <div class="note" style="margin-bottom:6px">Exported card images (~half size) — size (rows) × range (cols). Placeholder shown until the Godot PNG export exists.</div>
       <div style="overflow:auto">
