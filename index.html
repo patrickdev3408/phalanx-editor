@@ -338,6 +338,7 @@ table input:focus{background:var(--panel);border-color:var(--accent-2)}
 .subgroup.off{opacity:.5}
 .subgroup .sg-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .subgroup .sg-head h4{margin:0;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--ink-2)}
+.subgroup .sg-head h4 .hint{margin-left:6px;text-transform:none;font-weight:400;letter-spacing:0;color:var(--ink-3)}
 
 /* reorder controls */
 .reorder{display:flex;flex-direction:column}
@@ -640,6 +641,12 @@ table input:focus{background:var(--panel);border-color:var(--accent-2)}
 .summon-row{display:flex;flex-wrap:wrap;gap:8px 12px}
 .summon-row .field{flex:0 1 auto;min-width:0;max-width:240px}
 .summon-row .field>select{width:100%;max-width:240px}
+.summon-check{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:400;letter-spacing:0;color:var(--ink-3);cursor:pointer}
+.summon-check input{margin:0}
+
+/* Actions list mobile-only controls and row summaries */
+.action-filter-mobile,.action-row-mobile-meta{display:none}
+.action-row-copy{display:flex;align-items:center;flex:1;min-width:0}
 
 /* R2.3 — matrix dropdown not clipped + WIDER so each group fits one line */
 .slotcard,.slotcard .sc-body,.rep-item,.bl,fieldset.group{overflow:visible}
@@ -811,6 +818,14 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
   /* roomier list rows */
   .row{padding:12px 14px}
   .row.row-one{padding:11px 12px}
+  .action-filter-mobile{display:flex;align-items:center;gap:8px;margin-top:8px}
+  .action-filter-mobile .expand-toggle:first-child{flex:1;justify-content:space-between}
+  .action-filter-clear{color:var(--ink-3)}
+  .action-list-row>.rmeta{display:none}
+  .action-row-copy{flex-direction:column;align-items:stretch;gap:2px}
+  .action-row-mobile-meta{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--ink-3);font-family:var(--mono);font-size:11px;line-height:1.25}
+  .summon-check{min-height:44px}
 
   /* —— forms —— */
   .detail-body{padding:14px 14px 96px;max-width:none}
@@ -1022,8 +1037,9 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
 }
 @media (max-width:760px){
   .cardgrid .daoe-grid{grid-template-columns:repeat(2,1fr)}
-  .field>label,.rep-item .field>label,.cardgrid .field>label{font-size:11px}
-  .field>label .hint{font-size:11px}
+  .field>label,.rep-item .field>label,.cardgrid .field>label{font-size:11px;display:block}
+  .field>label .hint{display:block;margin-left:0;font-size:10px;line-height:1.3;text-transform:none;letter-spacing:0;color:var(--ink-3)}
+  .subgroup .sg-head h4 .hint{display:none}
 }
 /* effects: compact + drop the long helper line AND the empty-slot placeholder
    (the effect's meaning is still on the dropdown's hover title) */
@@ -2317,7 +2333,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 07-12·2</span>
+        <span class="sub">v2 · Supabase · live · build 07-13·1</span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -2562,9 +2578,10 @@ function defenderSampleTypes(){ return [{type:"",pct:1}]; } // neutral by defaul
 /* shared action body editor (used in Actions tab + inline in slot cards).
    R6 — showName: card/table hosts pass true to get an editable NAME title
    row (the Actions tab keeps its own Identity Name field, so it doesn't). */
-function ActionEditorInline({action, effectRows, knownEffects, summonOptions, charById, tm, onChangeField, effectByName, showName}){
+function ActionEditorInline({action, effectRows, knownEffects, summonOptions, charById, tm, onChangeField, effectByName, showName, showAll}){
   // mutate-in-place style: caller provides onChangeField(key,value)
-  const vis=useFieldVis();                                    // R5 — per-field visibility
+  const visRaw=useFieldVis();                                 // R5 — per-field visibility
+  const vis=showAll?{has:()=>true}:visRaw;
   const set=(k,v)=>onChangeField(k,v);
   const issues=lintAction(action, charById);
   const showDaoeFields = ["damage_type","damage_modifier","energy_cost","cooldown_rounds","trap_tick","aoe_pattern","aoe_size","aoe_range"].some(k=>vis.has(k));
@@ -2655,14 +2672,16 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
           <${Select} value=${action.summon_character_id||""} options=${summonOptions} onInput=${v=>set("summon_character_id",v)} />
         </${Field}>
         <${Field} label="Corpse-raise" hint=${!action.summon_character_id ? "needs a Summon character above" : (action.consume_summon ? "disabled — consume-summon is on" : "Necromancer: summon only fires on a nearby corpse hex, and spawns on it")}>
-          <input type="checkbox" checked=${!!action.corpse_raise}
-            disabled=${!action.summon_character_id || !!action.consume_summon}
-            onChange=${e=>set("corpse_raise", e.target.checked)} />
+          <label class="summon-check"><input type="checkbox" checked=${!!action.corpse_raise}
+              disabled=${!action.summon_character_id || !!action.consume_summon}
+              onChange=${e=>set("corpse_raise", e.target.checked)} />
+            <span>on corpse hex</span></label>
         </${Field}>
         <${Field} label="Consume summon" hint=${action.corpse_raise ? "disabled — corpse-raise is on" : "Sacrifice your nearest own summon; the AoE re-centers on its hex (Immolate Familiar / Corpse Explosion)"}>
-          <input type="checkbox" checked=${!!action.consume_summon}
-            disabled=${!!action.corpse_raise}
-            onChange=${e=>set("consume_summon", e.target.checked)} />
+          <label class="summon-check"><input type="checkbox" checked=${!!action.consume_summon}
+              disabled=${!!action.corpse_raise}
+              onChange=${e=>set("consume_summon", e.target.checked)} />
+            <span>sacrifice nearest summon</span></label>
         </${Field}>
       </div>
     </${Group}>`:null}
@@ -3640,6 +3659,7 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
    ACTIONS TAB
    ════════════════════════════════════════════════════════════════════ */
 function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commitEdit,sel,setSel,jumpTo}){
+  const isMobile=useMedia("(max-width:760px)");
   const [q,setQ]=useState("");
   const [fp,setFp]=useState("");   // pattern
   const [fg,setFg]=useState("");   // group: Type / Unique / <class>
@@ -3648,6 +3668,7 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
   const [frg,setFrg]=useState("");
   const [fe1,setFe1]=useState("");
   const [fe2,setFe2]=useState("");
+  const [filtersExpanded,setFiltersExpanded]=useState(false);
 
   const effectRows = EFFECT_GROUPS.map(g=>({label:g.label,names:g.names}));
   const knownEffects=useMemo(()=>new Set(enums.effects),[enums]);
@@ -3695,7 +3716,8 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
 
   const usage=usageIdx[selId]||{chars:[],classes:[]};
   const issues=a?lintAction(a,charById):[];
-  const fieldVis=useFieldVis();                                          // R5 — Name/Balance/Uses gating
+  const activeFilterCount=[fp,fg,fdt,fsz,frg,fe1,fe2].filter(v=>v!=="").length;
+  const clearFilters=()=>{ setFp(""); setFg(""); setFdt(""); setFsz(""); setFrg(""); setFe1(""); setFe2(""); };
 
   const groupFilterOpts=[{value:"",label:"Group: any"},{value:"Type",label:"Type actions"},{value:"Unique",label:"Unique"}]
     .concat(enums.classes.map(cn=>({value:cn,label:cn})));
@@ -3707,7 +3729,13 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7f8d95" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
           <input class="search" placeholder="Search action / id / effect…" value=${q} onInput=${e=>setQ(e.target.value)} />
         </div>
-        <div class="grid cols-2" style="margin-top:8px;gap:6px">
+        ${isMobile?html`<div class="action-filter-mobile">
+          <button class=${"expand-toggle"+(filtersExpanded?" on":"")} onClick=${()=>setFiltersExpanded(v=>!v)}>
+            <span>Filters (${activeFilterCount})</span><span>${filtersExpanded?"▴":"▾"}</span>
+          </button>
+          ${activeFilterCount>0?html`<button class="expand-toggle action-filter-clear" onClick=${clearFilters}>Clear</button>`:null}
+        </div>`:null}
+        ${(!isMobile||filtersExpanded)?html`<div class="grid cols-2" style="margin-top:8px;gap:6px">
           <${Select} value=${fp} options=${[{value:"",label:"Pattern: any"}].concat(enums.aoe_patterns)} onInput=${setFp} />
           <${Select} value=${fg} options=${groupFilterOpts} onInput=${setFg} />
           <${Select} value=${fdt} options=${[{value:"",label:"Dmg type: any"}].concat(DAMAGE_TYPES)} onInput=${setFdt} />
@@ -3715,17 +3743,20 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
           <${Select} value=${frg} options=${[{value:"",label:"Range: any"},0,1,2,3,4,5,6,7]} onInput=${setFrg} />
           <${Select} value=${fe1} options=${[{value:"",label:"Effect1: any"}].concat(enums.effects)} onInput=${setFe1} />
           <${Select} value=${fe2} options=${[{value:"",label:"Effect2: any"}].concat(enums.effects)} onInput=${setFe2} />
-        </div>
+        </div>`:null}
       </div>
       <div class="list-meta">${list.length} action${list.length===1?"":"s"}${(q||fp||fg||fdt!==""||fsz!==""||frg!==""||fe1||fe2)?" (filtered)":""}</div>
       <div class="list-scroll">
         ${list.map(ac=>{
           const li=lintAction(ac,charById);
           const dt=DAMAGE_TYPES.find(d=>d.value===ac.damage_type);
-          return html`<div class=${"row"+(ac.id===selId?" sel":"")} key=${ac.id} title=${actionSummaryText(ac,effectByName)}
+          return html`<div class=${"row action-list-row"+(ac.id===selId?" sel":"")} key=${ac.id} title=${actionSummaryText(ac,effectByName)}
             onClick=${()=>setSel(s=>({...s,action:ac.id}))}>
             <${AoeThumb} pattern=${ac.aoe_pattern} size=${ac.aoe_size} range=${ac.aoe_range} />
-            <span class="rname">${ac.name||"(unnamed)"}${li.some(x=>x.k==="err")?html`<span class="lint-flag" title=${li.map(x=>x.t).join("; ")}>⚠</span>`:null}</span>
+            <span class="action-row-copy">
+              <span class="rname">${ac.name||"(unnamed)"}${li.some(x=>x.k==="err")?html`<span class="lint-flag" title=${li.map(x=>x.t).join("; ")}>⚠</span>`:null}</span>
+              <span class="action-row-mobile-meta">${slotMeta(ac)}</span>
+            </span>
             <span class="rmeta">${dt?dt.label:""}</span>
           </div>`;
         })}
@@ -3741,12 +3772,11 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
           <span class="chip">${groupOf[a.id]||"Unique"}</span>
         </div>
         <div class="detail-body" style="max-width:920px">
-          <${FieldChips} />
           <${Group} title="Identity">
             <div class="grid cols-2">
-              ${fieldVis.has("name")?html`<${Field} label="Name"><${TextInput} value=${a.name} onInput=${v=>setField("name",v)} /></${Field}>`:null}
+              <${Field} label="Name"><${TextInput} value=${a.name} onInput=${v=>setField("name",v)} /></${Field}>
               <${Field} label="id (slug)" hint="rename = no auto-rewrite">
-                <input class="mono" value=${a.id||""} onChange=${e=>{
+                <input type="text" class="mono" value=${a.id||""} onChange=${e=>{
                   const old=a.id, v=e.target.value.trim();
                   if(!v||v===old) return;
                   commitEdit(next=>{ const aa=next.actions.find(x=>x.id===old); if(aa) aa.id=v; },
@@ -3759,13 +3789,13 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
 
           <${ActionEditorInline} action=${a} effectRows=${effectRows} knownEffects=${knownEffects}
             summonOptions=${summonOptions} charById=${charById} tm=${data.type_matrix} effectByName=${effectByName}
-            onChangeField=${(k,v)=>setField(k,v)} />
+            onChangeField=${(k,v)=>setField(k,v)} showAll=${true} />
 
-          ${fieldVis.has("balance")?html`<${Group} title="Balance lab" >
+          <${Group} title="Balance lab" >
             <${BalanceLab} action=${a} enums=${enums} types=${data.types} tm=${data.type_matrix} charById=${charById} />
-          </${Group}>`:null}
+          </${Group}>
 
-          ${fieldVis.has("usage")?html`<${Group} title=${`Used by (${usage.chars.length} chars · ${usage.classes.length} classes)`}>
+          <${Group} title=${`Used by (${usage.chars.length} chars · ${usage.classes.length} classes)`}>
             ${(!usage.chars.length && !usage.classes.length)?html`<p class="note">Not referenced by any character or class.</p>`:html`
               <div class="usages">
                 ${usage.chars.map(id=>{const cc=charById[String(id)];return html`<span class="usage-chip" onClick=${()=>jumpTo("character",String(id))}>
@@ -3773,7 +3803,7 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
                 ${usage.classes.map(cn=>html`<span class="usage-chip" onClick=${()=>jumpTo("class",cn)}>
                   <span class="ut">class</span>${cn}</span>`)}
               </div>`}
-          </${Group}>`:null}
+          </${Group}>
 
           ${a.summon_character_id?(()=>{const sc=charById[String(a.summon_character_id)];
             return html`<${Group} title="Summon resolution">
