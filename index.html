@@ -780,7 +780,7 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
   .cmdk-btn{display:none}                       /* no keyboard shortcut on mobile */
   .topbar .btn{height:40px}
   .topbar .btn.ghost{padding:0 12px;font-size:16px}
-  .topbar .btn.primary{margin-left:auto}        /* keep Save at the right edge */
+  .topbar .btn.primary{display:none}            /* dirty edits use the floating Save FAB */
 
   /* tabbar: sticky primary nav, horizontal scroll, bigger taps */
   .tabbar{position:sticky;top:0;z-index:40;height:auto;overflow-x:auto;
@@ -867,9 +867,17 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
      full meta (×mod · pattern · Size · Range · effect1 · effect2) wraps on line 2 */
   .slotcard .sc-head{min-height:44px;padding:6px 10px;flex-wrap:wrap;align-items:center;row-gap:2px}
   .slotcard .sc-headmain{flex-wrap:wrap;align-items:center;row-gap:2px}
-  .slotcard .sc-slot{min-width:0;max-width:84px;flex:0 0 auto;font-size:9.5px}
+  .slotcard .sc-slot{min-width:0;max-width:84px;flex:0 0 auto;font-size:11px}
   .slotcard .sc-name{flex:1 1 auto;min-width:12ch;font-size:14.5px}
-  .slotcard .sc-meta{flex:1 1 100%;order:9;white-space:normal;line-height:1.35;font-size:11px;color:var(--ink-2)}
+  .slotcard .sc-meta{flex:1 1 100%;order:9;white-space:normal;line-height:1.35;font-size:12px;color:var(--ink-2)}
+  /* class cards have many operations: reserve line one for identity and line two for controls */
+  .class-slot-head .sc-headmain{flex:1 1 100%!important;flex-wrap:nowrap;min-width:0}
+  .class-slot-head .sc-titlecol{min-width:0}
+  .class-slot-head .sc-name{font-size:15.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .class-slot-head>.mobile-info{margin-left:auto}
+  .class-slot-head>.mini{width:auto;min-width:40px}
+  .class-slot-head>.sc-caret{display:inline-flex;align-items:center;justify-content:center;
+    width:40px;min-width:40px;height:44px;flex:none}
   /* un-clamp the 2-col character slots' collapsed meta so it wraps too */
   .slotgrid>.slotcard:not(.expanded) .sc-head{overflow:visible}
   .slotgrid>.slotcard:not(.expanded) .sc-name{min-width:12ch;overflow:hidden;text-overflow:ellipsis}
@@ -917,8 +925,11 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
   .grid.cols-2,.grid.cols-3,.grid.cols-4,.grid.cols-5{grid-template-columns:1fr}
   .slot{grid-template-columns:1fr}
   .detail-head .title{font-size:16px}
-  .rep-item.synergy-row,.rep-item.inherent-row{grid-template-columns:1fr!important}
-  .synergy-row .rep-del,.inherent-row .rep-del{justify-self:end}
+  .rep-item.synergy-row{grid-template-columns:1fr!important}
+  .rep-item.inherent-row{grid-template-columns:1fr 1fr!important}
+  .inherent-row>.field:first-child{grid-column:1/-1}
+  .synergy-row .rep-del{justify-self:end}
+  .inherent-row .rep-del{grid-column:2;justify-self:end}
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -943,6 +954,7 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
   border-radius:6px;padding:3px 9px;font-size:10px;font-weight:700;cursor:pointer;
   font-family:var(--mono);text-transform:uppercase;letter-spacing:.5px}
 .fc-mini:hover{color:var(--accent);border-color:var(--accent-2)}
+.fieldchips-disclosure{display:none}
 
 /* auto-fit card grid: as many columns as fit a ~320px min width (recipe 2026-07-02) */
 .cardgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr));
@@ -963,6 +975,9 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
   .cardgrid{grid-template-columns:1fr;gap:10px}
   .cardgrid .sc-body>.grid.cols-3{grid-template-columns:1fr}
   .fieldchips{position:static}
+  .fieldchips-disclosure{display:flex;align-items:center;justify-content:space-between;width:100%;height:44px;
+    margin:0 0 8px;padding:0 13px;border:1px solid var(--line-2);border-radius:var(--radius);
+    background:var(--panel);color:var(--ink-2);font-size:13px;font-weight:700;cursor:pointer}
   .fc-chip{padding:6px 11px;font-size:12px}   /* bigger taps on phone */
   .fc-mini{padding:6px 11px;font-size:11px}
 }
@@ -1007,6 +1022,8 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
 }
 @media (max-width:760px){
   .cardgrid .daoe-grid{grid-template-columns:repeat(2,1fr)}
+  .field>label,.rep-item .field>label,.cardgrid .field>label{font-size:11px}
+  .field>label .hint{font-size:11px}
 }
 /* effects: compact + drop the long helper line AND the empty-slot placeholder
    (the effect's meaning is still on the dropdown's hover title) */
@@ -1120,7 +1137,7 @@ table.acttable td.a-ops .mini.exp.on{color:var(--accent);border-color:var(--acce
 <div id="app"></div>
 
 <script type="module">
-import { h, render, Component } from "https://esm.sh/preact@10.23.2";
+import { h, render, Component, Fragment } from "https://esm.sh/preact@10.23.2";
 import { useState, useEffect, useMemo, useRef, useCallback } from "https://esm.sh/preact@10.23.2/hooks";
 import htm from "https://esm.sh/htm@3.1.1";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -1588,16 +1605,26 @@ function Field({label, hint, children}){
    action card. Persists per-device via the localStorage store above. */
 function FieldChips(){
   const vis=useFieldVis();
-  return html`<div class="fieldchips">
-    <span class="fc-lead">Show fields</span>
-    ${FIELD_KEYS.map(f=>html`<button key=${f.k}
-        class=${"fc-chip"+(vis.has(f.k)?" on":"")}
-        onClick=${()=>toggleFieldVis(f.k)}
-        title=${vis.has(f.k)?("Hide "+f.label):("Show "+f.label)}>${f.label}</button>`)}
-    <span class="fc-sep"></span>
-    <button class="fc-mini" title="Show every field" onClick=${()=>setAllFieldVis(true)}>all</button>
-    <button class="fc-mini" title="Hide all but the name" onClick=${()=>setAllFieldVis(false)}>min</button>
-  </div>`;
+  const isMobile=useMedia("(max-width:760px)");
+  const expandedKey="phalanx_editor_mobile_fields_expanded";
+  const [expanded,setExpanded]=useState(()=>{
+    try{ return localStorage.getItem(expandedKey)==="1"; }catch(e){ return false; }
+  });
+  useEffect(()=>{ try{ localStorage.setItem(expandedKey,expanded?"1":"0"); }catch(e){} },[expanded]);
+  return html`<${Fragment}>
+    ${isMobile?html`<button class="fieldchips-disclosure" aria-expanded=${expanded}
+      onClick=${()=>setExpanded(v=>!v)}>Fields (${vis.size} shown) <span>${expanded?"▾":"▸"}</span></button>`:null}
+    ${(!isMobile||expanded)?html`<div class="fieldchips">
+      <span class="fc-lead">Show fields</span>
+      ${FIELD_KEYS.map(f=>html`<button key=${f.k}
+          class=${"fc-chip"+(vis.has(f.k)?" on":"")}
+          onClick=${()=>toggleFieldVis(f.k)}
+          title=${vis.has(f.k)?("Hide "+f.label):("Show "+f.label)}>${f.label}</button>`)}
+      <span class="fc-sep"></span>
+      <button class="fc-mini" title="Show every field" onClick=${()=>setAllFieldVis(true)}>all</button>
+      <button class="fc-mini" title="Hide all but the name" onClick=${()=>setAllFieldVis(false)}>min</button>
+    </div>`:null}
+  </${Fragment}>`;
 }
 function TextInput({value, onInput, mono, placeholder}){
   return html`<input type="text" class=${mono?"mono":""} placeholder=${placeholder||""}
@@ -2290,7 +2317,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 07-12·1</span>
+        <span class="sub">v2 · Supabase · live · build 07-12·2</span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -3376,7 +3403,7 @@ function ClassSlotCard({slug, index, total, levelBadge, actionById, data, effect
   const effNames = actionEffectNames(act);                              // R3.5
   const mechBits=actionMechBits(act);                                   // R6 — ⚙ new-mechanics badge
   return html`<div class=${"slotcard"+(act?" filled":"")+(open?" expanded":"")}>
-    <div class="sc-head" title=${actionSummaryText(act,effectByName)}>
+    <div class="sc-head class-slot-head" title=${actionSummaryText(act,effectByName)}>
       <span class="sc-headmain" style="cursor:pointer;display:flex;align-items:center;gap:10px;flex:1;min-width:0" onClick=${()=>setOpen(o=>!o)}>
         ${levelBadge!=null?html`<span class="lv-badge" title="Mastery level (from order)">Lv ${levelBadge}</span>`:null}
         ${vis.has("aoe_thumb")?html`<${AoeThumb} pattern=${act?act.aoe_pattern:null} size=${act?act.aoe_size:null} range=${act?act.aoe_range:null} />`:null}
