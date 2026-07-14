@@ -2217,6 +2217,20 @@ function App(){
       "warn", 9000);
   },[data]);
 
+  function syncClassSynergyFields(character){
+    const first=Array.isArray(character.class_synergies)&&character.class_synergies.length
+      ? character.class_synergies[0] : null;
+    if(first){
+      character.class_synergy_class=first.class_name||"";
+      character.class_synergy_stat=first.stat||"";
+      character.class_synergy_modifier=Number(first.modifier)||1;
+      character.class_synergy_per_ally=!!first.per_ally;
+    }else{
+      character.class_synergy_class="";
+      character.class_synergy_per_ally=false;
+    }
+  }
+
   /* ── save to Supabase ── */
   const [saveDlg,setSaveDlg]=useState(false);
   const doSave=useCallback(async ()=>{
@@ -2231,6 +2245,7 @@ function App(){
           const _p=(data.progression||{})[String(d.id)];
           const _sc=_p&&_p.starting_classes&&_p.starting_classes[0];
           if(_sc) d.class_name_char=_sc;
+          syncClassSynergyFields(d);
           return {id:String(d.id),name:d.name,class:d.class_name_char,type_1:d.type_1,type_2:d.type_2,data:d};
         });
       if(cRows.length){const{error}=await db.from("characters").upsert(cRows,{onConflict:"id"});if(error)throw error;}
@@ -2333,7 +2348,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 07-13·1</span>
+        <span class="sub">v2 · Supabase · live · build 07-14·1</span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -3074,23 +3089,23 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
 /* synergy editor (type + class) — condensed */
 function SynergyEditor({list, max, kind, enums, onChange}){
   const rows=Array.isArray(list)?list:[];
-  const cols = kind==="type"?"1.2fr .7fr .7fr 1.2fr .8fr auto":"1.3fr .8fr .7fr 1.2fr .8fr auto";
-  const qtyOpts=[1,2,3,4,5,6,7,8,9,10];
+  const cols = kind==="type"?"1.2fr 1.2fr .8fr minmax(70px,.65fr) auto":"1.3fr 1.2fr .8fr minmax(70px,.65fr) auto";
   return html`<div class="rep">
     ${rows.map((s,i)=>html`<div class="rep-item synergy-row" style=${"grid-template-columns:"+cols} key=${i}>
       ${kind==="type"
         ? html`<${Field} label="Type"><${Select} value=${s.type} options=${[""].concat(enums.types)} onInput=${v=>upd(i,{type:v})} /></${Field}>`
         : html`<${Field} label="Class"><${Select} value=${s.class_name} options=${[""].concat(enums.classes)} onInput=${v=>upd(i,{class_name:v})} /></${Field}>`}
-      <${Field} label=${kind==="type"?"Qty":"Qty req."}>
-        <${NumSelect} value=${kind==="type"?s.quantity:s.quantity_required} options=${qtyOpts}
-          onInput=${v=>upd(i, kind==="type"?{quantity:v}:{quantity_required:v})} /></${Field}>
-      <${Field} label="Range"><${NumSelect} value=${s.range} options=${qtyOpts} onInput=${v=>upd(i,{range:v})} /></${Field}>
       <${Field} label="Stat"><${Select} value=${s.stat} options=${[""].concat(SYNERGY_STATS)} onInput=${v=>upd(i,{stat:v})} /></${Field}>
       <${Field} label="Modifier" hint="×"><${NumInput} float=${true} step=${0.01} value=${s.modifier} onInput=${v=>upd(i,{modifier:v})} /></${Field}>
+      <${Field} label="Per ally">
+        <label class="summon-check" title="Bonus stacks once per qualifying adjacent ally (range is always 1)">
+          <input type="checkbox" checked=${!!s.per_ally} onChange=${e=>upd(i,{per_ally:e.target.checked})} /> enabled
+        </label>
+      </${Field}>
       <button class="rep-del" title="Remove" onClick=${()=>onChange(rows.filter((_,j)=>j!==i))}>×</button>
     </div>`)}
     <button class="add-row" disabled=${max&&rows.length>=max} onClick=${()=>onChange([...rows,
-        kind==="type"?{type:"",quantity:1,range:1,stat:"",modifier:1}:{class_name:"",quantity_required:1,range:1,stat:"",modifier:1}])}>
+        kind==="type"?{type:"",stat:"",modifier:1,per_ally:false}:{class_name:"",stat:"",modifier:1,per_ally:false}])}>
       ${max&&rows.length>=max?`Max ${max} synergies`:"+ Add synergy"}
     </button>
   </div>`;
