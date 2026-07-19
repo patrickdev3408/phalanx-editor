@@ -1179,6 +1179,11 @@ const PLAYSTYLE_COLORS = {
 const playstyleColor = (ps)=> PLAYSTYLE_COLORS[ps] || "#3a464d";
 
 const STAT_FIELDS = ["health","regen","attack","defense","special_attack","special_defense","speed","dodge","crit_chance","crit_bonus"];
+/* Captain rework 2026-07-18: the stat the captain's 5-hex aura boosts for
+   teammates while the captain lives (game reads captain_stat /
+   captain_stat_mag off the character row). health is deliberately excluded —
+   the captain's own +25% HP is the fixed rule. */
+const CAPTAIN_STAT_OPTIONS = ["","attack","defense","special_attack","special_defense","speed","regen","dodge","crit_chance"];
 const INT_STATS = ["health","regen","attack","defense","special_attack","special_defense","speed"];
 const SYNERGY_STATS = ["Attack","Defense","Special Attack","Special Defense","Dodge","Crit Chance","Crit Bonus","Health","Regen","Speed"];
 const CHAR_SLOTS = ["standard_attack","type_attack","class_action"].concat(Array.from({length:15},(_,i)=>"unique_action_"+(i+1)));
@@ -3011,6 +3016,21 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
                   <${StatStepper} stat=${sf} value=${(c.stats||{})[sf]}
                     onInput=${v=>edit(cc=>{cc.stats=cc.stats||{};cc.stats[sf]=v;})} />
                 </${Field}>`)}
+            </div>
+          </${Group}>
+
+          <${Group} title="Captain Perk">
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">When this character is the team <b>captain</b> they get <b>+25% HP</b> (fixed rule) and project a <b>captain aura</b>: ONE stat boosted for every teammate within <b>5 hexes</b> — unique per character, active only <b>while the captain lives</b>. Primary stats: +mag% of each member's base stat. Dodge / Crit Chance: +mag percentage points. Leave the stat empty for no aura.</p>
+            <div class="grid cols-4">
+              <${Field} label="Team Stat">
+                <${Select} value=${c.captain_stat||""} options=${CAPTAIN_STAT_OPTIONS}
+                  onInput=${v=>edit(cc=>cc.captain_stat=v)} />
+              </${Field}>
+              <${Field} label="Magnitude" hint="% (points for dodge/crit)">
+                <${NumSelect} value=${num(c.captain_stat_mag,0)}
+                  options=${[0,5,10,15,20,25,30,35,40,45,50]}
+                  onInput=${v=>edit(cc=>cc.captain_stat_mag=v)} />
+              </${Field}>
             </div>
           </${Group}>
 
