@@ -711,18 +711,37 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
   padding:1px 5px;border-radius:3px;background:var(--accent-dim);color:var(--accent)}
 .cc-chip .ccx.unlock{background:rgba(155,140,240,.14);color:var(--violet)}
 
-/* R2.13 — condensed effect reference cards (½ box, keep font) */
-.ref-grid.tight{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
-.ref-card.tight{padding:8px 10px}
+/* R2.13 — readable effect reference cards */
+.ref-grid.tight{grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px}
+.ref-card.tight{padding:13px 15px;font-size:13px}
 .ref-card.tight::before{width:2px}
-.ref-card.tight h3{font-size:13px;margin:0 0 1px;display:inline-block}
-.ref-card.tight .cat{display:inline-block;margin:0 0 0 8px;font-size:9px}
-.ref-card.tight dl{grid-template-columns:1fr;gap:2px 0;margin-top:4px;font-size:11.5px}
+.ref-card.tight h3{font-size:15px;font-weight:750;margin:0 0 3px;display:inline-block}
+.ref-card.tight .cat{display:inline-block;margin:0 0 0 9px;font-size:10px;line-height:1.4}
+.ref-card.tight dl{grid-template-columns:1fr;gap:7px 0;margin-top:7px;font-size:13px}
 .ref-card.tight dt{display:none}
-.ref-card.tight dd{color:var(--ink-2);line-height:1.35}
-.ref-card.tight dd .dlbl{color:var(--ink-3);font-family:var(--mono);font-size:9px;text-transform:uppercase;letter-spacing:.4px;margin-right:5px}
+.ref-card.tight dd{color:var(--ink-2);line-height:1.5}
+.ref-card.tight dd .dlbl{color:var(--ink-2);font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-right:7px}
+.ref-card.tight .effect-ref-input{height:auto;min-height:38px;font-size:13px;line-height:1.5}
+.ref-card.tight textarea.effect-ref-input{field-sizing:content;overflow:hidden;resize:none}
+.ref-card.tight .effect-duration{font-size:12.5px;line-height:1.55;padding-top:2px}
 .ref-card.tight em{font-style:normal;font-weight:700;color:var(--ink);text-decoration:underline;text-decoration-color:var(--accent-2)}
 .ref-card.tight b{font-weight:700;color:var(--accent)}
+.effects-main-title{gap:10px;flex-wrap:wrap}
+.effects-main-title::after{display:none}
+.effects-main-title .hint{min-width:260px}
+.effects-title-actions{display:inline-flex;gap:10px;margin-left:auto;white-space:nowrap}
+.effects-title-action{border:0;background:transparent;color:var(--ink-3);padding:2px 0;font:inherit;
+  font-size:10.5px;font-weight:600;letter-spacing:0;text-transform:none;cursor:pointer}
+.effects-title-action:hover{color:var(--accent)}
+.effect-group-header{align-items:baseline;flex-wrap:wrap;gap:6px;line-height:1.45;padding:3px 0}
+.effect-group-header::after{display:none}
+.effect-group-header .effect-group-caret{color:var(--ink-3);margin-right:2px}
+.effect-group-header .badge{margin-left:2px;color:var(--ink-3);border:1px solid var(--line);
+  border-radius:99px;padding:0 6px;line-height:16px}
+.effect-group-summary{display:inline-flex;flex:1 1 360px;min-width:0;flex-wrap:wrap;gap:0;
+  color:var(--ink-3);font-size:11.5px;font-weight:500;letter-spacing:0;text-transform:none}
+.effect-group-summary .summary-lead{margin-right:5px}
+.effect-group-summary .effect-name{white-space:nowrap}
 
 /* R2.14 — type-matrix crosshair (row + column highlight on hover) */
 .tm-grid tbody tr.tm-rowhi{background:rgba(40,224,200,.045)}
@@ -1258,7 +1277,8 @@ const EFFECT_GROUPS = [
   {label:"Reflect / redirect", names:["Thorns","Protector"]},
   {label:"Damage over time", names:["Burn","Poison","Bleed"]},
   {label:"Control / disrupt", names:["Stun","Root","Anti Heal","Silence","Blind","Curse","Mark","Push","Pull"]},
-  {label:"New effects (2026-07)", names:["Dispel","Buff Block","Death Ward","Markstalker","Time Bomb","OverhealShield","Vindication","Mirage","Sequence","Riposte","Grudge","Soul Reservoir","WeaponEnchant","Braced","Dying Blessing"]},
+  {label:"Utility / triggers", names:["Dispel","Buff Block","Death Ward","Time Bomb","Mirage","Dispel Steal","Detonate"]},
+  {label:"Class identities", names:["Legion","Resonance","Undead Contagion","Dying Blessing","Grudge","Soul Reservoir","Braced","Markstalker","Riposte","Sequence","WeaponEnchant","Vindication","OverhealShield","Outcast"]},
   {label:"Summon", names:["Summon"]},
 ];
 
@@ -1910,7 +1930,7 @@ function lintCharacter(c){
     const sum=Math.round((p1+p2)*100);
     if(sum!==100) out.push({k:"warn",t:`Type1%+Type2% = ${sum}% (≠100)`});
   }
-  if((c.synergies||[]).length>4) out.push({k:"warn",t:"more than 4 type synergies"});
+  if((c.synergies||[]).length>8) out.push({k:"warn",t:"unusually many type synergies (>8) — runtime applies all, ±50% clamp still bounds the total"});
   return out;
 }
 
@@ -3043,7 +3063,7 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
           </${Group}>
 
           <${Group} title=${`Type Synergies (${(c.synergies||[]).length}/4)`}>
-            <${SynergyEditor} list=${c.synergies||[]} max=${4} kind="type" enums=${enums}
+            <${SynergyEditor} list=${c.synergies||[]} kind="type" enums=${enums}
               onChange=${arr=>edit(cc=>cc.synergies=arr)} />
           </${Group}>
 
@@ -4085,16 +4105,27 @@ function emphasize(text){
 }
 function EffectsTab({effects, commitEdit}){
   const byName=useMemo(()=>{ const m={}; (effects||[]).forEach(e=>{ if(e&&e.name) m[e.name]=e; }); return m; },[effects]);
-  const [open,setOpen]=useState(()=>new Set(EFFECT_GROUPS.map((_,i)=>i))); // all open
+  const [open,setOpen]=useState(()=>{
+    try{
+      const saved=JSON.parse(localStorage.getItem("px_effects_open")||"[]");
+      return new Set(Array.isArray(saved)?saved.filter(i=>Number.isInteger(i)&&i>=0&&i<=EFFECT_GROUPS.length):[]);
+    }catch(e){ return new Set(); }
+  });
+  useEffect(()=>{ try{ localStorage.setItem("px_effects_open",JSON.stringify([...open])); }catch(e){} },[open]);
   const grouped=new Set();
   EFFECT_GROUPS.forEach(g=>g.names.forEach(n=>grouped.add(n)));
   const ungrouped=(effects||[]).filter(e=>e&&e.name&&!grouped.has(e.name));
   const toggle=i=>setOpen(s=>{const n=new Set(s);n.has(i)?n.delete(i):n.add(i);return n;});
+  const allGroupIndexes=EFFECT_GROUPS.map((_,i)=>i);
+  if(ungrouped.length) allGroupIndexes.push(EFFECT_GROUPS.length);
+  const expandAll=()=>setOpen(new Set(allGroupIndexes));
+  const collapseAll=()=>setOpen(new Set());
   // Edit an effect field in place → marks the effects table dirty → Save to Supabase upserts it.
   const setField=(name,field,val)=>commitEdit(next=>{
     const eff=(next.effects||[]).find(x=>x&&x.name===name); if(eff) eff[field]=val;
   }, dy=>dy.effects=true);
-  const editStyle="width:100%;box-sizing:border-box;background:var(--bg-2);color:var(--ink-2);border:1px solid var(--line-2);border-radius:6px;font:inherit;font-size:11.5px;padding:3px 6px;margin-top:2px";
+  const editStyle="width:100%;box-sizing:border-box;background:var(--bg-2);color:var(--ink-2);border:1px solid var(--line-2);border-radius:6px;font:inherit;font-size:13px;padding:8px 9px;line-height:1.5;margin-top:4px";
+  const growTextarea=el=>{ if(!el) return; el.style.height="auto"; el.style.height=el.scrollHeight+"px"; };
 
   const card=(name)=>{
     const e=byName[name];
@@ -4104,29 +4135,40 @@ function EffectsTab({effects, commitEdit}){
       <h3>${e.name}</h3><span class="cat">${e.category||"effect"}</span>
       <dl>
         <dd><span class="dlbl">note</span>
-          <textarea class="effect-ref-input" style=${editStyle} rows="2" placeholder="in-game hover / glossary text…"
-            value=${e.notes||""} onInput=${ev=>setField(e.name,"notes",ev.target.value)}></textarea></dd>
+          <textarea class="effect-ref-input" style=${editStyle} placeholder="in-game hover / glossary text…"
+            value=${e.notes||""} ref=${growTextarea}
+            onInput=${ev=>{growTextarea(ev.target);setField(e.name,"notes",ev.target.value);}}></textarea></dd>
         <dd><span class="dlbl">mag</span>
           <input class="effect-ref-input" style=${editStyle} placeholder="magnitude meaning (hover fallback when note is blank)"
             value=${e.magnitude_meaning||""} onInput=${ev=>setField(e.name,"magnitude_meaning",ev.target.value)} /></dd>
-        ${e.duration_meaning?html`<dd><span class="dlbl">dur</span>${emphasize(e.duration_meaning)}</dd>`:null}
+        ${e.duration_meaning?html`<dd class="effect-duration"><span class="dlbl">dur</span>${emphasize(e.duration_meaning)}</dd>`:null}
       </dl>
     </div>`;
   };
 
   return html`<div class="view"><div class="full-pane">
-    <div class="group-title">Effects — hover / glossary text <span class="hint" style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">editable · the <b>note</b> is what the in-game hover shows (falls back to <b>mag</b>)</span></div>
+    <div class="group-title effects-main-title">Effects — hover / glossary text <span class="hint" style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">editable · the <b>note</b> is what the in-game hover shows (falls back to <b>mag</b>)</span>
+      <span class="effects-title-actions">
+        <button type="button" class="effects-title-action" onClick=${expandAll}>Expand all</button>
+        <button type="button" class="effects-title-action" onClick=${collapseAll}>Collapse all</button>
+      </span>
+    </div>
     <p class="note">${(effects||[]).length} effects. Edit the <b>note</b> to change what pops when you hover that effect in-game (timeline chips, encyclopedia, explainers). Save to Supabase → publish to apply. (An authored entry in data/glossary.json, if any, still overrides.)</p>
     ${EFFECT_GROUPS.map((g,i)=>html`<div style="margin-bottom:12px" key=${i}>
-      <div class="group-title collapsible-header" style="cursor:pointer;margin-bottom:6px" onClick=${()=>toggle(i)}>
-        <span style="color:var(--ink-3);margin-right:6px">${open.has(i)?"▾":"▸"}</span>${g.label}
-        <span class="badge" style="margin-left:8px;color:var(--ink-3);border:1px solid var(--line);border-radius:99px;padding:0 6px">${g.names.length}</span>
+      <div class="group-title collapsible-header effect-group-header" style="cursor:pointer;margin-bottom:6px" onClick=${()=>toggle(i)}>
+        <span class="effect-group-caret">${open.has(i)?"▾":"▸"}</span><span>${g.label}</span>
+        <span class="badge">${g.names.length}</span>
+        ${!open.has(i)?html`<span class="effect-group-summary"><span class="summary-lead">—</span>${g.names.map((name,j)=>html`<span class="effect-name">${j?" · ":""}${name}</span>`)}</span>`:null}
       </div>
       ${open.has(i)?html`<div class="ref-grid tight">${g.names.map(card)}</div>`:null}
     </div>`)}
     ${ungrouped.length?html`<div style="margin-bottom:12px">
-      <div class="group-title">Other / ungrouped <span class="badge">${ungrouped.length}</span></div>
-      <div class="ref-grid tight">${ungrouped.map(e=>card(e.name))}</div>
+      <div class="group-title collapsible-header effect-group-header" style="cursor:pointer;margin-bottom:6px" onClick=${()=>toggle(EFFECT_GROUPS.length)}>
+        <span class="effect-group-caret">${open.has(EFFECT_GROUPS.length)?"▾":"▸"}</span><span>Other / ungrouped</span>
+        <span class="badge">${ungrouped.length}</span>
+        ${!open.has(EFFECT_GROUPS.length)?html`<span class="effect-group-summary"><span class="summary-lead">—</span>${ungrouped.map((e,j)=>html`<span class="effect-name">${j?" · ":""}${e.name}</span>`)}</span>`:null}
+      </div>
+      ${open.has(EFFECT_GROUPS.length)?html`<div class="ref-grid tight">${ungrouped.map(e=>card(e.name))}</div>`:null}
     </div>`:null}
   </div></div>`;
 }
