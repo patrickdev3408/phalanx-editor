@@ -1186,14 +1186,13 @@ const SB_KEY = "sb_publishable_S4wKvpWCvkj-4Bres2UZvg_1SAtb8gV"; // publishable 
 const db = createClient(SB_URL, SB_KEY);
 const TABLES = ["characters","actions","classes","effects","types","aoe_patterns","type_matrix"];
 
-const PLAYSTYLES = ["VERSATILE","BRAWLER","MARKSMAN","TANK","HEALER","AMPLIFIER","CORRUPTOR",
-  "CONTROLLER","STEALTH","SUMMONER","DUELIST","RECKLESS","OUTLIER"];
+const PLAYSTYLES = ["FIGHTER","AMPLIFIER","WILDCARD","CORRUPTOR","TANK",
+  "CASTER","STEALTH","HEALER","SUMMONER"];
 // distinct fill color per playstyle (used to tint draggable class chips)
 const PLAYSTYLE_COLORS = {
-  VERSATILE:"#9aa7b0", BRAWLER:"#d8634a", MARKSMAN:"#caa14a", TANK:"#4f7fb8",
-  HEALER:"#5fb98a", AMPLIFIER:"#e9c54a", CORRUPTOR:"#8a5bd0", CONTROLLER:"#46a0d8",
-  STEALTH:"#7a6473", SUMMONER:"#54c2a8", DUELIST:"#d98a4a", RECKLESS:"#d44a4a",
-  OUTLIER:"#c45ba0",
+  FIGHTER:"#d8634a", AMPLIFIER:"#e9c54a", WILDCARD:"#c45ba0",
+  CORRUPTOR:"#8a5bd0", TANK:"#4f7fb8", CASTER:"#caa14a",
+  STEALTH:"#7a6473", HEALER:"#5fb98a", SUMMONER:"#54c2a8",
 };
 const playstyleColor = (ps)=> PLAYSTYLE_COLORS[ps] || "#3a464d";
 
@@ -2772,12 +2771,11 @@ function ClassBuckets({selId, data, enums, commitEdit}){
   useEffect(()=>setSelectedClass(null),[selId,isMobile]);
   const prog=(data.progression&&data.progression[String(selId)])||emptyProg();
 
-  // class -> {p:primary, s:secondary} playstyle, for diagonal-split chip coloring
+  // class -> primary playstyle, for chip coloring
   const psByClass={};
-  ((data.classes&&data.classes.classes)||[]).forEach(cl=>{ psByClass[cl.class_name]={p:cl.primary_playstyle||"",s:cl.secondary_playstyle||""}; });
-  const chipBg=(cn)=>{ const x=psByClass[cn]||{}; const a=playstyleColor(x.p), b=playstyleColor(x.s||x.p);
-    return `linear-gradient(135deg, ${a} 0%, ${a} 48%, ${b} 52%, ${b} 100%)`; };
-  const psTitle=(cn)=>{ const x=psByClass[cn]||{}; return (x.p||"?")+" / "+(x.s||"?"); };
+  ((data.classes&&data.classes.classes)||[]).forEach(cl=>{ psByClass[cl.class_name]=cl.primary_playstyle||""; });
+  const chipBg=(cn)=>playstyleColor(psByClass[cn]||"");
+  const psTitle=(cn)=>psByClass[cn]||"?";
 
   const move=(cls,bucket)=>{
     if(!cls) return;
@@ -3055,7 +3053,7 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
           </${Group}>
 
           <${Group} title="Class Progression">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">Drag each class into a difficulty bucket: which classes this character can unlock and how hard. <b>Starting</b> = already unlocked (first one is the primary default; click another to promote it). <b>Locked</b> = unavailable. Everything else is the unlock cost tier. Chip fill = the class's playstyle (primary ◤ top-left / secondary ◢ bottom-right). Saved to the <span class="mono">character_class_progression</span> table.</p>
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Drag each class into a difficulty bucket: which classes this character can unlock and how hard. <b>Starting</b> = already unlocked (first one is the primary default; click another to promote it). <b>Locked</b> = unavailable. Everything else is the unlock cost tier. Chip fill = the class's primary playstyle. Saved to the <span class="mono">character_class_progression</span> table.</p>
             <div class="ps-legend">
               ${PLAYSTYLES.map(ps=>html`<span class="ps-leg" key=${ps}><span class="sw" style=${"background:"+playstyleColor(ps)}></span>${ps}</span>`)}
             </div>
@@ -3220,7 +3218,6 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
   const isMobile=useMedia("(max-width:760px)");
   const [q,setQ]=useState("");
   const [psFilter,setPsFilter]=useState("");      // playstyle to filter by
-  const [psScope,setPsScope]=useState("either");  // either | primary | secondary
   const [sortAz,setSortAz]=useState(false);
   // R6 — class-action view; mobile has its own cards-first preference.
   const actViewKey=isMobile?"phalanx_mobile_action_view":"phalanx_class_action_view";
@@ -3255,10 +3252,8 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
   let list=(data.classes.classes||[]).filter(c=>{
     if(q && !(c.class_name||"").toLowerCase().includes(q.toLowerCase())) return false;
     if(psFilter){
-      const p=c.primary_playstyle||"", s=c.secondary_playstyle||"";
-      if(psScope==="primary" && p!==psFilter) return false;
-      else if(psScope==="secondary" && s!==psFilter) return false;
-      else if(psScope==="either" && p!==psFilter && s!==psFilter) return false;
+      const p=c.primary_playstyle||"";
+      if(p!==psFilter) return false;
     }
     return true;
   });
@@ -3279,13 +3274,12 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7f8d95" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
           <input class="search" placeholder="Search class…" value=${q} onInput=${e=>setQ(e.target.value)} />
         </div>
-        <div class="grid cols-2" style="margin-top:8px;gap:6px">
+        <div style="margin-top:8px">
           <${Select} value=${psFilter} options=${[{value:"",label:"Playstyle: any"}].concat(PLAYSTYLES)} onInput=${setPsFilter} />
-          <${Select} value=${psScope} options=${[{value:"either",label:"in Primary or Secondary"},{value:"primary",label:"Primary only"},{value:"secondary",label:"Secondary only"}]} onInput=${setPsScope} />
         </div>
         <div class="filter-row" style="margin-top:8px">
           <button class=${"pill"+(sortAz?" on":"")} title="Sort the list alphabetically" onClick=${()=>setSortAz(v=>!v)}>A–Z</button>
-          ${(q||psFilter||sortAz)?html`<button class="pill" onClick=${()=>{setQ("");setPsFilter("");setPsScope("either");setSortAz(false);}}>clear</button>`:null}
+          ${(q||psFilter||sortAz)?html`<button class="pill" onClick=${()=>{setQ("");setPsFilter("");setSortAz(false);}}>clear</button>`:null}
         </div>
       </div>
       <div class="list-meta">${list.length} class${list.length===1?"":"es"}${(q||psFilter)?" (filtered)":""}${sortAz?" · A–Z":""}</div>
@@ -3302,18 +3296,12 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
         <div class="detail-head"><span class="title">${c.class_name}</span><span class="spacer"></span></div>
         <div class="detail-body wide-cards">
           <${Group} title="Playstyle">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">Primary + secondary playstyle (design lens; also colors this class's chip in each character's Class Progression). ${PLAYSTYLES.length} playstyles.</p>
-            <div class="grid cols-2">
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Primary playstyle (design lens; also colors this class's chip in each character's Class Progression). ${PLAYSTYLES.length} playstyles.</p>
+            <div>
               <${Field} label="Primary playstyle">
                 <div class="ps-pick">
                   <span class="ps-swatch" style=${"background:"+playstyleColor(c.primary_playstyle)}></span>
                   <${Select} value=${c.primary_playstyle} options=${[""].concat(PLAYSTYLES)} onInput=${v=>edit(cc=>cc.primary_playstyle=v)} />
-                </div>
-              </${Field}>
-              <${Field} label="Secondary playstyle">
-                <div class="ps-pick">
-                  <span class="ps-swatch" style=${"background:"+playstyleColor(c.secondary_playstyle)}></span>
-                  <${Select} value=${c.secondary_playstyle} options=${[""].concat(PLAYSTYLES)} onInput=${v=>edit(cc=>cc.secondary_playstyle=v)} />
                 </div>
               </${Field}>
             </div>
