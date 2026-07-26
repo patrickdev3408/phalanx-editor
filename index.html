@@ -1930,7 +1930,7 @@ function lintCharacter(c){
     const sum=Math.round((p1+p2)*100);
     if(sum!==100) out.push({k:"warn",t:`Type1%+Type2% = ${sum}% (≠100)`});
   }
-  if((c.synergies||[]).length>8) out.push({k:"warn",t:"unusually many type synergies (>8) — runtime applies all, ±50% clamp still bounds the total"});
+  if((c.synergies||[]).length>8) out.push({k:"warn",t:"unusually many type synergies (>8) — runtime applies all; counts and accumulation are unbounded, and only final live stats use absolute STAT_CAPS (2026-07-26)"});
   return out;
 }
 
@@ -3062,7 +3062,7 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
             <${ClassBuckets} selId=${selId} data=${data} enums=${enums} commitEdit=${commitEdit} />
           </${Group}>
 
-          <${Group} title=${`Type Synergies (${(c.synergies||[]).length}/4)`}>
+          <${Group} title=${`Type Synergies (${(c.synergies||[]).length}; convention 3, unbounded)`}>
             <${SynergyEditor} list=${c.synergies||[]} kind="type" enums=${enums}
               onChange=${arr=>edit(cc=>cc.synergies=arr)} />
           </${Group}>
@@ -3317,6 +3317,10 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
                 </div>
               </${Field}>
             </div>
+            <${Field} label="Muster description" hint="player-facing muster wall blurb">
+              <textarea rows="2" placeholder="Describe the class's turn-to-turn identity…"
+                value=${c.muster_description||""} onInput=${e=>edit(cc=>cc.muster_description=e.target.value)}></textarea>
+            </${Field}>
           </${Group}>
 
           <${Group} title="Inherent Class Effects">
@@ -4304,11 +4308,14 @@ function TunablesTab({tunables, commitEdit}){
     <h3 style="margin-top:0">Balance tunables</h3>
     <p class="note">Global combat knobs the game loads at boot (published to <code>data/balance_tunables.json</code>).
       ⚠ A changed value changes combat outcomes — after publishing, the next repo push must re-baseline the
-      determinism golden file: <code>bash tools/rebaseline_golden.sh</code> (commits <code>tools/determinism_golden.txt</code>).</p>
+      determinism golden file: <code>bash tools/rebaseline_golden.sh</code> (commits <code>tools/determinism_golden.txt</code>).
+      Since 2026-07-26, final live stats use absolute <code>stat_cap_&lt;name&gt;</code> rows; synergy counts and accumulation are unbounded.</p>
     ${tunables.map((t,i)=>html`<div key=${t.id} style="display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08)">
       <div style="flex:1;min-width:0">
-        <b>${t.id}</b>
-        <div style="opacity:.7;font-size:12px;margin-top:2px">${t.description||""}</div>
+        <b>${t.id}${t.id==="max_stat_multiplier"?" — RETIRED 2026-07-26":""}</b>
+        <div style="opacity:.7;font-size:12px;margin-top:2px">${t.id==="max_stat_multiplier"
+          ?"Retired 2026-07-26, ignored by the game; replaced by stat_cap_<name> rows."
+          :(t.description||"")}</div>
       </div>
       <input type="number" step="0.05" value=${t.value}
         style="width:110px;text-align:right"
