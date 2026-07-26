@@ -1163,9 +1163,18 @@ table.acttable td.a-ops .mini.exp.on{color:var(--accent);border-color:var(--acce
 .cellpop .subgroup .sg-head{margin-bottom:8px}
 .cellpop .cp-add-h{font-size:9.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
   color:var(--accent);margin-bottom:8px}
+.cellpop.cp-add-pop{padding:0;max-height:min(420px,60vh);overflow-y:auto}
+.cellpop .cp-add-top{position:sticky;top:0;z-index:1;padding:10px 11px 8px;
+  background:var(--panel-2);border-bottom:1px solid var(--line)}
+.cellpop .cp-add-top .cp-add-h{margin-bottom:6px}
+.cellpop .cp-add-filter{width:100%;height:30px;padding:4px 8px;font-size:11.5px}
+.cellpop .cp-add-list{padding:8px 11px 10px}
 .cellpop .cp-add-opt{display:block;width:100%;text-align:left;border:1px solid var(--line-2);background:var(--panel);
   color:var(--ink-2);border-radius:6px;padding:6px 9px;font-size:11.5px;cursor:pointer;margin-bottom:4px}
 .cellpop .cp-add-opt:hover{border-color:var(--accent-2);color:var(--accent)}
+.cellpop .cp-add-opt-label{display:block;color:var(--ink);font-weight:600}
+.cellpop .cp-add-opt-hint{display:block;margin-top:2px;color:var(--ink-3);font-size:10px;
+  line-height:1.35;white-space:normal;overflow-wrap:anywhere}
 </style>
 </head>
 <body>
@@ -1590,7 +1599,7 @@ function AdvancedFields({action, setField}){
 
 /* R6 — floating cell-editor popover (class-table per-cell editing). Anchored
    to the clicked cell's rect; closes on outside-click / Escape / scroll. */
-function CellPopover({rect, wide, onClose, children}){
+function CellPopover({rect, wide, addPicker, onClose, children}){
   const ref=useRef(null);
   useEffect(()=>{
     const onDown=(e)=>{ if(ref.current && !ref.current.contains(e.target)) onClose(); };
@@ -1609,8 +1618,17 @@ function CellPopover({rect, wide, onClose, children}){
   const vw = window.innerWidth||1200, vh = window.innerHeight||800;
   let left = Math.min(rect.left, Math.max(8, vw - W - 10));
   let top = rect.bottom + 4;
-  if(top > vh - 80) top = Math.max(8, rect.top - 8 - 220);   // flip above if near the bottom
-  return html`<div class="cellpop" ref=${ref} style=${`position:fixed;left:${left}px;top:${top}px;width:${W}px;z-index:400`}>
+  let maxHeight = 0;
+  if(addPicker){
+    const desiredHeight = Math.min(420, Math.floor(vh * .6));
+    const spaceBelow = Math.max(0, Math.floor(vh - rect.bottom - 8));
+    const spaceAbove = Math.max(0, Math.floor(rect.top - 8));
+    const above = spaceBelow < desiredHeight && spaceAbove > spaceBelow;
+    maxHeight = Math.min(desiredHeight, above?spaceAbove:spaceBelow);
+    if(above) top = Math.max(8, rect.top - 4 - maxHeight);
+  }else if(top > vh - 80) top = Math.max(8, rect.top - 8 - 220);   // flip above if near the bottom
+  const popStyle=`position:fixed;left:${left}px;top:${top}px;width:${W}px;z-index:400${addPicker?`;max-height:${maxHeight}px`:""}`;
+  return html`<div class=${"cellpop"+(addPicker?" cp-add-pop":"")} ref=${ref} style=${popStyle}>
     ${children}
   </div>`;
 }
@@ -3521,11 +3539,13 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
   const [openSlug,setOpenSlug]=useState(null);   // ⤢ full-editor escape hatch (by slug)
   const [edit,setEdit]=useState(null);           // {slug, field, rect, wide} active cell popover
   const [revealed,setRevealed]=useState({});     // slug -> [advKey…] explicitly added this session
+  const [advQuery,setAdvQuery]=useState("");
   const vis=useFieldVis();
   const closeEdit=useCallback(()=>setEdit(null),[]);
   const charById=useMemo(()=>{ const m={}; (data.characters||[]).forEach(ch=>{ if(ch&&ch.id!=null) m[String(ch.id)]=ch; }); return m; },[data.characters]);
   const effectByName=useMemo(()=>{ const m={}; (data.effects||[]).forEach(e=>{ if(e&&e.name) m[e.name]=e; }); return m; },[data.effects]);
   const openCell=(slug,field,e,wide)=>{ if(e&&e.stopPropagation) e.stopPropagation();
+    if(field==="__add") setAdvQuery("");
     setEdit({slug, field, rect:e.currentTarget.getBoundingClientRect(), wide:!!wide}); };
   const reveal=(slug,k)=>setRevealed(r=>{ const cur=r[slug]||[]; return cur.indexOf(k)>=0?r:{...r,[slug]:[...cur,k]}; });
   const unreveal=(slug,k)=>setRevealed(r=>{ const cur=r[slug]||[]; return cur.indexOf(k)<0?r:{...r,[slug]:cur.filter(x=>x!==k)}; });
@@ -3589,10 +3609,25 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
     if(f==="__add"){
       const shown=advShownFor(act, revealed[edit.slug]);
       const addable=ADV_FIELDS.filter(x=> shown.indexOf(x)<0);
-      return html`<div><div class="cp-add-h">Add mechanic field</div>
-        ${addable.length?addable.map(x=>html`<button class="cp-add-opt" key=${x.k} title=${x.hint}
-          onClick=${()=>{ reveal(edit.slug,x.k); setEdit(prev=>({...prev,field:x.k,wide:false})); }}>${x.label}</button>`)
-          :html`<p class="note">All mechanic fields are already set on this action.</p>`}</div>`;
+      const query=advQuery.trim().toLowerCase();
+      const filtered=query?addable.filter(x=>
+        x.label.toLowerCase().includes(query) || x.k.toLowerCase().includes(query) || x.hint.toLowerCase().includes(query)
+      ):addable;
+      return html`<div>
+        <div class="cp-add-top">
+          <div class="cp-add-h">Add mechanic field</div>
+          <input class="cp-add-filter" type="text" value=${advQuery} placeholder="Filter label, key, or description…"
+            aria-label="Filter mechanic fields" onInput=${e=>setAdvQuery(e.target.value)} />
+        </div>
+        <div class="cp-add-list">
+          ${filtered.length?filtered.map(x=>html`<button class="cp-add-opt" key=${x.k}
+            onClick=${()=>{ reveal(edit.slug,x.k); setEdit(prev=>({...prev,field:x.k,wide:false})); }}>
+              <span class="cp-add-opt-label">${x.label}</span>
+              <span class="cp-add-opt-hint">${x.hint}</span>
+            </button>`)
+            :html`<p class="note">${addable.length?"No mechanic fields match this filter.":"All mechanic fields are already set on this action."}</p>`}
+        </div>
+      </div>`;
     }
     const af=ADV_BY_KEY[f];
     if(af){ const dflt=(af.kind==="bool")?false:(af.kind==="text")?"":(af.dflt||0);
@@ -3698,7 +3733,7 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
       })}
     </tbody>
   </table></div>
-    ${edit?html`<${CellPopover} rect=${edit.rect} wide=${wideField} onClose=${closeEdit}>${popBody()}</${CellPopover}>`:null}
+    ${edit?html`<${CellPopover} rect=${edit.rect} wide=${wideField} addPicker=${edit.field==="__add"} onClose=${closeEdit}>${popBody()}</${CellPopover}>`:null}
   </div>`;
 }
 
