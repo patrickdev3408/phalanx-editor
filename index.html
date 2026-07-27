@@ -2328,6 +2328,15 @@ function App(){
       if(dirty.tunables){
         const rows=(data.tunables||[]).filter(t=>t&&t.id).map(t=>({id:String(t.id),data:t}));
         if(rows.length){const{error}=await db.from("balance_tunables").upsert(rows,{onConflict:"id"});if(error)throw error;}
+        // Upsert alone can't express a REMOVAL, and the Class Costs tab's "Reset to
+        // default" works by dropping rows so the game falls back to its code defaults.
+        // Without this, a reset would look like it worked and then come straight back on
+        // the next load. Scoped to class_cost_* ids so no other tunable can be touched.
+        const keep=rows.map(r=>r.id).filter(id=>id.startsWith("class_cost_"));
+        let del=db.from("balance_tunables").delete().like("id","class_cost_%");
+        if(keep.length) del=del.not("id","in","("+keep.join(",")+")");
+        const{error:delErr}=await del;
+        if(delErr) throw delErr;
       }
       setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false});
       try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
@@ -2389,6 +2398,7 @@ function App(){
     {id:"effects",label:"Effects",n:data?.effects.length,dirty:dirty.effects},
     {id:"matrix",label:"Type Matrix",n:null,dirty:dirty.matrix},
     {id:"aoe",label:"AoE Patterns",n:data?.aoe_patterns.length,dirty:dirty.aoe_patterns},
+    {id:"class_costs",label:"Class Costs",dirty:dirty.tunables},
     {id:"tunables",label:"Tunables",n:data?.tunables?.length,dirty:dirty.tunables},
   ];
 
@@ -2433,6 +2443,7 @@ function App(){
         ${tab==="effects" && html`<${EffectsTab} effects=${data.effects} commitEdit=${commitEdit} />`}
         ${tab==="matrix" && html`<${MatrixTab} types=${enums.types} matrix=${data.type_matrix} commitEdit=${commitEdit} />`}
         ${tab==="aoe" && html`<${AoeTab} patterns=${data.aoe_patterns} commitEdit=${commitEdit} />`}
+        ${tab==="class_costs" && html`<${ClassCostsTab} tunables=${data.tunables} commitEdit=${commitEdit} />`}
         ${tab==="tunables" && html`<${TunablesTab} tunables=${data.tunables} commitEdit=${commitEdit} />`}
       </${ErrorBoundary}>
     `}
@@ -4325,6 +4336,88 @@ function AoeTab({patterns, commitEdit}){
       <div class="filter-row">${extras.map(n=>html`<button class=${"pill"+(openPat===n?" on":"")} onClick=${()=>setOpenPat(p=>p===n?null:n)}>${n}</button>`)}</div>
       ${extras.includes(openPat)?detail(openPat):null}
     </div>`:null}
+  </div></div>`;
+}
+
+function ClassCostsTab({tunables, commitEdit}){
+  if(!tunables) return html`<div class="wrap"><p class="note">No tunables loaded.</p></div>`;
+  const tiers=[
+    {id:"trivial",label:"Trivial",matches:2,defaults:[55,20,20,9,10]},
+    {id:"easy",label:"Easy",matches:4,defaults:[110,40,40,20,25]},
+    {id:"medium",label:"Medium",matches:9,defaults:[250,90,90,40,55]},
+    {id:"hard",label:"Hard",matches:18,defaults:[510,180,180,85,110]},
+    {id:"very_hard",label:"Very hard",matches:35,defaults:[990,350,350,160,210]},
+    {id:"brutal",label:"Brutal",matches:70,defaults:[2000,690,700,320,410]},
+  ];
+  const currencies=["valor","blood","aegis","mercy","cunning"];
+  return html`<div class="wrap"><div class="pane" style="max-width:980px;margin:18px auto;padding:20px">
+    <h3 style="margin-top:0">Class unlock costs</h3>
+    <p class="note">Costs are per unlock. The target class's playstyle determines which role currency applies;
+      a cross-lane unlock also charges the character's starting class's role currency. Currencies accrue in
+      parallel, so the real wait is the largest single requirement, not the sum.</p>
+    <p class="note"><i style="opacity:.65">Muted italic values are code defaults with no authored database row.</i>
+      Normal values are authored overrides.</p>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th style="text-align:left;padding:8px">Tier</th>
+          ${currencies.map(currency=>html`<th style="text-align:right;padding:8px;text-transform:capitalize">${currency}</th>`)}
+          <th style="text-align:right;padding:8px">≈ matches</th>
+          <th style="padding:8px"></th>
+        </tr></thead>
+        <tbody>${tiers.map(tier=>{
+          const tierPrefix="class_cost_"+tier.id+"_";
+          const tierIds=new Set(currencies.map(currency=>tierPrefix+currency));
+          const hasAuthored=tunables.some(t=>t&&tierIds.has(t.id));
+          return html`<tr key=${tier.id} style="border-top:1px solid rgba(255,255,255,.08)">
+            <th scope="row" style="text-align:left;padding:10px 8px">${tier.label}</th>
+            ${currencies.map((currency,currencyIndex)=>{
+              const id=tierPrefix+currency;
+              const authored=tunables.find(t=>t&&t.id===id);
+              const value=authored ? authored.value : tier.defaults[currencyIndex];
+              return html`<td style="padding:8px;text-align:right">
+                <input type="number" min="0" step="1" value=${value}
+                  aria-label=${tier.label+" "+currency+" class unlock cost"}
+                  style=${"width:110px;text-align:right"+(authored?"":";opacity:.65;font-style:italic")}
+                  onChange=${e=>{
+                    const rawText=e.target.value.trim();
+                    if(rawText===""){
+                      e.target.value=String(value);
+                      return;
+                    }
+                    const raw=Number(rawText);
+                    if(!Number.isFinite(raw)){
+                      e.target.value=String(value);
+                      return;
+                    }
+                    const nextValue=Math.max(0,Math.round(raw));
+                    commitEdit(next=>{
+                      const existing=next.tunables.find(t=>t&&t.id===id);
+                      if(existing){
+                        existing.value=nextValue;
+                      }else{
+                        next.tunables.push({
+                          id,
+                          value:nextValue,
+                          description:"Class unlock cost — "+tier.id+" tier, "+currency
+                        });
+                      }
+                    },dy=>{dy.tunables=true;});
+                  }} />
+              </td>`;
+            })}
+            <td style="padding:8px;text-align:right">${tier.matches}</td>
+            <td style="padding:8px;text-align:right">
+              <button class="btn ghost" disabled=${!hasAuthored} onClick=${()=>{
+                commitEdit(next=>{
+                  next.tunables=next.tunables.filter(t=>!t||!tierIds.has(t.id));
+                },dy=>{dy.tunables=true;});
+              }}>Reset to default</button>
+            </td>
+          </tr>`;
+        })}</tbody>
+      </table>
+    </div>
   </div></div>`;
 }
 
