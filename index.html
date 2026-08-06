@@ -2117,6 +2117,14 @@ function App(){
   const [undoStack,setUndo]=useState([]);
   const [redoStack,setRedo]=useState([]);
   const draftedRef = useRef(false);
+  /* "Discard them" was UNDISCARDABLE (fixed 2026-08-06). discard() removed the
+     draft key and called location.reload() — but a reload fires BOTH `pagehide`
+     and `beforeunload`, and each of those handlers re-wrote the draft from the
+     still-dirty in-memory state, so the draft came back before the page even
+     went away and the toast reappeared on every load, forever. This flag is
+     checked by all THREE draft writers (the debounced autosave, the pagehide
+     flush, and the beforeunload handler) so a discard can actually stick. */
+  const discardingRef = useRef(false);
 
   const toast=useCallback((title,body,kind="ok",ms=5200)=>{
     const id=Math.random().toString(36).slice(2);
@@ -2251,6 +2259,9 @@ function App(){
   /* synchronous writer: persists every dirty record's current value right now */
   const writeDraft=useCallback((d,dy)=>{
     if(!d||!dy) return;
+    if(discardingRef.current) return;   // authoritative guard: a discard-in-progress
+                                        // must not be able to re-persist the draft
+                                        // from ANY caller, present or future.
     try{
       localStorage.setItem(DRAFT_KEY, JSON.stringify({
         ts:Date.now(),
@@ -2268,11 +2279,11 @@ function App(){
   },[]);
   /* debounced during active typing (short, so a quick tab-switch can't outrun it) */
   const saveDraft=useMemo(()=>debounce((d,dy)=>writeDraft(d,dy),250),[writeDraft]);
-  useEffect(()=>{ if(data && dirtyCount>0) saveDraft(data,dirty); },[data,dirty]);
+  useEffect(()=>{ if(data && dirtyCount>0 && !discardingRef.current) saveDraft(data,dirty); },[data,dirty]);
   /* flush IMMEDIATELY the moment the tab is hidden or unloaded — browsers can
      discard a backgrounded tab, which would otherwise drop in-memory edits */
   useEffect(()=>{
-    const flush=()=>{ const s=liveRef.current; if(s && s.dirtyCount>0) writeDraft(s.data,s.dirty); };
+    const flush=()=>{ if(discardingRef.current) return; const s=liveRef.current; if(s && s.dirtyCount>0) writeDraft(s.data,s.dirty); };
     const onVis=()=>{ if(document.visibilityState==="hidden") flush(); };
     document.addEventListener("visibilitychange",onVis);
     window.addEventListener("pagehide",flush);
@@ -2307,7 +2318,16 @@ function App(){
       actions:new Set((d.actions||[]).map(a=>String(a.id))),
       classes:!!d.classes, effects:!!d.effects, matrix:!!d.matrix, types:!!d.types, tunables:!!d.tunables, aoe_patterns:!!d.aoe_patterns,
     });
-    const discard=()=>{ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} location.reload(); };
+    /* Order matters: raise the guard BEFORE touching storage, so the pagehide /
+       beforeunload handlers that location.reload() triggers cannot write the
+       draft back. Clearing dirty too makes it belt-and-braces — a writer that
+       somehow ran anyway would have nothing dirty to persist. */
+    const discard=()=>{
+      discardingRef.current=true;
+      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false});
+      try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
+      location.reload();
+    };
     toast("Restored unsaved edits",
       html`Brought back ${n} unsaved change(s) from your last session. <a href="#" onClick=${e=>{e.preventDefault();discard();}}>Discard them</a>`,
       "warn", 9000);
@@ -2407,7 +2427,8 @@ function App(){
   },[dirtyCount,undo,redo]);
 
   useEffect(()=>{
-    const h=e=>{ if(dirtyCount>0){ const s=liveRef.current; if(s) writeDraft(s.data,s.dirty); e.preventDefault(); e.returnValue=""; } };
+    const h=e=>{ if(discardingRef.current) return;   // a discard reload must not re-save (or re-prompt)
+      if(dirtyCount>0){ const s=liveRef.current; if(s) writeDraft(s.data,s.dirty); e.preventDefault(); e.returnValue=""; } };
     window.addEventListener("beforeunload",h);
     return ()=>window.removeEventListener("beforeunload",h);
   },[dirtyCount,writeDraft]);
