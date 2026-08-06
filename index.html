@@ -1205,14 +1205,19 @@ const PLAYSTYLE_COLORS = {
 };
 const playstyleColor = (ps)=> PLAYSTYLE_COLORS[ps] || "#3a464d";
 
-const STAT_FIELDS = ["health","regen","attack","defense","special_attack","special_defense","speed","dodge","crit_chance","crit_bonus"];
+/* `regen` removed from all four lists 2026-08-06 — the STAT itself was deleted
+   (effects, per-turn tick and column). Leaving it selectable would let someone
+   author a value the game silently ignores; worse for SYNERGY_STATS, where a
+   synergy pointed at a dead stat is a permanent no-op that data_lint cannot see
+   (it has no synergy-stat validation). */
+const STAT_FIELDS = ["health","attack","defense","special_attack","special_defense","speed","dodge","crit_chance","crit_bonus"];
 /* Captain rework 2026-07-18: the stat the captain's 5-hex aura boosts for
    teammates while the captain lives (game reads captain_stat /
    captain_stat_mag off the character row). health is deliberately excluded —
    the captain's own +25% HP is the fixed rule. */
-const CAPTAIN_STAT_OPTIONS = ["","attack","defense","special_attack","special_defense","speed","regen","dodge","crit_chance"];
-const INT_STATS = ["health","regen","attack","defense","special_attack","special_defense","speed"];
-const SYNERGY_STATS = ["Attack","Defense","Special Attack","Special Defense","Dodge","Crit Chance","Crit Bonus","Health","Regen","Speed"];
+const CAPTAIN_STAT_OPTIONS = ["","attack","defense","special_attack","special_defense","speed","dodge","crit_chance"];
+const INT_STATS = ["health","attack","defense","special_attack","special_defense","speed"];
+const SYNERGY_STATS = ["Attack","Defense","Special Attack","Special Defense","Dodge","Crit Chance","Crit Bonus","Health","Speed"];
 const CHAR_SLOTS = ["standard_attack","type_attack","class_action"].concat(Array.from({length:15},(_,i)=>"unique_action_"+(i+1)));
 /* R3.3 — slots EDITABLE in the Characters tab: drop type_attack + class_action
    (those are inherited from the character's Type / Class now). standard_attack +
@@ -1291,23 +1296,29 @@ const EFFECT_GROUPS = [
 ];
 
 /* AoE pattern matrix rows (spec §AoE Pattern dropdown). Labels are descriptive
-   group headers for the matrix dropdown; order matches the spec's 9 rows. */
+   group headers for the matrix dropdown; order matches the spec's 9 rows.
+   RETIRED and deliberately absent: Fan; Propeller + Corona Ring (2026-08-01);
+   Explosion + Implosion + Striking Leap (2026-08-03). This list had gone STALE
+   against the catalog - it still offered all five long after their rows were
+   deleted from the Supabase aoe_patterns table. Keep it in sync on every
+   retirement, or the editor will happily author an action the engine cannot
+   resolve. */
 const AOE_ROW_DEFS = [
   {label:"Strikes",            names:["Strike","Twin Strike"]},
-  {label:"Lines",              names:["Line","Opposing Lines","Tri-Line","Propeller"]},
-  {label:"Rings / Area",       names:["Ring","Corona Ring","Area","Explosion","Implosion"]},
+  {label:"Lines",              names:["Line","Opposing Lines","Tri-Line"]},
+  {label:"Rings / Area",       names:["Ring","Area"]},
   {label:"Projectiles / Wave", names:["Projectile","Piercing Projectile","Boomerang","Wave"]},
   {label:"Multi",              names:["Barrage","Volley","Chain"]},
   {label:"Movement",           names:["Move","Jump","Swap"]},
-  {label:"Movement strikes",   names:["Lunging Strike","Dash Attack","Teleport Strike","Striking Leap"]},
+  {label:"Movement strikes",   names:["Lunging Strike","Dash Attack","Teleport Strike"]},
   {label:"Leaps",              names:["Leaping Smash","Spinning Leap"]},
-  {label:"Wide",               names:["Cone","Fan","Wall"]},
+  {label:"Wide",               names:["Cone","Wall"]},
 ];
 const AOE_ROWS = AOE_ROW_DEFS.map(r=>r.names);
 const AOE_PATTERN_SET = new Set(AOE_ROW_DEFS.flatMap(r=>r.names));
 
 /* Size-must-be-1 patterns + line family (1 or 3 only). */
-const SIZE_ONE_PATTERNS = new Set(["Twin Strike","Move","Lunging Strike","Dash Attack","Teleport Strike","Striking Leap","Spinning Leap","Swap"]);
+const SIZE_ONE_PATTERNS = new Set(["Twin Strike","Move","Lunging Strike","Dash Attack","Teleport Strike","Spinning Leap","Swap"]);
 const LINE_13_PATTERNS = new Set(["Line","Opposing Lines","Boomerang","Projectile","Piercing Projectile"]);
 const CONE_SIZES = [5,7,9];                  // 2026-06-18 (user): cone = size 5/7/9, range 1
 
@@ -1330,14 +1341,36 @@ function rng(min,max,step){
   for(let v=min; v<=max+1e-9; v+=step) o.push(+v.toFixed(dec));
   return o;
 }
+/* Quick-pick palettes for the stat dropdowns. NOT a validator — a value off the
+   grid is still legal and shows under "current (off-grid)" with a ⚠ on the button
+   plus a free-type custom box. (Arbitrary authored values like speed 51 have always
+   sat off-grid; that predates the rescale.)
+
+   ⚖ 2026-08-06 GLOBAL STAT RESCALE — these grids follow the roster:
+     attack/defense/special_attack/special_defense  ÷10  → 0-30 STEP 1
+       (was 0-200 step 5; the stats are small INTEGERS now, so the step has to be 1
+        or nearly every authored value falls off the palette)
+     health                                          ÷8  → 0-130 STEP 1
+       (was 0-1000 step 25; authored heroes land 50-108. Step 1 because authored
+        HP is arbitrary — 75/88/59 — so step 5 left 78% of the roster off-grid;
+        at step 1 every authored value is one click. The popup scrolls and has a
+        filter box, so the longer list costs nothing.)
+     speed                        DELIBERATELY UNSCALED — RANGE stays 0-120.
+       Speed was NOT divided in the rescale (÷10 collapses the live 5-97 spread into
+       1-10 and turn order degenerates into mass ties). Do not rescale this range to
+       match the other four. Its STEP went 5 -> 1 for a separate, pre-existing
+       reason: authored speeds are arbitrary (51, 62, 74), so a step of 5 left 74%
+       of the roster off-grid long before the rescale.
+     dodge / crit_chance / crit_bonus  already fractions — untouched.
+   `regen` is GONE (stat removed 2026-08-06) — no row here, and it is off
+   STAT_FIELDS / INT_STATS / CAPTAIN_STAT_OPTIONS too. */
 const STAT_MATRIX = {
-  health:{opts:rng(0,1000,25), float:false},
-  regen:{opts:rng(0,20,1), float:false},
-  attack:{opts:rng(0,200,5), float:false},
-  defense:{opts:rng(0,200,5), float:false},
-  special_attack:{opts:rng(0,200,5), float:false},
-  special_defense:{opts:rng(0,200,5), float:false},
-  speed:{opts:rng(0,120,5), float:false},
+  health:{opts:rng(0,130,1), float:false},
+  attack:{opts:rng(0,30,1), float:false},
+  defense:{opts:rng(0,30,1), float:false},
+  special_attack:{opts:rng(0,30,1), float:false},
+  special_defense:{opts:rng(0,30,1), float:false},
+  speed:{opts:rng(0,120,1), float:false},
   dodge:{opts:rng(0,1,0.05), float:true},
   crit_chance:{opts:rng(0,0.5,0.05), float:true},
   // crit_bonus has no spec'd range — keep a sensible fallback grid
@@ -1374,10 +1407,21 @@ const COOLDOWN_ROWS = [
 const COOLDOWN_SET = new Set(COOLDOWN_ROWS.flatMap(r=>r.names));
 
 /* Effect magnitude / duration dropdowns (spec §Shared dropdown rules). */
+/* ⚖ 2026-08-06 GLOBAL STAT RESCALE — the FLAT-HP effects are measured in HP, so
+   their magnitudes were divided by 8 with the health stat and now live in 1-18
+   (Shield's biggest is 18, Burn's typical is 1-6). The generic 25..100 tail below
+   is meaningless for them — a 60 Shield would be most of a hero's whole 75 HP bar.
+   Percentage effects (Atk+, Curse, Lifesteal, Heal %, Poison, Bleed …) are
+   scale-free and keep the full grid. Keep this list in sync with
+   EXPECTED_FLAT_HP_EFFECTS in tools/supabase/rescale_stats.py. */
+const FLAT_HP_EFFECTS = new Set(["Burn","Heal","Shield","Time Bomb"]);
 function magnitudeOptions(effect){
   if(effect==="Root"||effect==="Stun") return [0];
   if(effect==="Bleed"||effect==="Poison"){
     const o=[]; for(let i=1;i<=50;i++) o.push(+(i/10).toFixed(1)); return o; // 0.1 .. 5.0
+  }
+  if(FLAT_HP_EFFECTS.has(effect)){
+    const o=[]; for(let i=1;i<=30;i++) o.push(i); return o;   // flat HP: 1 .. 30
   }
   const o=[]; for(let i=1;i<=20;i++) o.push(i);
   for(let i=25;i<=100;i+=5) o.push(i);
@@ -1854,12 +1898,15 @@ function formulaL({atkStat, modifier, mult, defStat}){
   // Equivalent: atk * (1 + (modifier-1) + (mult-1)) = atk * (modifier + mult - 1)
   const ea = Math.max(0, effAtk);
   const ed = Math.max(1, Number(defStat)||1);
-  return Math.max(1, Math.pow(ea,1.05) * 115 / Math.pow(ed,1.1));
+  // 115 -> 10 with the 2026-08-06 global stat rescale. MUST track
+  // CombatManager.damage_scalar or every number this editor previews is ~10x the
+  // damage the game actually deals.
+  return Math.max(1, Math.pow(ea,1.05) * 10 / Math.pow(ed,1.1));
 }
 function actionAtkStat(action, char){
   // damage_type 0 Normal -> attack ; 1 Special -> special_attack ; 2 Hybrid -> 50/50
   const st = (char && char.stats) || {};
-  const a = num(st.attack,50), sa = num(st.special_attack,50);
+  const a = num(st.attack,5), sa = num(st.special_attack,5);   // 50 -> 5 (2026-08-06 rescale)
   const dt = action ? action.damage_type : 0;
   if(dt===1) return sa;
   if(dt===2) return (a+sa)/2;
@@ -2407,7 +2454,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 07-14·1</span>
+        <span class="sub">v2 · Supabase · live · build 08-06·1</span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -3920,8 +3967,9 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
 /* Balance lab — live Formula L preview vs a chosen defender type */
 function BalanceLab({action, enums, types, tm, charById}){
   const [defType,setDefType]=useState("");
-  const [defStat,setDefStat]=useState(50);
-  const [atkStat,setAtkStat]=useState(()=> action.damage_type===1?120:80);
+  // 2026-08-06 rescale: 50/120/80 -> 5/12/8 (hero atk/def now land ~3-15).
+  const [defStat,setDefStat]=useState(5);
+  const [atkStat,setAtkStat]=useState(()=> action.damage_type===1?12:8);
   // a synthetic caster carrying the chosen atk stat + the action's type
   const caster=useMemo(()=>({type_1:(action.action_type||"").trim(),
     stats:{attack:atkStat,special_attack:atkStat}}),[atkStat,action.action_type]);
@@ -3956,7 +4004,7 @@ function BalanceLab({action, enums, types, tm, charById}){
         ${rows.map(r=>html`<tr><td class="nm">${r.t}</td><td class="mt">${r.mult.toFixed(2)}×</td><td class="dm">~${r.dmg}</td></tr>`)}
       </tbody></table>
     </div>
-    <p class="note">Formula L: <span class="mono">max(1, eff_atk^1.05 · 115 / def^1.1)</span>, eff_atk = atk·(modifier + matchup − 1). Crit/variance/synergy excluded.</p>
+    <p class="note">Formula L: <span class="mono">max(1, eff_atk^1.05 · 10 / def^1.1)</span>, eff_atk = atk·(modifier + matchup − 1). Crit/variance/synergy excluded.</p>
   </div>`;
 }
 
