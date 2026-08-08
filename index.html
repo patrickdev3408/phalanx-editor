@@ -1935,6 +1935,7 @@ function buildUsageIndex(characters, classes){
   const add=(slug,kind,who)=>{ if(!slug)return; (idx[slug]=idx[slug]||{chars:[],classes:[]})[kind].push(who); };
   (characters||[]).forEach(c=>{
     CHAR_SLOTS.forEach(s=>{ const o=c[s]; if(o&&typeof o==="object"&&o.id) add(o.id,"chars",c.id); else if(typeof o==="string"&&o) add(o,"chars",c.id); });
+    (c.mastery_unique_actions||[]).forEach(w=>{ const id=(w&&typeof w==="object"&&w.id)?w.id:(typeof w==="string"?w:""); if(id) add(id,"chars",c.id); });
   });
   ((classes&&classes.classes)||[]).forEach(cl=>{
     (cl.core_class_actions||[]).forEach(s=>add(s,"classes",cl.class_name));
@@ -3217,6 +3218,29 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
                     effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions}
                     charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selId=${selId} />`)}
                 </div>`}
+          </${Group}>
+
+          <${Group} title="Unique mastery (single-player ladder)">
+            ${(()=>{
+              const arr=(c.mastery_unique_actions||[]);
+              const muSlugs=arr.map(w=>(w&&typeof w==="object"&&w.id)?w.id:(typeof w==="string"?w:"")).filter(Boolean);
+              const roman=["I","II","III","IV","V"];
+              const muLabels=muSlugs.map((_,i)=>"Mastery "+(roman[i]||String(i+1)));
+              const onMuBody=(u)=>commitEdit(next=>{ const i=next.actions.findIndex(a=>a.id===u.id); if(i>=0) next.actions[i]=u; }, dy=>dy.actions.add(String(u.id)));
+              const onMuDel=(i)=>commitEdit(next=>{ const o=next.characters.find(x=>String(x.id)===String(selId)); if(o&&Array.isArray(o.mastery_unique_actions)) o.mastery_unique_actions.splice(i,1); }, dy=>dy.chars.add(String(selId)));
+              const addMu=(id)=>commitEdit(next=>{ const o=next.characters.find(x=>String(x.id)===String(selId)); if(o){ if(!Array.isArray(o.mastery_unique_actions)) o.mastery_unique_actions=[]; o.mastery_unique_actions.push({id, category:"mastery"}); } }, dy=>dy.chars.add(String(selId)));
+              return html`
+                <p class="note">Ordered unlock ladder (I → II → III) — field <span class="mono">mastery_unique_actions</span>. Heroes only. Single-player power fantasy: never composed in PvP, sims, or AI-enemy hands.</p>
+                ${muSlugs.length?html`<${ClassActionTable} slugs=${muSlugs} rowLabels=${muLabels} data=${data} actionById=${actionById}
+                  effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx}
+                  onDel=${onMuDel} onActionChange=${onMuBody} />`:html`<p class="note">No unique mastery actions on this character.</p>`}
+                <div class="add-slug" style="margin-top:8px">
+                  <select class="mono" onChange=${e=>{ if(e.target.value){ addMu(e.target.value); e.target.value=""; } }}>
+                    <option value="">+ Add existing action…</option>
+                    ${(data.actions||[]).map(a=>html`<option value=${a.id}>${a.id}</option>`)}
+                  </select>
+                </div>`;
+            })()}
           </${Group}>
 
           <${Group} title="Card art">
