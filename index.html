@@ -1564,9 +1564,9 @@ const ADV_FIELDS=[
   {k:"scale_per_own_debuff",label:"Per-own-debuff dmg ×",kind:"numsel",float:true,options:[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5],hint:"Inquisitor Sentence Stack: damage ×(1 + this × harmful-effects-on-target-from-caster)"},
   {k:"detonate_distinct_bonus_pct",label:"Detonate distinct bonus %",kind:"numsel",options:[0,10,15,20,25,30,40,50,75,100],hint:"Rogue Rupture: a Detonate bursts ×(1 + pct/100 × (distinct DoT types − 1))"},
   {k:"charge_gain",label:"Charge gain",kind:"numsel",options:[0,1,2,3,4,5],hint:"S1 Charge: charges banked on the caster when this action is cast"},
-  {k:"charge_min",label:"Charge min",kind:"numsel",options:[0,1,2,3,4,5,6],hint:"S1 Charge: action LOCKED until the caster holds ≥ N charges (finisher gate)"},
+  {k:"charge_min",label:"Charge min",kind:"numsel",options:[0,1,2,3,4,5],hint:"S1 Charge: action LOCKED until the caster holds ≥ N charges (finisher gate). Ceiling is Constants.CHARGE_MAX = 5 — a higher gate can never be reached, so the action would never be castable."},
   {k:"charge_damage_per_point",label:"Charge dmg / point",kind:"numsel",float:true,options:[0,0.05,0.1,0.15,0.2,0.25,0.3,0.5,0.75,1.0],hint:"S1 Charge: extra damage_modifier per charge consumed"},
-  {k:"charge_heal_per_point",label:"Charge heal / point",kind:"numsel",float:true,options:[0,5,10,15,20,25,30,40,50],hint:"Dawnblade blessing: a charge_spend HEAL restores this many extra HP per charge"},
+  {k:"charge_heal_per_point",label:"Charge heal / point",kind:"numsel",float:true,options:[0,2,4,6,8,10,12,15,20,25],hint:"FLAT HP restored per charge spent — ×5 at a full pool, against a 50–108 HP roster. Works on its own: no Heal effect required."},
   {k:"charge_spend",label:"Charge spend",kind:"bool",hint:"S1 Charge: cast consumes ALL of the caster's charges"},
   {k:"overheal_to_shield",label:"Overheal → Shield",kind:"bool",hint:"Cleric: healing beyond max HP banks as Shield"},
   {k:"overheal_shield_pct",label:"Overheal → Shield %",kind:"numsel",float:true,options:[25,50,75,100],dflt:100,hint:"% of the overflow banked when Overheal → Shield is on (100 = all)"},
@@ -2476,7 +2476,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 08-06·1</span>
+        <span class="sub">v2 · Supabase · live · build 08-12·1</span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
