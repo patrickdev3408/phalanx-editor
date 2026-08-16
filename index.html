@@ -1417,6 +1417,14 @@ const COOLDOWN_SET = new Set(COOLDOWN_ROWS.flatMap(r=>r.names));
 const FLAT_HP_EFFECTS = new Set(["Burn","Heal","Shield","Time Bomb"]);
 function magnitudeOptions(effect){
   if(effect==="Root"||effect==="Stun") return [0];
+  /* ⚖ 2026-08-16 (Pat D): Braced capped at 50. The body-cross trigger pays DOUBLE
+     the magnitude, so 50 is exactly where walking through the pikes costs one full
+     normal attack — "going above 0.5 [=50%] is not advised". Live rows are 35 and
+     50, both still selectable. data_lint warns on authored values above the cap
+     (a dropdown is a convention, not a guard — the charge-audit lesson). */
+  if(effect==="Braced"){
+    const o=[]; for(let i=5;i<=50;i+=5) o.push(i); return o;
+  }
   if(effect==="Bleed"||effect==="Poison"){
     const o=[]; for(let i=1;i<=50;i++) o.push(+(i/10).toFixed(1)); return o; // 0.1 .. 5.0
   }
@@ -2476,7 +2484,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 08-12·1</span>
+        <span class="sub">v2 · Supabase · live · build 08-16·1</span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
