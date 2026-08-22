@@ -1982,6 +1982,18 @@ function lintAction(a, charById){
     out.push({k:"err",t:`size ${sz}: must be 1`});
   if(rg!=null && (rg<0||rg>7)) out.push({k:"warn",t:`range ${rg} out of 0–7`});
   if(pat==="Cone" && rg!=null && rg!==1) out.push({k:"warn",t:"Cone range must be 1"});
+  /* ⚖ 2026-08-21 (Pat D): hazard footprints are LIMITED, not eliminated — "it's
+     pretty annoying when most of the map becomes a zone." Area hazards hard-cap
+     at size 2 (19 hexes); size 2 is reserved for CD>=12 signature casts; cheap
+     (CD<12) zones keep lifetimes <= 6 turns. Mirrors data_lint.gd's backstop —
+     a dropdown is a convention, not a guard (the charge-audit lesson). */
+  const tt=intOf(a.trap_tick,2), cd=Number(a.cooldown_rounds||0);
+  if(tt!==2 && pat==="Area" && sz!=null && sz>=3)
+    out.push({k:"err",t:`Area hazard size ${sz}: hazards hard-cap at size 2 (⚖ 08-21)`});
+  else if(tt!==2 && pat==="Area" && sz===2 && cd<12)
+    out.push({k:"warn",t:`19-hex zone at CD ${cd}: size-2 hazards are for CD>=12 signatures`});
+  if(tt===1 && cd<12 && Number(a.zone_duration_turns||0)>6)
+    out.push({k:"warn",t:`zone lives ${a.zone_duration_turns} turns at CD ${cd}: cheap zones cap at 6`});
   [a.effect1,a.effect2].forEach((ef,i)=>{
     if(!ef||!ef.effect_type) return;
     const mo=magnitudeOptions(ef.effect_type), du=durationOptions(ef.effect_type);
@@ -2484,7 +2496,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 08-16·1</span>
+        <span class="sub">v2 · Supabase · live · build 08-22·1</span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -2769,7 +2781,11 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
             onInput=${v=>set("damage_modifier",v)} />
         </${Field}>`:null}
         ${vis.has("aoe_size")?html`<${Field} label="AoE size">
-          <${NumSelect} value=${action.aoe_size} options=${aoeSizeOptions(action.aoe_pattern)} onInput=${v=>set("aoe_size",v)} />
+          <${NumSelect} value=${action.aoe_size}
+            options=${intOf(action.trap_tick,2)!==2 && action.aoe_pattern==="Area"
+              ? aoeSizeOptions(action.aoe_pattern).filter(s=>s<=2)
+              : aoeSizeOptions(action.aoe_pattern)}
+            onInput=${v=>set("aoe_size",v)} />
         </${Field}>`:null}
         ${vis.has("aoe_range")?html`<${Field} label="AoE range" hint="0–7">
           <${NumSelect} value=${action.aoe_range} options=${aoeRangeOptions(action.aoe_pattern)} onInput=${v=>set("aoe_range",v)} />
@@ -2790,9 +2806,11 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
         ${vis.has("trap_tick")?html`<${Field} label="Trap tick">
           <${Select} value=${action.trap_tick} options=${TRAP_TICKS} onInput=${v=>set("trap_tick",intOf(v,2))} />
         </${Field}>`:null}
-        ${intOf(action.trap_tick,2)===1?html`<${Field} label="Zone duration" hint="turns · 0 = auto (max 20 / effect dur)">
+        ${intOf(action.trap_tick,2)===1?html`<${Field} label="Zone duration" hint="turns · 0 = auto · cheap (CD<12) zones cap at 6 (⚖ 08-21)">
           <${NumSelect} value=${action.zone_duration_turns==null?0:action.zone_duration_turns}
-            options=${[0,1,2,3,4,5,6,8,10,12,15,20,25,30,40,50]} onInput=${v=>set("zone_duration_turns",v)} />
+            options=${Number(action.cooldown_rounds||0)<12
+              ? [0,1,2,3,4,5,6]
+              : [0,1,2,3,4,5,6,8,10,12,15,20,25,30,40,50]} onInput=${v=>set("zone_duration_turns",v)} />
         </${Field}>`:null}
         ${vis.has("unlock_round")?html`<${Field} label="Unlock round" hint="0 = from start · N = locked until round N (inverse cooldown / warmup)">
           <${NumSelect} value=${action.unlock_round==null?0:action.unlock_round}
