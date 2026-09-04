@@ -1278,10 +1278,16 @@ function useFieldVis(){
 }
 
 /* Effect groups — both the Effects reference tab AND the effect matrix dropdown. */
+/* Grouping only - the dropdown's KNOWN set is data-driven (knownEffects), so a
+   name here that no longer exists in the effects table is a dead button and a
+   live effect missing here lands in "Other / ungrouped". Synced 2026-09-04:
+   Regen+/Regen-/Renewal removed (stat deleted 2026-08-06), Detonate -> Rupture
+   (renamed 2026-09-03; the Time Bomb burst keeps the WORD Detonate but has no
+   effect row), Penance + Sure Strike grouped. */
 const EFFECT_GROUPS = [
-  {label:"Positive stat deltas", names:["Atk+","SpcAtk+","Def+","SpcDef+","Speed+","Crit+","Dodge+","Regen+","MaxHP+"]},
-  {label:"Negative stat deltas", names:["Atk-","SpcAtk-","Def-","SpcDef-","Speed-","Crit-","Dodge-","Regen-"]},
-  {label:"Buff Auras", names:["Warcry","ArcaneCry","Bulwark","Ward","Tailwind","Perception","Shroud","Renewal"]},
+  {label:"Positive stat deltas", names:["Atk+","SpcAtk+","Def+","SpcDef+","Speed+","Crit+","Dodge+","MaxHP+"]},
+  {label:"Negative stat deltas", names:["Atk-","SpcAtk-","Def-","SpcDef-","Speed-","Crit-","Dodge-"]},
+  {label:"Buff Auras", names:["Warcry","ArcaneCry","Bulwark","Ward","Tailwind","Perception","Shroud"]},
   {label:"Debuff Auras", names:["Intimidate","Suppress","Corrode","Breach","Hinder","Dull","Expose"]},
   {label:"Per-turn buff ramps", names:["Fervor","Focus","Fortify","Attune","Sharpen"]},
   {label:"Per-turn debuff ramps", names:["Wither","Unravel","Erode","Dissonance","Fatigue"]},
@@ -1290,15 +1296,19 @@ const EFFECT_GROUPS = [
   {label:"Reflect / redirect", names:["Thorns","Protector"]},
   {label:"Damage over time", names:["Burn","Poison","Bleed"]},
   {label:"Control / disrupt", names:["Stun","Root","Anti Heal","Silence","Blind","Curse","Mark","Push","Pull"]},
-  {label:"Utility / triggers", names:["Dispel","Buff Block","Death Ward","Time Bomb","Mirage","Dispel Steal","Detonate"]},
-  {label:"Class identities", names:["Legion","Resonance","Undead Contagion","Dying Blessing","Grudge","Soul Reservoir","Braced","Markstalker","Riposte","Sequence","WeaponEnchant","Vindication","OverhealShield","Outcast"]},
+  {label:"Utility / triggers", names:["Dispel","Buff Block","Death Ward","Time Bomb","Mirage","Dispel Steal","Rupture"]},
+  {label:"Class identities", names:["Legion","Resonance","Undead Contagion","Dying Blessing","Grudge","Soul Reservoir","Braced","Markstalker","Riposte","Sequence","WeaponEnchant","Vindication","OverhealShield","Outcast","Penance","Sure Strike"]},
   {label:"Summon", names:["Summon"]},
 ];
 
 /* AoE pattern matrix rows (spec §AoE Pattern dropdown). Labels are descriptive
    group headers for the matrix dropdown; order matches the spec's 9 rows.
    RETIRED and deliberately absent: Fan; Propeller + Corona Ring (2026-08-01);
-   Explosion + Implosion + Striking Leap (2026-08-03). This list had gone STALE
+   Explosion + Implosion + Striking Leap (2026-08-03); Move (2026-09-04, Pat D:
+   "that's not a thing anymore" - movement is basic per-hex walking since the
+   2026-06-24 rework and the 2026-07-02 Silence ruling; the two legacy Move rows,
+   sage_phase_step + skirmisher_fade_step, show the unknown-value warning until
+   they are repointed). This list had gone STALE
    against the catalog - it still offered all five long after their rows were
    deleted from the Supabase aoe_patterns table. Keep it in sync on every
    retirement, or the editor will happily author an action the engine cannot
@@ -1309,7 +1319,7 @@ const AOE_ROW_DEFS = [
   {label:"Rings / Area",       names:["Ring","Area"]},
   {label:"Projectiles / Wave", names:["Projectile","Piercing Projectile","Boomerang","Wave"]},
   {label:"Multi",              names:["Barrage","Volley","Chain"]},
-  {label:"Movement",           names:["Move","Jump","Swap"]},
+  {label:"Movement",           names:["Jump","Swap"]},
   {label:"Movement strikes",   names:["Lunging Strike","Dash Attack","Teleport Strike"]},
   {label:"Leaps",              names:["Leaping Smash","Spinning Leap"]},
   {label:"Wide",               names:["Cone","Wall"]},
@@ -1317,9 +1327,13 @@ const AOE_ROW_DEFS = [
 const AOE_ROWS = AOE_ROW_DEFS.map(r=>r.names);
 const AOE_PATTERN_SET = new Set(AOE_ROW_DEFS.flatMap(r=>r.names));
 
-/* Size-must-be-1 patterns + line family (1 or 3 only). */
-const SIZE_ONE_PATTERNS = new Set(["Twin Strike","Move","Lunging Strike","Dash Attack","Teleport Strike","Spinning Leap","Swap"]);
-const LINE_13_PATTERNS = new Set(["Line","Opposing Lines","Boomerang","Projectile","Piercing Projectile"]);
+/* Size-must-be-1 patterns + line family (1 or 3 only).
+   Piercing Projectile moved from the line family to size-one 2026-09-04: since
+   R4 (2026-08-30) RANGE governs how many bodies it pierces and size is INERT -
+   the catalog row says "author 1" and data_lint warns on >1, so offering 3 here
+   would author a value the engine ignores. */
+const SIZE_ONE_PATTERNS = new Set(["Twin Strike","Lunging Strike","Dash Attack","Teleport Strike","Spinning Leap","Swap","Piercing Projectile"]);
+const LINE_13_PATTERNS = new Set(["Line","Opposing Lines","Boomerang","Projectile"]);
 const CONE_SIZES = [5,7,9];                  // 2026-06-18 (user): cone = size 5/7/9, range 1
 
 function aoeSizeOptions(pattern){
@@ -1529,7 +1543,7 @@ function actionEffectNames(a){
    editing still happens through the real fields in ActionEditorInline. */
 const MECH_NUM_KEYS=[["scale_isolation","isolation ×"],["scale_missing_hp","missing-HP ×"],
   ["bonus_vs_rooted","vs Rooted ×"],["scale_per_own_debuff","per-debuff ×"],
-  ["detonate_distinct_bonus_pct","detonate +%"],["charge_gain","charge gain"],
+  ["detonate_distinct_bonus_pct","rupture +%"],["charge_gain","charge gain"],
   ["charge_min","charge min"],["charge_damage_per_point","charge dmg/pt"],
   ["charge_heal_per_point","charge heal/pt"],["contagion_hops","contagion hops"],
   ["unlock_round","unlock round"]];
@@ -1570,7 +1584,7 @@ const ADV_FIELDS=[
   {k:"scale_missing_hp",label:"Missing-HP dmg ×",kind:"numsel",float:true,options:[0,0.25,0.5,0.75,1.0,1.25,1.5,2.0],hint:"Reaver Last Rite: damage ×(1 + this × caster's missing-HP fraction)"},
   {k:"bonus_vs_rooted",label:"Bonus vs Rooted",kind:"numsel",float:true,options:[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.6,0.75,1.0],hint:"Warden Captive Quarry: ×bonus vs a Rooted target (0.5 = +50%)"},
   {k:"scale_per_own_debuff",label:"Per-own-debuff dmg ×",kind:"numsel",float:true,options:[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5],hint:"Inquisitor Sentence Stack: damage ×(1 + this × harmful-effects-on-target-from-caster)"},
-  {k:"detonate_distinct_bonus_pct",label:"Detonate distinct bonus %",kind:"numsel",options:[0,10,15,20,25,30,40,50,75,100],hint:"Rogue Rupture: a Detonate bursts ×(1 + pct/100 × (distinct DoT types − 1))"},
+  {k:"detonate_distinct_bonus_pct",label:"Rupture distinct bonus %",kind:"numsel",options:[0,10,15,20,25,30,40,50,75,100],hint:"Rogue Rupture: the burst is ×(1 + pct/100 × (distinct DoT types − 1)). Data key stays detonate_distinct_bonus_pct (the pre-2026-09-03 name)."},
   {k:"charge_gain",label:"Charge gain",kind:"numsel",options:[0,1,2,3,4,5],hint:"S1 Charge: charges banked on the caster when this action is cast"},
   {k:"charge_min",label:"Charge min",kind:"numsel",options:[0,1,2,3,4,5],hint:"S1 Charge: action LOCKED until the caster holds ≥ N charges (finisher gate). Ceiling is Constants.CHARGE_MAX = 5 — a higher gate can never be reached, so the action would never be castable."},
   {k:"charge_damage_per_point",label:"Charge dmg / point",kind:"numsel",float:true,options:[0,0.05,0.1,0.15,0.2,0.25,0.3,0.5,0.75,1.0],hint:"S1 Charge: extra damage_modifier per charge consumed"},
@@ -2496,7 +2510,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 08-22·1</span>
+        <span class="sub">v2 · Supabase · live · build 09-04·1</span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
