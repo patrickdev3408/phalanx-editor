@@ -1306,9 +1306,9 @@ const EFFECT_GROUPS = [
    RETIRED and deliberately absent: Fan; Propeller + Corona Ring (2026-08-01);
    Explosion + Implosion + Striking Leap (2026-08-03); Move (2026-09-04, Pat D:
    "that's not a thing anymore" - movement is basic per-hex walking since the
-   2026-06-24 rework and the 2026-07-02 Silence ruling; its two rows,
-   sage_phase_step + skirmisher_fade_step, became single-hop Jumps and the
-   Supabase catalog row is deleted, 25 -> 24). This list had gone STALE
+   2026-06-24 rework and the 2026-07-02 Silence ruling; the two legacy Move rows,
+   sage_phase_step + skirmisher_fade_step, show the unknown-value warning until
+   they are repointed). This list had gone STALE
    against the catalog - it still offered all five long after their rows were
    deleted from the Supabase aoe_patterns table. Keep it in sync on every
    retirement, or the editor will happily author an action the engine cannot
@@ -2510,7 +2510,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 09-04·1</span>
+        <span class="sub">v2 · Supabase · live · build 09-04·2</span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -3476,6 +3476,14 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
             <${Field} label="Muster description" hint="player-facing muster wall blurb">
               <textarea rows="2" placeholder="Describe the class's turn-to-turn identity…"
                 value=${c.muster_description||""} onInput=${e=>edit(cc=>cc.muster_description=e.target.value)}></textarea>
+            </${Field}>
+            <${Field} label="Muster playbook" hint="how the class plays on the muster wall">
+              <textarea rows="3" placeholder="Explain how this class plays in two or three sentences…"
+                value=${c.muster_playbook||""} onInput=${e=>edit(cc=>cc.muster_playbook=e.target.value)}></textarea>
+            </${Field}>
+            <${Field} label="Muster edge" hint="what distinguishes this class within its playstyle">
+              <textarea rows="2" placeholder="Explain what sets this class apart in one or two sentences…"
+                value=${c.muster_edge||""} onInput=${e=>edit(cc=>cc.muster_edge=e.target.value)}></textarea>
             </${Field}>
           </${Group}>
 
