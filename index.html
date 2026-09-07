@@ -1218,12 +1218,42 @@ const STAT_FIELDS = ["health","attack","defense","special_attack","special_defen
 const CAPTAIN_STAT_OPTIONS = ["","attack","defense","special_attack","special_defense","speed","dodge","crit_chance"];
 const INT_STATS = ["health","attack","defense","special_attack","special_defense","speed"];
 const SYNERGY_STATS = ["Attack","Defense","Special Attack","Special Defense","Dodge","Crit Chance","Crit Bonus","Health","Speed"];
-const CHAR_SLOTS = ["standard_attack","type_attack","class_action"].concat(Array.from({length:15},(_,i)=>"unique_action_"+(i+1)));
+const CHAR_SLOTS = ["standard_attack","reflex_action","type_attack","class_action"].concat(Array.from({length:15},(_,i)=>"unique_action_"+(i+1)));
 /* R3.3 — slots EDITABLE in the Characters tab: drop type_attack + class_action
    (those are inherited from the character's Type / Class now). standard_attack +
    the 15 unique slots remain. CHAR_SLOTS stays full for the usage index. */
 const CHAR_EDIT_SLOTS = CHAR_SLOTS.filter(s=>s!=="type_attack"&&s!=="class_action");
-const ACTION_CATS = ["","anchor","standard","core","mastery"];
+const ACTION_CATS = ["","anchor","standard","core","mastery","reflex"];
+
+/* ── REFLEX slot (2026-09-07) ──────────────────────────────────────
+   A reflex is an ORDINARY actions row (no schema change; the character row
+   stores {"id":…,"cooldown_rounds":0,"category":"reflex"} in its jsonb) that
+   the engine fires automatically — so it must be free (energy 0) and always
+   available (cooldown 0), and it may not relocate anyone or spawn a body.
+   These helpers only WARN: the picker narrows the list, the slot card flags a
+   violation in red. Keep the banned set in sync with the engine's rule. */
+const REFLEX_SLOT = "reflex_action";
+const REFLEX_BANNED_PATTERNS = new Set(["Jump","Lunging Strike","Dash Attack","Teleport Strike",
+  "Leaping Smash","Spinning Leap","Swap","Wall","Edge Wall","Barrage"]);
+const isReflexId = (id)=>/^reflex_/.test(String(id||""));
+/* what the reflex picker offers: the reflex_ namespace, plus any free + always-on
+   row (so an existing 0/0 action can be adopted without renaming it first). */
+const isReflexShaped = (a)=>!!a && (isReflexId(a.id) || (num(a.energy_cost,0)===0 && num(a.cooldown_rounds,0)===0));
+function reflexIssues(act, wrapper){
+  const out=[];
+  if(!act) return out;
+  if(num(act.energy_cost,0)!==0) out.push(`energy ${act.energy_cost} — a reflex must cost 0`);
+  if(num(act.cooldown_rounds,0)!==0) out.push(`cooldown ${act.cooldown_rounds} — a reflex must be 0`);
+  if(wrapper && typeof wrapper==="object" && num(wrapper.cooldown_rounds,0)!==0)
+    out.push(`slot cooldown ${wrapper.cooldown_rounds} — a reflex must be 0`);
+  if(REFLEX_BANNED_PATTERNS.has(act.aoe_pattern)) out.push(`pattern ${act.aoe_pattern} is banned for reflexes`);
+  if(act.summon_character_id) out.push("a reflex may not summon");
+  if(!isReflexId(act.id)) out.push(`id "${act.id}" should start with reflex_`);
+  return out;
+}
+const charSlotLabel = (slot)=> slot==="standard_attack" ? "Standard"
+  : slot===REFLEX_SLOT ? "Reflex"
+  : slot.replace(/^unique_action_/,"Unique ");
 const DAMAGE_TYPES = [{value:0,label:"Normal"},{value:1,label:"Special"},{value:2,label:"Hybrid"}];
 // trap_tick: 0=Trigger(Trap), 1=Zone, 2=No(None default) — confirmed via ActionData.gd
 const TRAP_TICKS = [{value:2,label:"None"},{value:0,label:"Trap"},{value:1,label:"Zone"}];
@@ -1954,9 +1984,10 @@ function estimateDamage(action, caster, defenderTypes, defStat, tm){
 function buildUsageIndex(characters, classes){
   // actionId -> {chars:[id], classes:[name]}
   const idx={};
-  const add=(slug,kind,who)=>{ if(!slug)return; (idx[slug]=idx[slug]||{chars:[],classes:[]})[kind].push(who); };
+  const add=(slug,kind,who)=>{ if(!slug)return; (idx[slug]=idx[slug]||{chars:[],classes:[],reflex:[]})[kind].push(who); };
   (characters||[]).forEach(c=>{
-    CHAR_SLOTS.forEach(s=>{ const o=c[s]; if(o&&typeof o==="object"&&o.id) add(o.id,"chars",c.id); else if(typeof o==="string"&&o) add(o,"chars",c.id); });
+    CHAR_SLOTS.forEach(s=>{ const o=c[s]; const id=(o&&typeof o==="object"&&o.id)?o.id:(typeof o==="string"?o:"");
+      if(id){ add(id,"chars",c.id); if(s===REFLEX_SLOT) add(id,"reflex",c.id); } });
     (c.mastery_unique_actions||[]).forEach(w=>{ const id=(w&&typeof w==="object"&&w.id)?w.id:(typeof w==="string"?w:""); if(id) add(id,"chars",c.id); });
   });
   ((classes&&classes.classes)||[]).forEach(cl=>{
@@ -2510,7 +2541,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 09-04·2</span>
+        <span class="sub">v2 · Supabase · live · build 09-07·reflex</span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -2680,7 +2711,8 @@ function slotMeta(act){
 }
 
 function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEffects, summonOptions, charById, tm, caster,
-                   onPick, onClear, onActionChange, onFork, usageCount, defaultOpen, effectByName}){
+                   onPick, onClear, onActionChange, onFork, usageCount, defaultOpen, effectByName,
+                   actionOptions, shapeIssues}){
   const [open,setOpen]=useState(!!defaultOpen);
   const vis=useFieldVis();                                              // R5 — gate head thumb / usage
   const [adding,setAdding]=useState(false);
@@ -2710,7 +2742,7 @@ function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEf
     ${open?html`<div class="sc-body">
       <div class="grid cols-3" style="margin-bottom:8px">
         <${Field} label="Action">
-          <${Select} value=${cur} mono=${true} options=${[""].concat(allActions.map(a=>a.id))}
+          <${Select} value=${cur} mono=${true} options=${[""].concat(actionOptions||allActions.map(a=>a.id))}
             onInput=${v=>onPick(v)} />
         </${Field}>
         ${value&&typeof value==="object"?html`
@@ -2722,6 +2754,9 @@ function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEf
           </${Field}>
         `:null}
       </div>
+      ${(shapeIssues&&shapeIssues.length)?html`<div class="chips" style="margin-bottom:8px">
+        ${shapeIssues.map((t,k)=>html`<span class="wchip err" key=${k}>✕ ${t}</span>`)}
+      </div>`:null}
       ${act&&(uses>1||vis.has("usage"))?html`<div class=${"share-bar"+(uses>1?"":" solo")}>
         ${uses>1
           ? html`<span class="share-badge">⚠ shared · used by ${uses}</span>
@@ -3229,8 +3264,10 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
               ? (()=>{
                   const slotInfo=CHAR_EDIT_SLOTS.map(slot=>{ const w=c[slot]; const id=(w&&typeof w==="object"&&w.id)?w.id:(typeof w==="string"?w:""); return {slot,id}; });
                   const filled=slotInfo.filter(x=>x.id);
-                  const emptySlot=(slotInfo.find(x=>!x.id)||{}).slot;
-                  const labels=filled.map(f=> f.slot==="standard_attack"?"Standard":f.slot.replace(/^unique_action_/,"Unique "));
+                  // the reflex slot is never the target of the generic "+ Add existing action…"
+                  // picker — it has its own narrowed picker on the Cards view.
+                  const emptySlot=(slotInfo.find(x=>!x.id&&x.slot!==REFLEX_SLOT)||{}).slot;
+                  const labels=filled.map(f=>charSlotLabel(f.slot));
                   const onBody=(u)=>commitEdit(next=>{ const i=next.actions.findIndex(a=>a.id===u.id); if(i>=0) next.actions[i]=u; }, dy=>dy.actions.add(String(u.id)));
                   const onClear=(i)=>{ const slot=filled[i].slot; commitEdit(next=>{ const o=next.characters.find(x=>String(x.id)===String(selId)); if(o) o[slot]={}; }, dy=>dy.chars.add(String(selId))); };
                   const assign=(id,stub)=>{ if(!emptySlot) return; commitEdit(next=>{ if(stub && !next.actions.find(a=>a.id===id)) next.actions.push(newActionStub(id)); const o=next.characters.find(x=>String(x.id)===String(selId)); if(o) o[emptySlot]={id,cooldown_rounds:0,category:""}; }, dy=>{ dy.chars.add(String(selId)); if(stub) dy.actions.add(String(id)); }); };
@@ -3249,6 +3286,7 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
                           <button class="btn primary" disabled=${!charNewId} onClick=${()=>{ if(charNewId){ assign(charNewId,true); setCharAdding(false); } }}>Create</button>
                           <button class="btn ghost" onClick=${()=>setCharAdding(false)}>Cancel</button>`}
                       `:html`<span class="note" style="margin:0">All 16 action slots are full.</span>`}
+                      ${slotInfo.some(x=>x.slot===REFLEX_SLOT&&x.id)?null:html`<span class="note" style="margin:0">Reflex slot empty — set it on the <b>Cards</b> view.</span>`}
                     </div>`;
                 })()
               : html`<div class="cardgrid">
@@ -3326,6 +3364,16 @@ function SlotCardBound({slot, owner, ownerKind, data, actionById, enums, effectR
   const caster = ownerKind==="char"?owner:null;
   const curSlug = (value && typeof value==="object" && value.id) ? value.id : (typeof value==="string"?value:"");
   const uses = usageCountOf(usageIdx, curSlug);
+  // REFLEX slot (2026-09-07): narrowed picker + a red shape warning. Every other slot is untouched.
+  const isReflex = slot===REFLEX_SLOT;
+  const defCat = isReflex?"reflex":"";
+  const reflexOpts = useMemo(()=>{
+    if(!isReflex) return null;
+    const ids=(data.actions||[]).filter(isReflexShaped).map(a=>a.id);
+    if(curSlug && ids.indexOf(curSlug)<0) ids.unshift(curSlug);   // never hide what the slot already holds
+    return ids;                                                    // SlotCard prepends the empty option
+  },[isReflex,data.actions,curSlug]);
+  const reflexBad = isReflex?reflexIssues(actionById[curSlug], value):[];
 
   const setWrapper=(wrapper)=>commitEdit(next=>{
     const o = ownerKind==="char" ? next.characters.find(x=>String(x.id)===String(selId)) : null;
@@ -3337,14 +3385,14 @@ function SlotCardBound({slot, owner, ownerKind, data, actionById, enums, effectR
       // create new action then assign
       const slug=v.__newAction;
       commitEdit(next=>{
-        if(!next.actions.find(a=>a.id===slug)) next.actions.push(newActionStub(slug));
+        if(!next.actions.find(a=>a.id===slug)){ const st=newActionStub(slug); if(isReflex){ st.energy_cost=0; st.cooldown_rounds=0; } next.actions.push(st); }
         const o=next.characters.find(x=>String(x.id)===String(selId));
-        if(o) o[slot]={id:slug,cooldown_rounds:0,category:""};
+        if(o) o[slot]={id:slug,cooldown_rounds:0,category:defCat};
       }, dy=>{ dy.chars.add(String(selId)); dy.actions.add(slug); });
       return;
     }
     if(!v){ setWrapper({}); return; }
-    setWrapper({id:v, cooldown_rounds:(value&&value.cooldown_rounds)||0, category:(value&&value.category)||""});
+    setWrapper({id:v, cooldown_rounds:(value&&value.cooldown_rounds)||0, category:(value&&value.category)||defCat});
   };
   const onClear=()=>setWrapper({});
   // R2.5 — fork: copy the canonical action to a new slug + point THIS slot at it.
@@ -3356,7 +3404,7 @@ function SlotCardBound({slot, owner, ownerKind, data, actionById, enums, effectR
         const copy=clone(src); copy.id=newSlug; next.actions.push(copy);
       }
       const o=next.characters.find(x=>String(x.id)===String(selId));
-      if(o) o[slot]={id:newSlug, cooldown_rounds:(value&&value.cooldown_rounds)||0, category:(value&&value.category)||""};
+      if(o) o[slot]={id:newSlug, cooldown_rounds:(value&&value.cooldown_rounds)||0, category:(value&&value.category)||defCat};
     }, dy=>{ dy.chars.add(String(selId)); dy.actions.add(newSlug); });
   };
   const onActionChange=(updatedAction)=>{
@@ -3372,10 +3420,11 @@ function SlotCardBound({slot, owner, ownerKind, data, actionById, enums, effectR
     }, dy=>dy.actions.add(String(aid)));
   };
 
-  return html`<${SlotCard} slotLabel=${slot} value=${value} actionById=${actionById}
+  return html`<${SlotCard} slotLabel=${isReflex?"Reflex":slot} value=${value} actionById=${actionById}
     allActions=${data.actions} effectRows=${effectRows} knownEffects=${knownEffects}
     summonOptions=${summonOptions} charById=${charById} tm=${tm} caster=${caster}
     usageCount=${uses} onFork=${onFork} effectByName=${effectByName} defaultOpen=${true}
+    actionOptions=${reflexOpts} shapeIssues=${reflexBad}
     onPick=${onPick} onClear=${onClear} onActionChange=${onActionChange} />`;
 }
 
@@ -3921,6 +3970,9 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
     ((data.classes&&data.classes.classes)||[]).forEach(cl=>{
       (cl.core_class_actions||[]).concat(cl.mastery_class_actions||[]).forEach(s=>{ if(!m[s]) m[s]=cl.class_name; });
     });
+    // a character's reflex slot wins the label — reflexes are their own family (2026-09-07)
+    (data.characters||[]).forEach(ch=>{ const w=ch[REFLEX_SLOT];
+      const id=(w&&typeof w==="object"&&w.id)?w.id:(typeof w==="string"?w:""); if(id) m[id]="Reflex"; });
     return m;
   },[data]);
 
@@ -3959,7 +4011,7 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
   const activeFilterCount=[fp,fg,fdt,fsz,frg,fe1,fe2].filter(v=>v!=="").length;
   const clearFilters=()=>{ setFp(""); setFg(""); setFdt(""); setFsz(""); setFrg(""); setFe1(""); setFe2(""); };
 
-  const groupFilterOpts=[{value:"",label:"Group: any"},{value:"Type",label:"Type actions"},{value:"Unique",label:"Unique"}]
+  const groupFilterOpts=[{value:"",label:"Group: any"},{value:"Type",label:"Type actions"},{value:"Reflex",label:"Reflex"},{value:"Unique",label:"Unique"}]
     .concat(enums.classes.map(cn=>({value:cn,label:cn})));
 
   return html`<div class="view"><div class="split wide">
@@ -4038,8 +4090,10 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
           <${Group} title=${`Used by (${usage.chars.length} chars · ${usage.classes.length} classes)`}>
             ${(!usage.chars.length && !usage.classes.length)?html`<p class="note">Not referenced by any character or class.</p>`:html`
               <div class="usages">
-                ${usage.chars.map(id=>{const cc=charById[String(id)];return html`<span class="usage-chip" onClick=${()=>jumpTo("character",String(id))}>
-                  <span class="ut">char</span>${cc?cc.name:("#"+id)}</span>`;})}
+                ${usage.chars.map(id=>{const cc=charById[String(id)];
+                  const rx=(usage.reflex||[]).some(r=>String(r)===String(id));
+                  return html`<span class="usage-chip" onClick=${()=>jumpTo("character",String(id))}>
+                  <span class="ut">char</span>${cc?cc.name:("#"+id)}${rx?" (reflex)":""}</span>`;})}
                 ${usage.classes.map(cn=>html`<span class="usage-chip" onClick=${()=>jumpTo("class",cn)}>
                   <span class="ut">class</span>${cn}</span>`)}
               </div>`}
