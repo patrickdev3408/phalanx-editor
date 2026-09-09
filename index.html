@@ -733,6 +733,9 @@ table.chartable tbody tr.sel{background:rgba(40,224,200,.07)}
 .effects-title-action{border:0;background:transparent;color:var(--ink-3);padding:2px 0;font:inherit;
   font-size:10.5px;font-weight:600;letter-spacing:0;text-transform:none;cursor:pointer}
 .effects-title-action:hover{color:var(--accent)}
+.glossary-remove{position:absolute;right:10px;top:8px;border:0;background:transparent;color:var(--ink-3);
+  padding:2px 5px;font:inherit;font-size:12px;line-height:1;cursor:pointer}
+.glossary-remove:hover{color:var(--rose)}
 .effect-group-header{align-items:baseline;flex-wrap:wrap;gap:6px;line-height:1.45;padding:3px 0}
 .effect-group-header::after{display:none}
 .effect-group-header .effect-group-caret{color:var(--ink-3);margin-right:2px}
@@ -2175,8 +2178,8 @@ function MobileHintLayer({mobile}){
 function App(){
   const [session,setSession]=useState(undefined);  // undefined=unknown, null=signed out, obj=in
   const [loading,setLoading]=useState(false);
-  const [data,setData]=useState(null);             // working copy {characters,actions,classes,effects,types,type_matrix,aoe_patterns}
-  const [dirty,setDirty]=useState({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false});
+  const [data,setData]=useState(null);             // working copy {characters,actions,classes,effects,types,type_matrix,aoe_patterns,glossary,mutators}
+  const [dirty,setDirty]=useState({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false});
   const [tab,setTab]=useState("characters");
   const [toasts,setToasts]=useState([]);
   const [cmdk,setCmdk]=useState(false);
@@ -2220,8 +2223,8 @@ function App(){
         }
         return out;
       };
-      const [chars,acts,cls,eff,typ,aoe,tm,prog,tun]=await Promise.all(
-        TABLES.concat(["character_class_progression","balance_tunables"]).map(fetchTable));
+      const [chars,acts,cls,eff,typ,aoe,tm,prog,tun,glossary,mutators]=await Promise.all(
+        TABLES.concat(["character_class_progression","balance_tunables","glossary","mutators"]).map(fetchTable));
       const type_matrix={}; tm.forEach(r=>{type_matrix[r.attacker+":"+r.defender]=r.multiplier;});
       const progression={}; prog.forEach(r=>{ if(r&&r.id!=null) progression[String(r.id)]=r.data||{starting_classes:[],overrides:{}}; });
       const next={
@@ -2234,9 +2237,11 @@ function App(){
         type_matrix,
         progression,
         tunables: tun.map(r=>r.data).filter(Boolean),
+        glossary: glossary.map(r=>r.data).filter(Boolean),
+        mutators: mutators.map(r=>r.data).filter(Boolean),
       };
       setData(next);
-      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false});
+      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false});
       setUndo([]); setRedo([]);
       if(!silent) toast("Data loaded",
         `${next.characters.length} characters · ${next.actions.length} actions · ${next.classes.classes.length} classes`,"ok",3000);
@@ -2286,17 +2291,17 @@ function App(){
     return opts;
   },[data]);
 
-  const dirtyCount = dirty.chars.size + dirty.actions.size + (dirty.classes?1:0) + (dirty.effects?1:0) + (dirty.matrix?1:0) + (dirty.types?1:0) + (dirty.tunables?1:0) + (dirty.aoe_patterns?1:0);
+  const dirtyCount = dirty.chars.size + dirty.actions.size + (dirty.classes?1:0) + (dirty.effects?1:0) + (dirty.matrix?1:0) + (dirty.types?1:0) + (dirty.tunables?1:0) + (dirty.aoe_patterns?1:0) + (dirty.glossary?1:0) + (dirty.mutators?1:0);
   /* always-current snapshot so unload/hidden flush handlers never use stale closures */
   const liveRef = useRef(); liveRef.current = { data, dirty, dirtyCount };
 
   /* ── mutation helper: snapshot for undo, mutate working copy in place, bump dirty ── */
   const commitEdit = useCallback((mutate, dirtyPatch)=>{
-    setUndo(u=>[...u.slice(-49), {data:clone(data), dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns}}]);
+    setUndo(u=>[...u.slice(-49), {data:clone(data), dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators}}]);
     setRedo([]);
     setData(prev=>{ const next=clone(prev); mutate(next); return next; });
     setDirty(prev=>{
-      const nx={chars:new Set(prev.chars),actions:new Set(prev.actions),classes:prev.classes,effects:prev.effects,matrix:prev.matrix,types:prev.types,tunables:prev.tunables,aoe_patterns:prev.aoe_patterns};
+      const nx={chars:new Set(prev.chars),actions:new Set(prev.actions),classes:prev.classes,effects:prev.effects,matrix:prev.matrix,types:prev.types,tunables:prev.tunables,aoe_patterns:prev.aoe_patterns,glossary:prev.glossary,mutators:prev.mutators};
       if(dirtyPatch) dirtyPatch(nx);
       return nx;
     });
@@ -2306,7 +2311,7 @@ function App(){
     setUndo(u=>{
       if(!u.length) return u;
       const last=u[u.length-1];
-      setRedo(r=>[...r,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns}}]);
+      setRedo(r=>[...r,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators}}]);
       setData(last.data); setDirty(last.dirty);
       return u.slice(0,-1);
     });
@@ -2315,7 +2320,7 @@ function App(){
     setRedo(r=>{
       if(!r.length) return r;
       const last=r[r.length-1];
-      setUndo(u=>[...u,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns}}]);
+      setUndo(u=>[...u,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators}}]);
       setData(last.data); setDirty(last.dirty);
       return r.slice(0,-1);
     });
@@ -2339,6 +2344,8 @@ function App(){
         types: dy.types? d.types : null,
         tunables: dy.tunables? d.tunables : null,
         aoe_patterns: dy.aoe_patterns? d.aoe_patterns : null,
+        glossary: dy.glossary? d.glossary : null,
+        mutators: dy.mutators? d.mutators : null,
         progression: dy.chars.size? Object.fromEntries([...dy.chars].filter(id=>d.progression&&d.progression[id]).map(id=>[id,d.progression[id]])) : null,
       }));
     }catch(e){}
@@ -2364,7 +2371,7 @@ function App(){
     let raw; try{ raw=localStorage.getItem(DRAFT_KEY); }catch(e){ return; }
     if(!raw) return;
     let d; try{ d=JSON.parse(raw); }catch(e){ return; }
-    const n=(d.chars?.length||0)+(d.actions?.length||0)+(d.classes?1:0)+(d.effects?1:0)+(d.matrix?1:0)+(d.types?1:0)+(d.tunables?1:0)+(d.aoe_patterns?1:0);
+    const n=(d.chars?.length||0)+(d.actions?.length||0)+(d.classes?1:0)+(d.effects?1:0)+(d.matrix?1:0)+(d.types?1:0)+(d.tunables?1:0)+(d.aoe_patterns?1:0)+(d.glossary?1:0)+(d.mutators?1:0);
     if(!n) return;
     setData(prev=>{
       const next=clone(prev);
@@ -2376,13 +2383,15 @@ function App(){
       if(d.types) next.types=d.types;
       if(d.tunables) next.tunables=d.tunables;
       if(d.aoe_patterns) next.aoe_patterns=d.aoe_patterns;
+      if(d.glossary) next.glossary=d.glossary;
+      if(d.mutators) next.mutators=d.mutators;
       if(d.progression){ next.progression=next.progression||{}; Object.assign(next.progression,d.progression); }
       return next;
     });
     setDirty({
       chars:new Set((d.chars||[]).map(c=>String(c.id))),
       actions:new Set((d.actions||[]).map(a=>String(a.id))),
-      classes:!!d.classes, effects:!!d.effects, matrix:!!d.matrix, types:!!d.types, tunables:!!d.tunables, aoe_patterns:!!d.aoe_patterns,
+      classes:!!d.classes, effects:!!d.effects, matrix:!!d.matrix, types:!!d.types, tunables:!!d.tunables, aoe_patterns:!!d.aoe_patterns, glossary:!!d.glossary, mutators:!!d.mutators,
     });
     /* Order matters: raise the guard BEFORE touching storage, so the pagehide /
        beforeunload handlers that location.reload() triggers cannot write the
@@ -2390,7 +2399,7 @@ function App(){
        somehow ran anyway would have nothing dirty to persist. */
     const discard=()=>{
       discardingRef.current=true;
-      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false});
+      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false});
       try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
       location.reload();
     };
@@ -2417,6 +2426,14 @@ function App(){
   const [saveDlg,setSaveDlg]=useState(false);
   const doSave=useCallback(async ()=>{
     if(dirtyCount===0){ toast("Nothing to save","No changes yet.","warn"); return; }
+    let unnamedGlossaryCount=0;
+    if(dirty.glossary){
+      const terms=(data.glossary||[]).map(g=>String(g?.term||"").trim());
+      unnamedGlossaryCount=terms.filter(term=>!term).length;
+      const seen=new Set(); let duplicate="";
+      for(const term of terms){ if(!term) continue; const key=term.toLowerCase(); if(seen.has(key)){duplicate=term;break;} seen.add(key); }
+      if(duplicate){ toast("Duplicate glossary term",`"${duplicate}" appears more than once. Terms must be unique (case-insensitive).`,"err",0); return; }
+    }
     setSaveDlg(false); setLoading(true);
     try{
       const cRows=[...dirty.chars].map(id=>charById[String(id)]).filter(Boolean)
@@ -2446,6 +2463,14 @@ function App(){
         const rows=(data.effects||[]).filter(e=>e&&e.name).map(e=>({name:e.name,category:e.category,data:e}));
         if(rows.length){const{error}=await db.from("effects").upsert(rows,{onConflict:"name"});if(error)throw error;}
       }
+      if(dirty.glossary){
+        const rows=(data.glossary||[]).filter(g=>g&&String(g.term||"").trim()).map(g=>{const d={...g,term:String(g.term).trim()};return{term:d.term,title:d.title,category:d.category,data:d};});
+        if(rows.length){const{error}=await db.from("glossary").upsert(rows,{onConflict:"term"});if(error)throw error;}
+      }
+      if(dirty.mutators){
+        const rows=(data.mutators||[]).filter(m=>m&&m.name).map(m=>({name:m.name,category:m.category,data:m}));
+        if(rows.length){const{error}=await db.from("mutators").upsert(rows,{onConflict:"name"});if(error)throw error;}
+      }
       if(dirty.aoe_patterns){
         const rows=(data.aoe_patterns||[]).filter(p=>p&&p.name).map(p=>({name:p.name,category:p.category,data:p}));
         if(rows.length){const{error}=await db.from("aoe_patterns").upsert(rows,{onConflict:"name"});if(error)throw error;}
@@ -2471,10 +2496,15 @@ function App(){
         const{error:delErr}=await del;
         if(delErr) throw delErr;
       }
-      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false});
+      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false});
       try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
-      toast("Saved to Supabase",
-        'Edits are live. Run the GitHub Action ("Publish data from Supabase") to write them into the game data files.',"ok",9000);
+      if(unnamedGlossaryCount){
+        toast(`${unnamedGlossaryCount} unnamed entries were skipped`,
+          'Named edits were saved. Remove or name the skipped glossary cards before saving them.',"warn",9000);
+      }else{
+        toast("Saved to Supabase",
+          'Edits are live. Run the GitHub Action ("Publish data from Supabase") to write them into the game data files.',"ok",9000);
+      }
     }catch(e){ toast("Save failed", String(e.message||e), "err", 0); }
     finally{ setLoading(false); }
   },[data,dirty,dirtyCount,charById,actionById,toast]);
@@ -2530,6 +2560,8 @@ function App(){
     {id:"actions",label:"Actions",n:data?.actions.length,dirty:dirty.actions.size>0},
     {id:"types",label:"Types",n:data?.types.length,dirty:dirty.types},
     {id:"effects",label:"Effects",n:data?.effects.length,dirty:dirty.effects},
+    {id:"glossary",label:"Glossary",n:data?.glossary.length,dirty:dirty.glossary},
+    {id:"mutators",label:"Mutators",n:data?.mutators.length,dirty:dirty.mutators},
     {id:"matrix",label:"Type Matrix",n:null,dirty:dirty.matrix},
     {id:"aoe",label:"AoE Patterns",n:data?.aoe_patterns.length,dirty:dirty.aoe_patterns},
     {id:"class_costs",label:"Class Costs",dirty:dirty.tunables},
@@ -2575,6 +2607,8 @@ function App(){
         ${tab==="actions" && html`<${ActionsTab} ...${{data,enums,charById,actionById,usageIdx,summonOptions,commitEdit,sel,setSel,jumpTo}} />`}
         ${tab==="types" && html`<${TypesTab} ...${{data,enums,charById,actionById,usageIdx,summonOptions,commitEdit,sel,setSel,jumpTo}} />`}
         ${tab==="effects" && html`<${EffectsTab} effects=${data.effects} commitEdit=${commitEdit} />`}
+        ${tab==="glossary" && html`<${GlossaryTab} glossary=${data.glossary} commitEdit=${commitEdit} />`}
+        ${tab==="mutators" && html`<${MutatorsTab} mutators=${data.mutators} commitEdit=${commitEdit} />`}
         ${tab==="matrix" && html`<${MatrixTab} types=${enums.types} matrix=${data.type_matrix} commitEdit=${commitEdit} />`}
         ${tab==="aoe" && html`<${AoeTab} patterns=${data.aoe_patterns} commitEdit=${commitEdit} />`}
         ${tab==="class_costs" && html`<${ClassCostsTab} tunables=${data.tunables} commitEdit=${commitEdit} />`}
@@ -4202,16 +4236,49 @@ function TypesTab({data,enums,charById,actionById,usageIdx,summonOptions,commitE
       </div>
     </div>
     <div class="detail-pane">
-      ${!t?html`<${Empty} big="Select a type" sub="Each type has a single type action, inherited by every character of that type." />`:html`
+      ${!t?html`<${Empty} big="Select a type" sub="Each type carries 2 core actions, 2 mastery actions, 1 inherent and 1 reflex (pure/hybrid model, 2026-09-08)." />`:html`
         <div class="detail-head"><span class="title">${t.type_name}</span><span class="spacer"></span>
-          <span class="chip">type action</span></div>
+          <span class="chip">2 core - 2 mastery - 1 inherent - 1 reflex</span></div>
         <div class="detail-body" style="max-width:960px">
-          <${Group} title="Type Action">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">Bound to this type's <span class="mono">type_attack</span>. Editing the action's data changes it everywhere it's used. Collapsed = AoE thumbnail; expand to edit. Use the chips to control which fields show (incl. the 2026-07 mechanics).</p>
-            <${FieldChips} />
-            <${TypeSlotCard} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows}
-              knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions}
-              charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
+          <p class="note" style="margin:0 0 10px">2026-09-08 pure/hybrid model: a <b>PURE</b> hero gets both core + both mastery + the inherent + the reflex; a hybrid's <b>PRIMARY</b> type gives core 1-2 + mastery 1 + the inherent + the reflex; the <b>SECONDARY</b> gives core 1-2 + the reflex only. Reflex cooldown ladder: pure &lt; primary &lt; secondary. Inherent effects are catalog rows in the Effects tab (category Inherent); only their ids are referenced here.</p>
+          <${FieldChips} />
+          <${Group} title="Core type actions (2)">
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Slot 1 was seeded from the old <span class="mono">type_attack</span> on 2026-09-08 as a placeholder; slot 2 is empty until authored.</p>
+            <div class="cardgrid">
+              <${TypeSlotCard} bind=${["core_type_actions",0]} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions} charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
+              <${TypeSlotCard} bind=${["core_type_actions",1]} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions} charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
+            </div>
+          </${Group}>
+          <${Group} title="Mastery type actions (2)">
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Pure heroes get both; a hybrid's primary gets slot 1 only; the secondary gets none.</p>
+            <div class="cardgrid">
+              <${TypeSlotCard} bind=${["mastery_type_actions",0]} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions} charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
+              <${TypeSlotCard} bind=${["mastery_type_actions",1]} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions} charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
+            </div>
+          </${Group}>
+          <${Group} title="Type reflex (1) + cooldown ladder">
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Reflexes are TYPE-only (Pat D 2026-09-08): a 0E / CD-0 action row. Which cooldown applies depends on whether the hero holds this type PURE, as PRIMARY, or as SECONDARY.</p>
+            <div class="cardgrid">
+              <${TypeSlotCard} bind=${["reflex_action","id"]} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions} charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px">
+              ${[["cooldown_pure","Cooldown - pure"],["cooldown_primary","Cooldown - primary"],["cooldown_secondary","Cooldown - secondary"]].map(([k,label])=>html`
+                <${Field} label=${label} key=${k}>
+                  <input class="mono" type="number" step="1" min="0" value=${(t.reflex_action&&t.reflex_action[k])||0}
+                    onInput=${e=>commitEdit(next=>{ const tt=(next.types||[]).find(x=>x&&x.type_name===selName); if(!tt) return;
+                      const patch={}; patch[k]=intOf(e.target.value,0);
+                      tt.reflex_action=Object.assign({id:"",cooldown_pure:0,cooldown_primary:0,cooldown_secondary:0,category:"reflex"}, tt.reflex_action||{}, patch); }, dy=>dy.types=true)} />
+                </${Field}>`)}
+            </div>
+          </${Group}>
+          <${Group} title="Inherent type effect (primary-only)">
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">One row per type by ruling. Blank duration = permanent.</p>
+            <${InherentEditor} list=${t.inherent_type_effects||[]} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName}
+              onChange=${arr=>commitEdit(next=>{ const tt=(next.types||[]).find(x=>x&&x.type_name===selName); if(tt) tt.inherent_type_effects=arr; }, dy=>dy.types=true)} />
+          </${Group}>
+          <${Group} title="Legacy type_attack">
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Still what the game's hand composer reads until the per-type slots ship. Keep it equal to core slot 1.</p>
+            <${TypeSlotCard} bind=${"type_attack"} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions} charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
           </${Group}>
 
           <${Group} title=${`Characters with this type (${tChars.length})`}>
@@ -4226,19 +4293,42 @@ function TypesTab({data,enums,charById,actionById,usageIdx,summonOptions,commitE
     </div>
   </div></div>`;
 }
+/* 2026-09-09 (type rework): a type row now carries the pure/hybrid authoring slots:
+   core_type_actions[2] / mastery_type_actions[2] / inherent_type_effects[] /
+   reflex_action {id, cooldown_pure, cooldown_primary, cooldown_secondary}.
+   `bind` names which slug a TypeSlotCard edits: "type_attack" (legacy) |
+   ["core_type_actions",i] | ["mastery_type_actions",i] | ["reflex_action","id"]. */
+function typeSlotGet(t, bind){
+  if(!t) return "";
+  if(typeof bind==="string") return t[bind]||"";
+  const k=bind[0], i=bind[1];
+  if(k==="reflex_action") return (t.reflex_action&&t.reflex_action.id)||"";
+  const arr=Array.isArray(t[k])?t[k]:[]; return arr[i]||"";
+}
+function typeSlotSet(t, bind, v){
+  if(!t) return;
+  if(typeof bind==="string"){ t[bind]=v; return; }
+  const k=bind[0], i=bind[1];
+  if(k==="reflex_action"){ t.reflex_action=Object.assign({id:"",cooldown_pure:0,cooldown_primary:0,cooldown_secondary:0,category:"reflex"}, t.reflex_action||{}, {id:v}); return; }
+  const arr=Array.isArray(t[k])?t[k].slice():[]; while(arr.length<2) arr.push(""); arr[i]=v; t[k]=arr;
+}
+function typeSlotLabel(bind){
+  if(typeof bind==="string") return bind;
+  return bind[0]==="reflex_action" ? "reflex_action" : (bind[0]+"["+bind[1]+"]");
+}
 /* single-slug slot card bound to a type's type_attack */
-function TypeSlotCard({type, data, actionById, effectRows, knownEffects, effectByName, summonOptions, charById, usageIdx, commitEdit, selName}){
+function TypeSlotCard({type, bind="type_attack", data, actionById, effectRows, knownEffects, effectByName, summonOptions, charById, usageIdx, commitEdit, selName}){
   const [open,setOpen]=useState(true);
   const [adding,setAdding]=useState(false);
   const [newId,setNewId]=useState("");
-  const slug = type.type_attack || "";
+  const slug = typeSlotGet(type, bind) || "";
   const act = slug ? actionById[slug] : null;
   const uses = usageCountOf(usageIdx, slug);
   const effNames = actionEffectNames(act);
 
   // change the bound slug on the type → marks the TYPES table dirty
   const setSlug=(s)=>commitEdit(next=>{
-    const tt=(next.types||[]).find(x=>x&&x.type_name===selName); if(tt) tt.type_attack=s;
+    const tt=(next.types||[]).find(x=>x&&x.type_name===selName); if(tt) typeSlotSet(tt, bind, s);
   }, dy=>dy.types=true);
 
   const onPick=(v)=>{
@@ -4250,7 +4340,7 @@ function TypeSlotCard({type, data, actionById, effectRows, knownEffects, effectB
     if(actionById[s]){ setSlug(s); setAdding(false); return; }
     commitEdit(next=>{
       if(!next.actions.find(a=>a.id===s)) next.actions.push(newActionStub(s));
-      const tt=(next.types||[]).find(x=>x&&x.type_name===selName); if(tt) tt.type_attack=s;
+      const tt=(next.types||[]).find(x=>x&&x.type_name===selName); if(tt) typeSlotSet(tt, bind, s);
     }, dy=>{ dy.types=true; dy.actions.add(s); });
     setAdding(false);
   };
@@ -4259,7 +4349,7 @@ function TypeSlotCard({type, data, actionById, effectRows, knownEffects, effectB
     const newSlug=makeForkSlug(slug, actionById);
     commitEdit(next=>{
       if(!next.actions.find(a=>a.id===newSlug)){ const copy=clone(src); copy.id=newSlug; next.actions.push(copy); }
-      const tt=(next.types||[]).find(x=>x&&x.type_name===selName); if(tt) tt.type_attack=newSlug;
+      const tt=(next.types||[]).find(x=>x&&x.type_name===selName); if(tt) typeSlotSet(tt, bind, newSlug);
     }, dy=>{ dy.types=true; dy.actions.add(newSlug); });
   };
   const onActionChange=(updatedAction)=>commitEdit(next=>{
@@ -4273,7 +4363,7 @@ function TypeSlotCard({type, data, actionById, effectRows, knownEffects, effectB
       <span class="sc-titlecol">
         <span class="sc-name">${act?(act.name||slug):(slug?html`<span class="unknown">⚠ ${slug} (unknown)</span>`:html`<span style="color:var(--ink-3);font-weight:500">— none —</span>`)}</span>
         <span class="sc-sub">
-          <span class="sc-slot">type_attack${slug?(" · "+slug):""}</span>
+          <span class="sc-slot">${typeSlotLabel(bind)}${slug?(" · "+slug):""}</span>
           ${act?html`<span class="sc-meta" title=${actionSummaryText(act,effectByName)}>${slotMeta(act)}</span>`:null}
         </span>
       </span>
@@ -4410,6 +4500,144 @@ function EffectsTab({effects, commitEdit}){
       </div>
       ${open.has(EFFECT_GROUPS.length)?html`<div class="ref-grid tight">${ungrouped.map(e=>card(e.name))}</div>`:null}
     </div>`:null}
+  </div></div>`;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   GLOSSARY + MUTATORS TABS
+   ════════════════════════════════════════════════════════════════════ */
+function GlossaryTab({glossary, commitEdit}){
+  const pendingTermFocus=useRef(null);
+  const [aliasDrafts,setAliasDrafts]=useState({});
+  const [categoryDrafts,setCategoryDrafts]=useState({});
+  const [sortDrafts,setSortDrafts]=useState({});
+  useEffect(()=>{
+    if(pendingTermFocus.current==null) return;
+    const input=document.querySelector(`.glossary-term-input[data-glossary-index="${pendingTermFocus.current}"]`);
+    pendingTermFocus.current=null;
+    if(input) input.focus();
+  },[(glossary||[]).length]);
+  const groups=useMemo(()=>{
+    const out={};
+    (glossary||[]).forEach((entry,index)=>{
+      const category=String(entry?.category||"uncategorized");
+      (out[category]||(out[category]=[])).push({entry,index});
+    });
+    return Object.entries(out).sort(([a],[b])=>a.localeCompare(b));
+  },[glossary]);
+  const setField=(index,field,value)=>commitEdit(next=>{
+    if(next.glossary&&next.glossary[index]) next.glossary[index][field]=value;
+  },dy=>dy.glossary=true);
+  const hasDraft=(drafts,index)=>Object.prototype.hasOwnProperty.call(drafts,index);
+  const clearDraft=(setter,index)=>setter(drafts=>{const next={...drafts};delete next[index];return next;});
+  const finishAliases=(index,raw)=>{
+    clearDraft(setAliasDrafts,index);
+    const aliases=raw.split(",").map(s=>s.trim()).filter(Boolean);
+    const current=Array.isArray(glossary[index]?.aliases)?glossary[index].aliases:[];
+    if(JSON.stringify(aliases)!==JSON.stringify(current)) setField(index,"aliases",aliases);
+  };
+  const finishCategory=(index,raw)=>{
+    clearDraft(setCategoryDrafts,index);
+    if(raw!==String(glossary[index]?.category||"")) setField(index,"category",raw);
+  };
+  const finishSortOrder=(index,raw)=>{
+    clearDraft(setSortDrafts,index);
+    const trimmed=raw.trim();
+    if(!trimmed||!/^-?\d+$/.test(trimmed)) return;
+    const value=parseInt(trimmed,10);
+    if(value!==glossary[index]?.sort_order) setField(index,"sort_order",value);
+  };
+  const growTextarea=el=>{ if(!el) return; el.style.height="auto"; el.style.height=el.scrollHeight+"px"; };
+  const addEntry=()=>{
+    pendingTermFocus.current=(glossary||[]).length;
+    commitEdit(next=>{
+      next.glossary=next.glossary||[];
+      next.glossary.push({term:"",title:"",category:"keyword",aliases:[],body:"",group:"",sort_order:0});
+    },dy=>dy.glossary=true);
+  };
+  const removeEntry=index=>{
+    const term=String(glossary[index]?.term||"").trim();
+    if(term&&!window.confirm(`Remove "${term}" from this draft?\n\nThis only stops the card being upserted. Delete an existing term manually in the Supabase dashboard.`)) return;
+    setAliasDrafts({}); setCategoryDrafts({}); setSortDrafts({});
+    commitEdit(next=>{
+      if(next.glossary&&next.glossary[index]) next.glossary.splice(index,1);
+    },dy=>dy.glossary=true);
+  };
+  const card=({entry,index})=>html`<div class="ref-card tight" key=${"glossary-"+index}>
+    <button type="button" class="glossary-remove" title="Remove this glossary card" aria-label=${`Remove ${entry.term||"new glossary entry"}`}
+      onMouseDown=${e=>e.preventDefault()} onClick=${()=>removeEntry(index)}>✕</button>
+    <h3>${entry.title||entry.term||"New entry"}</h3><span class="cat">${entry.category||"uncategorized"}</span>
+    <dl><dd><div class="grid cols-2">
+      <${Field} label="Term" hint="primary key">
+        <input class="glossary-term-input" data-glossary-index=${index} type="text" value=${entry.term||""}
+          onInput=${e=>setField(index,"term",e.target.value)} />
+      </${Field}>
+      <${Field} label="Title">
+        <input type="text" value=${entry.title||""} onInput=${e=>setField(index,"title",e.target.value)} />
+      </${Field}>
+      <${Field} label="Category" hint="choose or type">
+        <input type="text" list="glossary-category-options"
+          value=${hasDraft(categoryDrafts,index)?categoryDrafts[index]:(entry.category||"")}
+          onFocus=${e=>setCategoryDrafts(drafts=>({...drafts,[index]:e.target.value}))}
+          onInput=${e=>setCategoryDrafts(drafts=>({...drafts,[index]:e.target.value}))}
+          onBlur=${e=>finishCategory(index,e.target.value)} onKeyDown=${e=>{if(e.key==="Enter")e.target.blur();}} />
+      </${Field}>
+      <${Field} label="Aliases" hint="comma-separated">
+        <input type="text" value=${hasDraft(aliasDrafts,index)?aliasDrafts[index]:(Array.isArray(entry.aliases)?entry.aliases.join(", "):"")}
+          onFocus=${e=>setAliasDrafts(drafts=>({...drafts,[index]:e.target.value}))}
+          onInput=${e=>setAliasDrafts(drafts=>({...drafts,[index]:e.target.value}))}
+          onBlur=${e=>finishAliases(index,e.target.value)} onKeyDown=${e=>{if(e.key==="Enter")e.target.blur();}} />
+      </${Field}>
+      <${Field} label="Group">
+        <input type="text" value=${entry.group||""} onInput=${e=>setField(index,"group",e.target.value)} />
+      </${Field}>
+      <${Field} label="Sort order">
+        <input type="text" inputMode="numeric" pattern="-?[0-9]*"
+          value=${hasDraft(sortDrafts,index)?sortDrafts[index]:(entry.sort_order??"")}
+          onFocus=${e=>setSortDrafts(drafts=>({...drafts,[index]:e.target.value}))}
+          onInput=${e=>setSortDrafts(drafts=>({...drafts,[index]:e.target.value}))}
+          onBlur=${e=>finishSortOrder(index,e.target.value)} onKeyDown=${e=>{if(e.key==="Enter")e.target.blur();}} />
+      </${Field}>
+    </div></dd>
+    <dd><span class="dlbl">body</span>
+      <textarea class="effect-ref-input" placeholder="in-game glossary text…" value=${entry.body||""}
+        ref=${growTextarea} onInput=${e=>{growTextarea(e.target);setField(index,"body",e.target.value);}}></textarea></dd>
+    </dl>
+  </div>`;
+
+  return html`<div class="view"><div class="full-pane">
+    <datalist id="glossary-category-options">
+      ${["type","stat","keyword","playstyle","effect"].map(v=>html`<option value=${v}></option>`)}
+    </datalist>
+    <div class="group-title effects-main-title">Glossary <span class="hint" style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">grouped by category · ${glossary.length} entries</span>
+      <span class="effects-title-actions"><button type="button" class="effects-title-action" onClick=${addEntry}>+ New entry</button></span>
+    </div>
+    <p class="note">Terms are unique primary keys. Categories offer the common values but accept free text. Removing a card only stops it being upserted; delete an existing Supabase term manually in the dashboard. Save to Supabase → publish to apply in-game.</p>
+    ${groups.map(([category,items])=>html`<div style="margin-bottom:16px" key=${category}>
+      <div class="group-title">${category} <span class="badge">${items.length}</span></div>
+      <div class="ref-grid tight">${items.map(card)}</div>
+    </div>`)}
+  </div></div>`;
+}
+
+function MutatorsTab({mutators, commitEdit}){
+  const setDesc=(index,value)=>commitEdit(next=>{
+    if(next.mutators&&next.mutators[index]) next.mutators[index].desc=value;
+  },dy=>dy.mutators=true);
+  const growTextarea=el=>{ if(!el) return; el.style.height="auto"; el.style.height=el.scrollHeight+"px"; };
+  return html`<div class="view"><div class="full-pane">
+    <div class="group-title">Mutators <span class="badge">${(mutators||[]).length}</span></div>
+    <p class="note">Only the player-facing description is editable here. Runtime fields are shown read-only.</p>
+    <div class="ref-grid tight">${(mutators||[]).map((m,index)=>html`<div class="ref-card tight" key=${m.name||index}>
+      <h3>${m.name||"Unnamed mutator"}</h3><span class="cat">${m.category||"mutator"}</span>
+      <dl>
+        <dd><span class="dlbl">desc</span>
+          <textarea class="effect-ref-input" value=${m.desc||""} ref=${growTextarea}
+            onInput=${e=>{growTextarea(e.target);setDesc(index,e.target.value);}}></textarea></dd>
+        ${Object.entries(m).filter(([key])=>key!=="name"&&key!=="desc").map(([key,value])=>html`
+          <dd><span class="dlbl">${key}</span>${value&&typeof value==="object"?JSON.stringify(value):String(value??"")}</dd>`)}
+      </dl>
+    </div>`)}</div>
   </div></div>`;
 }
 
@@ -4655,6 +4883,8 @@ function SaveDialog({data, dirty, onCancel, onConfirm}){
   if(dirty.actions.size) rows.push(["Actions",[...dirty.actions].join(", ")]);
   if(dirty.classes) rows.push(["Classes","whole document"]);
   if(dirty.effects) rows.push(["Effects","whole array"]);
+  if(dirty.glossary) rows.push(["Glossary","whole array"]);
+  if(dirty.mutators) rows.push(["Mutators","whole array"]);
   if(dirty.matrix) rows.push(["Type matrix","changed cells"]);
   if(dirty.types) rows.push(["Types","whole array"]);
   if(dirty.tunables) rows.push(["Balance tunables","whole array"]);
