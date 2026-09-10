@@ -1317,6 +1317,14 @@ function useFieldVis(){
    Regen+/Regen-/Renewal removed (stat deleted 2026-08-06), Detonate -> Rupture
    (renamed 2026-09-03; the Time Bomb burst keeps the WORD Detonate but has no
    effect row), Penance + Sure Strike grouped. */
+/* 2026-09-10: the Type-inherents group is LIVE -- it lists every effect whose category is
+   "Inherent", so rows Pat D adds or renames in the Effects tab show up in every dropdown.
+   syncInherentNames() refreshes it from the working copy at each App render. */
+const INHERENT_NAMES = [];
+function syncInherentNames(effects){
+  const n=(effects||[]).filter(e=>e&&e.name&&e.category==="Inherent").map(e=>e.name).sort((a,b)=>a.localeCompare(b));
+  INHERENT_NAMES.length=0; n.forEach(x=>INHERENT_NAMES.push(x));
+}
 const EFFECT_GROUPS = [
   {label:"Positive stat deltas", names:["Atk+","SpcAtk+","Def+","SpcDef+","Speed+","Crit+","Dodge+","MaxHP+"]},
   {label:"Negative stat deltas", names:["Atk-","SpcAtk-","Def-","SpcDef-","Speed-","Crit-","Dodge-"]},
@@ -1332,7 +1340,7 @@ const EFFECT_GROUPS = [
   {label:"Utility / triggers", names:["Dispel","Buff Block","Death Ward","Time Bomb","Mirage","Dispel Steal","Rupture"]},
   {label:"Class identities", names:["Legion","Resonance","Undead Contagion","Dying Blessing","Grudge","Soul Reservoir","Braced","Markstalker","Riposte","Sequence","WeaponEnchant","Vindication","OverhealShield","Outcast","Penance","Sure Strike"]},
   {label:"Summon", names:["Summon"]},
-  {label:"Type inherents (2026-09-10; category Inherent, primary-only, never on an action)", names:["Muster","Hard Body","Fixed Star","Death Knell","Vigil","Overclock","Hedgepass","Blood Scent","Anchored Mass","Undertow","Overflight"]},
+  {label:"Type inherents (category Inherent - primary-only passives, never on an action; add / rename / delete them in this tab)", get names(){ return INHERENT_NAMES.slice(); }},
 ];
 
 /* AoE pattern matrix rows (spec §AoE Pattern dropdown). Labels are descriptive
@@ -2182,6 +2190,7 @@ function App(){
   const [data,setData]=useState(null);             // working copy {characters,actions,classes,effects,types,type_matrix,aoe_patterns,glossary,mutators}
   const [dirty,setDirty]=useState({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false});
   const [tab,setTab]=useState("characters");
+  syncInherentNames(data&&data.effects);   // keeps the live Type-inherents group current
   const [toasts,setToasts]=useState([]);
   const [cmdk,setCmdk]=useState(false);
   const [undoStack,setUndo]=useState([]);
@@ -2463,6 +2472,10 @@ function App(){
       if(dirty.effects){
         const rows=(data.effects||[]).filter(e=>e&&e.name).map(e=>({name:e.name,category:e.category,data:e}));
         if(rows.length){const{error}=await db.from("effects").upsert(rows,{onConflict:"name"});if(error)throw error;}
+        // 2026-09-10: renames / deletes of Inherent rows -- the name is the key, so the
+        // old row must be DELETED or it lingers in Supabase and comes back on reload.
+        const dead=(data._effectsDeleted||[]).filter(n=>!(data.effects||[]).some(e=>e&&e.name===n));
+        if(dead.length){const{error}=await db.from("effects").delete().in("name",dead);if(error)throw error;}
       }
       if(dirty.glossary){
         const rows=(data.glossary||[]).filter(g=>g&&String(g.term||"").trim()).map(g=>{const d={...g,term:String(g.term).trim()};return{term:d.term,title:d.title,category:d.category,data:d};});
@@ -2497,6 +2510,7 @@ function App(){
         const{error:delErr}=await del;
         if(delErr) throw delErr;
       }
+      setData(d=>d?{...d,_effectsDeleted:[]}:d);   // the deletes above are applied
       setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false});
       try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
       if(unnamedGlossaryCount){
@@ -4272,8 +4286,8 @@ function TypesTab({data,enums,charById,actionById,usageIdx,summonOptions,commitE
                 </${Field}>`)}
             </div>
           </${Group}>
-          <${Group} title="Inherent type effect (primary-only)">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">One row per type by ruling. Blank duration = permanent.</p>
+          <${Group} title="Inherent type effects (primary-only)">
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Add as many as you are exploring (2-3 per type is fine); the shipping target is one per type, trimmed later. New rows are created on the Effects tab (+ New type inherent). Blank duration = permanent.</p>
             <${InherentEditor} list=${t.inherent_type_effects||[]} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName}
               onChange=${arr=>commitEdit(next=>{ const tt=(next.types||[]).find(x=>x&&x.type_name===selName); if(tt) tt.inherent_type_effects=arr; }, dy=>dy.types=true)} />
           </${Group}>
@@ -4434,7 +4448,40 @@ function emphasize(text){
   if(last<s.length) out.push(s.slice(last));
   return out;
 }
+/* Inline rename box: local draft, commits on blur / Enter so typing never loses focus. */
+function RenameField({value, onCommit}){
+  const [draft,setDraft]=useState(value);
+  useEffect(()=>{ setDraft(value); },[value]);
+  const commit=()=>{ const v=String(draft||"").trim(); if(v && v!==value) onCommit(v); else setDraft(value); };
+  return html`<input class="mono" style="width:100%;box-sizing:border-box;font-size:14px;font-weight:600" value=${draft}
+    onInput=${e=>setDraft(e.target.value)} onBlur=${commit}
+    onKeyDown=${e=>{ if(e.key==="Enter"){ e.preventDefault(); e.target.blur(); } if(e.key==="Escape"){ setDraft(value); e.target.blur(); } }} />`;
+}
 function EffectsTab({effects, commitEdit}){
+  const [newInh,setNewInh]=useState("");
+  // 2026-09-10 -- type inherents are authored HERE as catalog rows (name + rule in the note);
+  // the runtime branch for each is built later from the note. Create / rename / delete:
+  const inhRefs=(next,name)=>{ let n=0;
+    (next.types||[]).forEach(t=>(t&&t.inherent_type_effects||[]).forEach(r=>{ if(r&&r.effect_id===name) n++; }));
+    ((next.classes&&next.classes.classes)||[]).forEach(c=>(c&&c.inherent_class_effects||[]).forEach(r=>{ if(r&&r.effect_id===name) n++; }));
+    return n; };
+  const addInherent=()=>{ const nm=String(newInh||"").trim(); if(!nm) return;
+    commitEdit(next=>{ next.effects=next.effects||[]; if(next.effects.some(e=>e&&e.name===nm)) return;
+      next.effects.push({name:nm,category:"Inherent",magnitude_meaning:"",duration_meaning:"",notes:""}); }, dy=>dy.effects=true);
+    setNewInh(""); };
+  const renameInherent=(oldName,newName)=>commitEdit(next=>{
+    if((next.effects||[]).some(e=>e&&e.name===newName)) return;
+    const eff=(next.effects||[]).find(e=>e&&e.name===oldName); if(!eff) return;
+    eff.name=newName;
+    (next.types||[]).forEach(t=>(t&&t.inherent_type_effects||[]).forEach(r=>{ if(r&&r.effect_id===oldName) r.effect_id=newName; }));
+    ((next.classes&&next.classes.classes)||[]).forEach(c=>(c&&c.inherent_class_effects||[]).forEach(r=>{ if(r&&r.effect_id===oldName) r.effect_id=newName; }));
+    next._effectsDeleted=(next._effectsDeleted||[]).concat([oldName]);   // Save deletes the old Supabase row (name is the key)
+  }, dy=>{ dy.effects=true; dy.types=true; dy.classes=true; });
+  const deleteInherent=(name)=>commitEdit(next=>{
+    if(inhRefs(next,name)>0) return;
+    next.effects=(next.effects||[]).filter(e=>!(e&&e.name===name));
+    next._effectsDeleted=(next._effectsDeleted||[]).concat([name]);
+  }, dy=>dy.effects=true);
   const byName=useMemo(()=>{ const m={}; (effects||[]).forEach(e=>{ if(e&&e.name) m[e.name]=e; }); return m; },[effects]);
   const [open,setOpen]=useState(()=>{
     try{
@@ -4462,8 +4509,13 @@ function EffectsTab({effects, commitEdit}){
     const e=byName[name];
     if(!e) return html`<div class="ref-card tight" key=${name}><h3>${name}</h3><span class="cat">missing</span>
       <dl><dd class="warn-text">Not found in effects.json.</dd></dl></div>`;
+    const isInh = e.category==="Inherent";
     return html`<div class="ref-card tight" key=${name} title=${effectDescText(e)}>
-      <h3>${e.name}</h3><span class="cat">${e.category||"effect"}</span>
+      ${isInh?html`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+          <${RenameField} value=${e.name} onCommit=${v=>renameInherent(e.name,v)} />
+          <button class="rep-del" title="Delete this inherent (only when no type or class references it)" onClick=${()=>deleteInherent(e.name)}>×</button>
+        </div>`:html`<h3>${e.name}</h3>`}<span class="cat">${e.category||"effect"}</span>
+      ${isInh?html`<p class="note" style="margin:2px 0 4px">Write the RULE in the note (numbers included). Rename here; references on the Types tab follow. The runtime branch is built from this note later.</p>`:null}
       <dl>
         <dd><span class="dlbl">note</span>
           <textarea class="effect-ref-input" style=${editStyle} placeholder="in-game hover / glossary text…"
@@ -4483,6 +4535,12 @@ function EffectsTab({effects, commitEdit}){
         <button type="button" class="effects-title-action" onClick=${expandAll}>Expand all</button>
         <button type="button" class="effects-title-action" onClick=${collapseAll}>Collapse all</button>
       </span>
+    </div>
+    <div class="add-slug" style="display:flex;gap:8px;align-items:center;margin:0 0 10px">
+      <input placeholder="New type inherent name (e.g. Ember Hide)" value=${newInh} onInput=${e=>setNewInh(e.target.value)}
+        onKeyDown=${e=>{ if(e.key==="Enter") addInherent(); }} style="min-width:260px" />
+      <button class="primary" onClick=${addInherent}>+ New type inherent</button>
+      <span class="hint">creates a category-Inherent row; author its rule in the note, then reference it from a type on the Types tab</span>
     </div>
     <p class="note">${(effects||[]).length} effects. Edit the <b>note</b> to change what pops when you hover that effect in-game (timeline chips, encyclopedia, explainers). Save to Supabase → publish to apply. (An authored entry in data/glossary.json, if any, still overrides.)</p>
     ${EFFECT_GROUPS.map((g,i)=>html`<div style="margin-bottom:12px" key=${i}>
