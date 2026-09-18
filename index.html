@@ -2188,7 +2188,7 @@ function App(){
   const [session,setSession]=useState(undefined);  // undefined=unknown, null=signed out, obj=in
   const [loading,setLoading]=useState(false);
   const [data,setData]=useState(null);             // working copy {characters,actions,classes,effects,types,type_matrix,aoe_patterns,glossary,mutators}
-  const [dirty,setDirty]=useState({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false});
+  const [dirty,setDirty]=useState({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false});
   const [tab,setTab]=useState("characters");
   syncInherentNames(data&&data.effects);   // keeps the live Type-inherents group current
   const [toasts,setToasts]=useState([]);
@@ -2233,8 +2233,8 @@ function App(){
         }
         return out;
       };
-      const [chars,acts,cls,eff,typ,aoe,tm,prog,tun,glossary,mutators]=await Promise.all(
-        TABLES.concat(["character_class_progression","balance_tunables","glossary","mutators"]).map(fetchTable));
+      const [chars,acts,cls,eff,typ,aoe,tm,prog,tun,glossary,mutators,hybridisation]=await Promise.all(
+        TABLES.concat(["character_class_progression","balance_tunables","glossary","mutators","hybridisation"]).map(fetchTable));
       const type_matrix={}; tm.forEach(r=>{type_matrix[r.attacker+":"+r.defender]=r.multiplier;});
       const progression={}; prog.forEach(r=>{ if(r&&r.id!=null) progression[String(r.id)]=r.data||{starting_classes:[],overrides:{}}; });
       const next={
@@ -2248,10 +2248,11 @@ function App(){
         progression,
         tunables: tun.map(r=>r.data).filter(Boolean),
         glossary: glossary.map(r=>r.data).filter(Boolean),
+        hybridisation: hybridisation.map(r=>r.data).filter(Boolean),
         mutators: mutators.map(r=>r.data).filter(Boolean),
       };
       setData(next);
-      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false});
+      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false});
       setUndo([]); setRedo([]);
       if(!silent) toast("Data loaded",
         `${next.characters.length} characters · ${next.actions.length} actions · ${next.classes.classes.length} classes`,"ok",3000);
@@ -2301,17 +2302,17 @@ function App(){
     return opts;
   },[data]);
 
-  const dirtyCount = dirty.chars.size + dirty.actions.size + (dirty.classes?1:0) + (dirty.effects?1:0) + (dirty.matrix?1:0) + (dirty.types?1:0) + (dirty.tunables?1:0) + (dirty.aoe_patterns?1:0) + (dirty.glossary?1:0) + (dirty.mutators?1:0);
+  const dirtyCount = dirty.chars.size + dirty.actions.size + (dirty.classes?1:0) + (dirty.effects?1:0) + (dirty.matrix?1:0) + (dirty.types?1:0) + (dirty.tunables?1:0) + (dirty.aoe_patterns?1:0) + (dirty.glossary?1:0) + (dirty.mutators?1:0) + (dirty.hybridisation?1:0);
   /* always-current snapshot so unload/hidden flush handlers never use stale closures */
   const liveRef = useRef(); liveRef.current = { data, dirty, dirtyCount };
 
   /* ── mutation helper: snapshot for undo, mutate working copy in place, bump dirty ── */
   const commitEdit = useCallback((mutate, dirtyPatch)=>{
-    setUndo(u=>[...u.slice(-49), {data:clone(data), dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators}}]);
+    setUndo(u=>[...u.slice(-49), {data:clone(data), dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators,hybridisation:dirty.hybridisation}}]);
     setRedo([]);
     setData(prev=>{ const next=clone(prev); mutate(next); return next; });
     setDirty(prev=>{
-      const nx={chars:new Set(prev.chars),actions:new Set(prev.actions),classes:prev.classes,effects:prev.effects,matrix:prev.matrix,types:prev.types,tunables:prev.tunables,aoe_patterns:prev.aoe_patterns,glossary:prev.glossary,mutators:prev.mutators};
+      const nx={chars:new Set(prev.chars),actions:new Set(prev.actions),classes:prev.classes,effects:prev.effects,matrix:prev.matrix,types:prev.types,tunables:prev.tunables,aoe_patterns:prev.aoe_patterns,glossary:prev.glossary,mutators:prev.mutators,hybridisation:prev.hybridisation};
       if(dirtyPatch) dirtyPatch(nx);
       return nx;
     });
@@ -2321,7 +2322,7 @@ function App(){
     setUndo(u=>{
       if(!u.length) return u;
       const last=u[u.length-1];
-      setRedo(r=>[...r,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators}}]);
+      setRedo(r=>[...r,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators,hybridisation:dirty.hybridisation}}]);
       setData(last.data); setDirty(last.dirty);
       return u.slice(0,-1);
     });
@@ -2330,7 +2331,7 @@ function App(){
     setRedo(r=>{
       if(!r.length) return r;
       const last=r[r.length-1];
-      setUndo(u=>[...u,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators}}]);
+      setUndo(u=>[...u,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators,hybridisation:dirty.hybridisation}}]);
       setData(last.data); setDirty(last.dirty);
       return r.slice(0,-1);
     });
@@ -2355,6 +2356,7 @@ function App(){
         tunables: dy.tunables? d.tunables : null,
         aoe_patterns: dy.aoe_patterns? d.aoe_patterns : null,
         glossary: dy.glossary? d.glossary : null,
+        hybridisation: dy.hybridisation? d.hybridisation : null,
         mutators: dy.mutators? d.mutators : null,
         progression: dy.chars.size? Object.fromEntries([...dy.chars].filter(id=>d.progression&&d.progression[id]).map(id=>[id,d.progression[id]])) : null,
       }));
@@ -2381,7 +2383,7 @@ function App(){
     let raw; try{ raw=localStorage.getItem(DRAFT_KEY); }catch(e){ return; }
     if(!raw) return;
     let d; try{ d=JSON.parse(raw); }catch(e){ return; }
-    const n=(d.chars?.length||0)+(d.actions?.length||0)+(d.classes?1:0)+(d.effects?1:0)+(d.matrix?1:0)+(d.types?1:0)+(d.tunables?1:0)+(d.aoe_patterns?1:0)+(d.glossary?1:0)+(d.mutators?1:0);
+    const n=(d.chars?.length||0)+(d.actions?.length||0)+(d.classes?1:0)+(d.effects?1:0)+(d.matrix?1:0)+(d.types?1:0)+(d.tunables?1:0)+(d.aoe_patterns?1:0)+(d.glossary?1:0)+(d.mutators?1:0)+(d.hybridisation?1:0);
     if(!n) return;
     setData(prev=>{
       const next=clone(prev);
@@ -2394,6 +2396,7 @@ function App(){
       if(d.tunables) next.tunables=d.tunables;
       if(d.aoe_patterns) next.aoe_patterns=d.aoe_patterns;
       if(d.glossary) next.glossary=d.glossary;
+      if(d.hybridisation) next.hybridisation=d.hybridisation;
       if(d.mutators) next.mutators=d.mutators;
       if(d.progression){ next.progression=next.progression||{}; Object.assign(next.progression,d.progression); }
       return next;
@@ -2401,7 +2404,7 @@ function App(){
     setDirty({
       chars:new Set((d.chars||[]).map(c=>String(c.id))),
       actions:new Set((d.actions||[]).map(a=>String(a.id))),
-      classes:!!d.classes, effects:!!d.effects, matrix:!!d.matrix, types:!!d.types, tunables:!!d.tunables, aoe_patterns:!!d.aoe_patterns, glossary:!!d.glossary, mutators:!!d.mutators,
+      classes:!!d.classes, effects:!!d.effects, matrix:!!d.matrix, types:!!d.types, tunables:!!d.tunables, aoe_patterns:!!d.aoe_patterns, glossary:!!d.glossary, mutators:!!d.mutators, hybridisation:!!d.hybridisation,
     });
     /* Order matters: raise the guard BEFORE touching storage, so the pagehide /
        beforeunload handlers that location.reload() triggers cannot write the
@@ -2409,7 +2412,7 @@ function App(){
        somehow ran anyway would have nothing dirty to persist. */
     const discard=()=>{
       discardingRef.current=true;
-      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false});
+      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false});
       try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
       location.reload();
     };
@@ -2485,6 +2488,10 @@ function App(){
         const rows=(data.mutators||[]).filter(m=>m&&m.name).map(m=>({name:m.name,category:m.category,data:m}));
         if(rows.length){const{error}=await db.from("mutators").upsert(rows,{onConflict:"name"});if(error)throw error;}
       }
+      if(dirty.hybridisation){
+        const rows=(data.hybridisation||[]).filter(a=>a&&a.axis).map(a=>({axis:a.axis,data:a}));
+        if(rows.length){const{error}=await db.from("hybridisation").upsert(rows,{onConflict:"axis"});if(error)throw error;}
+      }
       if(dirty.aoe_patterns){
         const rows=(data.aoe_patterns||[]).filter(p=>p&&p.name).map(p=>({name:p.name,category:p.category,data:p}));
         if(rows.length){const{error}=await db.from("aoe_patterns").upsert(rows,{onConflict:"name"});if(error)throw error;}
@@ -2511,7 +2518,7 @@ function App(){
         if(delErr) throw delErr;
       }
       setData(d=>d?{...d,_effectsDeleted:[]}:d);   // the deletes above are applied
-      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false});
+      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false});
       try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
       if(unnamedGlossaryCount){
         toast(`${unnamedGlossaryCount} unnamed entries were skipped`,
@@ -2577,6 +2584,7 @@ function App(){
     {id:"effects",label:"Effects",n:data?.effects.length,dirty:dirty.effects},
     {id:"glossary",label:"Glossary",n:data?.glossary.length,dirty:dirty.glossary},
     {id:"mutators",label:"Mutators",n:data?.mutators.length,dirty:dirty.mutators},
+    {id:"hybridisation",label:"Hybridisation",n:data?.hybridisation?.length,dirty:dirty.hybridisation},
     {id:"matrix",label:"Type Matrix",n:null,dirty:dirty.matrix},
     {id:"aoe",label:"AoE Patterns",n:data?.aoe_patterns.length,dirty:dirty.aoe_patterns},
     {id:"class_costs",label:"Class Costs",dirty:dirty.tunables},
@@ -2588,7 +2596,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · build 09-07·reflex</span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-18 8e3fafdd</span></span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -2624,6 +2632,7 @@ function App(){
         ${tab==="effects" && html`<${EffectsTab} effects=${data.effects} commitEdit=${commitEdit} />`}
         ${tab==="glossary" && html`<${GlossaryTab} glossary=${data.glossary} commitEdit=${commitEdit} />`}
         ${tab==="mutators" && html`<${MutatorsTab} mutators=${data.mutators} commitEdit=${commitEdit} />`}
+        ${tab==="hybridisation" && html`<${HybridisationTab} axes=${data.hybridisation||[]} commitEdit=${commitEdit} />`}
         ${tab==="matrix" && html`<${MatrixTab} types=${enums.types} matrix=${data.type_matrix} commitEdit=${commitEdit} />`}
         ${tab==="aoe" && html`<${AoeTab} patterns=${data.aoe_patterns} commitEdit=${commitEdit} />`}
         ${tab==="class_costs" && html`<${ClassCostsTab} tunables=${data.tunables} commitEdit=${commitEdit} />`}
@@ -4677,6 +4686,78 @@ function GlossaryTab({glossary, commitEdit}){
       <div class="ref-grid tight">${items.map(card)}</div>
     </div>`)}
   </div></div>`;
+}
+
+/* ─── HYBRIDISATION TAB ──────────────────────────────────────────────────────
+   ⚖ Pat D 2026-09-18. Five positions per axis, from pure ① to pure ②; each row is
+   one authored slot and each cell says WHICH side fills it. Click a cell to cycle
+   — → 1 → 2 → both. ⚠ A cell reading "both" means the slot is filled from BOTH
+   sides, i.e. two things, which is why the footer counts it twice.
+   ⚠ Inherent slot 2 is filled only in the pure columns — that is what makes a
+   second-slot inherent (Sky's Overflight) pure-only BY CONSTRUCTION, with no flag
+   for compose_action_hand to branch on. Moving it breaks that. */
+const HYB_CYCLE=["","1","2","both"];
+function HybridisationTab({axes, commitEdit}){
+  const setCell=(ai,gi,pos,si,value)=>commitEdit(next=>{
+    const g=next.hybridisation?.[ai]?.groups?.[gi];
+    if(g&&g.positions&&g.positions[pos]) g.positions[pos][si]=value;
+  },dy=>dy.hybridisation=true);
+  const setSlots=(ai,gi,delta)=>commitEdit(next=>{
+    const g=next.hybridisation?.[ai]?.groups?.[gi];
+    if(!g) return;
+    const want=Math.max(1,Math.min(6,(g.slots|0)+delta));
+    g.slots=want;
+    for(const k of Object.keys(g.positions||{})){
+      const arr=g.positions[k]; arr.length=want;
+      for(let i=0;i<want;i++) if(!HYB_CYCLE.includes(arr[i])) arr[i]="";
+    }
+  },dy=>dy.hybridisation=true);
+  const granted=(axis,posKey)=>{
+    let n=0;
+    for(const g of axis.groups||[]) for(const v of (g.positions?.[posKey]||[]))
+      n += v==="both" ? 2 : (v==="1"||v==="2") ? 1 : 0;
+    return n;
+  };
+  if(!axes.length) return html`<div class="empty">No hybridisation rows yet — publish the seed first.</div>`;
+  return html`<div class="pane">
+    <p class="hint">What each slider position grants. A cell says which side fills that slot;
+      <b>both</b> means one from each, so it counts twice in the totals.</p>
+    ${axes.map((axis,ai)=>html`
+      <div class="card" key=${axis.axis} style="margin-bottom:18px">
+        <div class="card-hd">${axis.label||axis.axis}</div>
+        <div style="overflow-x:auto">
+        <table class="grid" style="min-width:820px">
+          <thead><tr><th style="text-align:left;min-width:190px">Slot</th>
+            ${(axis.positions||[]).map(p=>html`<th key=${p.key}>${p.label}</th>`)}
+          </tr></thead>
+          <tbody>
+            ${(axis.groups||[]).map((g,gi)=>html`
+              <${Fragment} key=${g.group}>
+              <tr><td colspan=${1+(axis.positions||[]).length} style="background:var(--bg-3);font-weight:600">
+                ${g.label}
+                <button class="mini" style="float:right;margin-left:6px" onClick=${()=>setSlots(ai,gi,1)}>+ slot</button>
+                <button class="mini" style="float:right" onClick=${()=>setSlots(ai,gi,-1)}>− slot</button>
+              </td></tr>
+              ${Array.from({length:g.slots||0}).map((_,si)=>html`
+                <tr key=${si}><td style="color:var(--ink-3)">${(g.label||"").replace(/s$/,"")} ${si+1}</td>
+                  ${(axis.positions||[]).map(p=>{
+                    const v=(g.positions?.[p.key]||[])[si]||"";
+                    return html`<td key=${p.key} style="text-align:center">
+                      <button class="mini" style=${"min-width:62px;"+(v==="1"?"background:#1d3b52;color:#9fd0f0":v==="2"?"background:#4a2b1e;color:#f0b89c":v==="both"?"background:#3a2f52;color:#d3c3f2":"")}
+                        onClick=${()=>setCell(ai,gi,p.key,si,HYB_CYCLE[(HYB_CYCLE.indexOf(v)+1)%HYB_CYCLE.length])}>
+                        ${v==="both"?"BOTH":v===""?"—":v}
+                      </button></td>`;
+                  })}
+                </tr>`)}
+              </${Fragment}>`)}
+          </tbody>
+          <tfoot><tr><td style="color:var(--ink-3)">Granted at this position</td>
+            ${(axis.positions||[]).map(p=>html`<td key=${p.key} style="text-align:center;font-weight:600">${granted(axis,p.key)}</td>`)}
+          </tr></tfoot>
+        </table>
+        </div>
+      </div>`)}
+  </div>`;
 }
 
 function MutatorsTab({mutators, commitEdit}){
