@@ -1993,10 +1993,10 @@ function estimateDamage(action, caster, defenderTypes, defStat, tm){
 /* ════════════════════════════════════════════════════════════════════
    CROSS-LINKS — usages + summon resolution + linting
    ════════════════════════════════════════════════════════════════════ */
-function buildUsageIndex(characters, classes){
-  // actionId -> {chars:[id], classes:[name]}
+function buildUsageIndex(characters, classes, types){
+  // actionId -> {chars:[id], classes:[name], reflex:[id], types:[type_name]}
   const idx={};
-  const add=(slug,kind,who)=>{ if(!slug)return; (idx[slug]=idx[slug]||{chars:[],classes:[],reflex:[]})[kind].push(who); };
+  const add=(slug,kind,who)=>{ if(!slug)return; (idx[slug]=idx[slug]||{chars:[],classes:[],reflex:[],types:[]})[kind].push(who); };
   (characters||[]).forEach(c=>{
     CHAR_SLOTS.forEach(s=>{ const o=c[s]; const id=(o&&typeof o==="object"&&o.id)?o.id:(typeof o==="string"?o:"");
       if(id){ add(id,"chars",c.id); if(s===REFLEX_SLOT) add(id,"reflex",c.id); } });
@@ -2007,12 +2007,52 @@ function buildUsageIndex(characters, classes){
     (cl.mastery_class_actions||[]).forEach(s=>add(s,"classes",cl.class_name));
     if(cl.class_action) add(cl.class_action,"classes",cl.class_name);
   });
+  // 2026-09-19 (T4) — type rows reference actions too: the legacy type_attack, every
+  // non-empty core / mastery shelf entry and the type reflex. One entry per slot, so a
+  // type whose type_attack mirrors core[0] counts twice — that is what the row holds.
+  (types||[]).forEach(t=>{
+    if(!t||!t.type_name) return;
+    if(t.type_attack) add(t.type_attack,"types",t.type_name);
+    (Array.isArray(t.core_type_actions)?t.core_type_actions:[]).forEach(s=>add(s,"types",t.type_name));
+    (Array.isArray(t.mastery_type_actions)?t.mastery_type_actions:[]).forEach(s=>add(s,"types",t.type_name));
+    if(t.reflex_action&&t.reflex_action.id) add(t.reflex_action.id,"types",t.type_name);
+  });
   return idx;
 }
-/* total references to an action slug across characters + classes */
+/* total references to an action slug across characters + classes + types */
 function usageCountOf(usageIdx, slug){
   const u=usageIdx&&usageIdx[slug];
-  return u?((u.chars?u.chars.length:0)+(u.classes?u.classes.length:0)):0;
+  return u?((u.chars?u.chars.length:0)+(u.classes?u.classes.length:0)+(u.types?u.types.length:0)):0;
+}
+
+/* ── hybridisation slot helpers (T4, 2026-09-19) ──────────────────────────
+   `hyb` is data.hybridisation as the editor holds it: an ARRAY of axis rows
+   ({axis, label, positions:[{key,label}], groups:[{group, slots, positions:{posKey:[cell…]}}]}).
+   The types / classes tabs derive their slot counts and reach labels from it so
+   a "+ slot" on the HYBRIDISATION tab grows the editing surface with no code change. */
+const HYB_DEFAULT_COUNTS = {core:2, mastery:2, inherent:1, reflex:1};
+function hybAxis(hyb, axis){
+  return (Array.isArray(hyb)?hyb:[]).find(a=>a&&a.axis===axis) || null;
+}
+/* {core, mastery, inherent, reflex} for one axis; every key falls back to the 2026-09-08 default */
+function hybSlotCounts(hyb, axis){
+  const out=Object.assign({}, HYB_DEFAULT_COUNTS);
+  const ax=hybAxis(hyb, axis); if(!ax) return out;
+  (ax.groups||[]).forEach(g=>{ if(g&&g.group&&out.hasOwnProperty(g.group)){ const n=g.slots|0; if(n>0) out[g.group]=n; } });
+  return out;
+}
+/* who receives slot `i` of `group` on `axis`, read off the side-1 position cells:
+   everyone (secondaries too) · primary+ (pure + primary + 50/50) · pure-only · — (never granted) */
+function slotReach(hyb, axis, group, i){
+  const ax=hybAxis(hyb, axis); if(!ax) return "";
+  const g=(ax.groups||[]).find(x=>x&&x.group===group); if(!g||!g.positions) return "";
+  const cell=(k)=>((g.positions[k]||[])[i]||"");
+  const pure=cell("pure1")==="1"||cell("pure1")==="both", hyb1=cell("p1s2"), even=cell("even");
+  if(hyb1==="both") return "everyone";
+  if(hyb1==="1"||hyb1==="both") return "primary+";
+  if(even==="both"||even==="1") return "primary+";
+  if(pure) return "pure-only";
+  return "—";
 }
 /* derive a fresh, unique slug for a fork (old_v2, old_v3, …) */
 function makeForkSlug(oldSlug, actionById){
@@ -2289,7 +2329,7 @@ function App(){
   const actionById = useMemo(()=>{
     const m={}; (data?.actions||[]).forEach(a=>{ if(a&&a.id) m[a.id]=a; }); return m;
   },[data]);
-  const usageIdx = useMemo(()=> data?buildUsageIndex(data.characters,data.classes):{}, [data]);
+  const usageIdx = useMemo(()=> data?buildUsageIndex(data.characters,data.classes,data.types):{}, [data]);
   // summon-ID dropdown options: lieutenants + minions
   const summonOptions = useMemo(()=>{
     const opts=[{value:"",label:"— none —"}];
@@ -2596,7 +2636,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-18 8e3fafdd</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-19 1bcff198</span></span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -3703,6 +3743,17 @@ function ClassActionList({c, keyName, data, actionById, enums, effectRows, known
   const swapUp=(i)=>{const a=slugs.slice();[a[i-1],a[i]]=[a[i],a[i-1]];setSlugs(a);};
   const swapDown=(i)=>{const a=slugs.slice();[a[i+1],a[i]]=[a[i],a[i+1]];setSlugs(a);};
   const delAt=(i)=>setSlugs(slugs.filter((_,j)=>j!==i));
+  // T4 (2026-09-19) — the 09-18 ranking grants core[0..N) + mastery[0..M) where N / M are the
+  // HYBRIDISATION classes-axis slot counts; anything past that is BENCH (kept, not granted).
+  // Granted rows carry who receives them (everyone / primary+ / pure-only) read off that table.
+  const hybCounts = hybSlotCounts(data.hybridisation,"classes");
+  const grantedN = isMastery?hybCounts.mastery:hybCounts.core;
+  const rowLabels = slugs.map((_,i)=>{
+    const head=isMastery?("Lv "+(i+1)):("#"+(i+1));
+    if(i>=grantedN) return head+" · BENCH";
+    const r=slotReach(data.hybridisation,"classes",isMastery?"mastery":"core",i);
+    return head+(r?(" · "+r):"");
+  });
   return html`<div>
     ${slugs.length?(viewMode==="cards"
       ?html`<div class="cardgrid">${slugs.map((slug,i)=>html`<${ClassSlotCard} key=${slug+i} slug=${slug} index=${i} total=${slugs.length}
@@ -3715,9 +3766,9 @@ function ClassActionList({c, keyName, data, actionById, enums, effectRows, known
         onFork=${()=>onFork(i,slug)}
         onMove=${()=>onMove(i)} moveLabel=${moveLabel} moveTitle=${moveTitle}
         onActionChange=${onActionChange} />`)}</div>`
-      :html`<${ClassActionTable} slugs=${slugs} isMastery=${isMastery} data=${data} actionById=${actionById}
+      :html`<${ClassActionTable} slugs=${slugs} rowLabels=${rowLabels} isMastery=${isMastery} data=${data} actionById=${actionById}
         effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx}
-        onUp=${swapUp} onDown=${swapDown} onDel=${delAt} onFork=${(i)=>onFork(i,slugs[i])}
+        onUp=${swapUp} onDown=${swapDown} onDel=${delAt} delTitle="Remove from this class" onFork=${(i)=>onFork(i,slugs[i])}
         onMove=${onMove} moveLabel=${moveLabel} moveTitle=${moveTitle}
         onActionChange=${onActionChange} />`)
       :html`<p class="note">None.</p>`}
@@ -3800,8 +3851,11 @@ function ClassSlotCard({slug, index, total, levelBadge, actionById, data, effect
    ⤢ button per row is the escape hatch to the full inline editor.
    ════════════════════════════════════════════════════════════════════ */
 function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effectRows, knownEffects, summonOptions, usageIdx,
-                           onUp, onDown, onDel, onFork, onMove, moveLabel, moveTitle, onActionChange}){
-  const [openSlug,setOpenSlug]=useState(null);   // ⤢ full-editor escape hatch (by slug)
+                           onUp, onDown, onDel, onFork, onMove, moveLabel, moveTitle, onActionChange, onPick, delTitle}){
+  // T4 (2026-09-19): `onPick(i, slug)` is OPTIONAL — when set, an EMPTY ("") slug row renders a
+  // picker in its Name cell instead of "⚠ (unknown)" (fixed-slot callers: the Types tab).
+  // `delTitle` overrides the × button's tooltip. Callers that pass neither are unchanged.
+  const [openIdx,setOpenIdx]=useState(null);     // ⤢ full-editor escape hatch (by row INDEX — empty slots share the "" slug)
   const [edit,setEdit]=useState(null);           // {slug, field, rect, wide} active cell popover
   const [revealed,setRevealed]=useState({});     // slug -> [advKey…] explicitly added this session
   const [advQuery,setAdvQuery]=useState("");
@@ -3913,7 +3967,14 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
     {k:"idx",always:true,th:isMastery?"Lv":(rowLabels?"Slot":"#"),
       cell:(c)=>html`<td class="a-lv" style=${rowLabels?"width:auto;white-space:nowrap;color:var(--ink-2);font-size:11px":""}>${rowLabels?(rowLabels[c.i]||c.slug):(isMastery?("Lv "+(c.i+1)):(c.i+1))}</td>`},
     {k:"name",always:true,th:"Name",
-      cell:(c)=>html`<td class=${"a-name"+(c.act?" cell-edit":"")} onClick=${c.ed("name")} title=${c.act?"Click to rename":""}>
+      cell:(c)=>(!c.slug&&onPick)
+        ?html`<td class="a-name" title="Empty slot — pick an action">
+          <select class="mono" title="Pick an action for this empty slot" onClick=${e=>e.stopPropagation()}
+            onChange=${e=>{ const v=e.target.value; if(v){ onPick(c.i,v); e.target.value=""; } }}>
+            <option value="">— none —</option>
+            ${(data.actions||[]).map(a=>html`<option value=${a.id} key=${a.id}>${a.id}</option>`)}
+          </select></td>`
+        :html`<td class=${"a-name"+(c.act?" cell-edit":"")} onClick=${c.ed("name")} title=${c.act?"Click to rename":""}>
         ${c.act?(c.act.name||c.slug):html`<span class="unknown">⚠ ${c.slug} (unknown)</span>`}<span class="a-key">${c.slug}</span></td>`},
     {vk:"aoe_pattern",th:"Pattern",
       cell:(c)=>html`<td class=${"a-pat"+(c.act?" cell-edit":"")} onClick=${c.ed("aoe_pattern")}>
@@ -3954,8 +4015,8 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
         ${onUp?html`<button class="mini" disabled=${c.i===0} title="Up (raise level)" onClick=${()=>onUp(c.i)}>↑</button>`:null}
         ${onDown?html`<button class="mini" disabled=${c.i===slugs.length-1} title="Down (lower level)" onClick=${()=>onDown(c.i)}>↓</button>`:null}
         ${onMove?html`<button class="mini move" title=${moveTitle} onClick=${()=>onMove(c.i)}>${moveLabel}</button>`:null}
-        ${onDel?html`<button class="mini del" title=${rowLabels?"Clear this slot":"Remove from this class"} onClick=${()=>onDel(c.i)}>×</button>`:null}
-        <button class=${"mini exp"+(c.open?" on":"")} title="Open the full editor for this action" onClick=${()=>setOpenSlug(c.open?null:c.slug)}>⤢</button></td>`},
+        ${onDel?html`<button class="mini del" title=${delTitle||(rowLabels?"Clear this slot":"Remove from this class")} onClick=${()=>onDel(c.i)}>×</button>`:null}
+        <button class=${"mini exp"+(c.open?" on":"")} title="Open the full editor for this action" onClick=${()=>setOpenIdx(c.open?null:c.i)}>⤢</button></td>`},
   ];
   const visCols=COLS.filter(cc=>cc.always || vis.has(cc.vk));
   const NC=visCols.length;
@@ -3969,7 +4030,7 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
     <tbody>
       ${slugs.map((slug,i)=>{
         const act=actionById[slug];
-        const open=openSlug===slug;
+        const open=openIdx===i;
         const uses=usageCountOf(usageIdx,slug);
         const advList=act?advShownFor(act, revealed[slug]):[];
         const ed=(f)=>act?(e=>openCell(slug,f,e)):null;   // cell click handler (only when action exists)
@@ -3993,7 +4054,8 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
               <div class="dense-action"><${ActionEditorInlineAdapter} action=${act} effectRows=${effectRows} knownEffects=${knownEffects}
                 summonOptions=${summonOptions||[{value:"",label:"— none —"}]} charById=${charById} tm=${data.type_matrix}
                 effectByName=${effectByName} showName=${true} onChange=${onActionChange} /></div>`
-              :html`<p class="note warn-text">Action "${slug}" not found in the library. Pick another below, or create it.</p>`}
+              :(slug?html`<p class="note warn-text">Action "${slug}" not found in the library. Pick another below, or create it.</p>`
+                    :html`<p class="note">Empty slot — pick an action from the dropdown in the Name column.</p>`)}
           </td></tr>`:null}`;
       })}
     </tbody>
@@ -4024,7 +4086,12 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
   // Build the "action group" map: which actions are Type actions, class actions, or unique.
   const groupOf=useMemo(()=>{
     const m={};
-    (data.types||[]).forEach(t=>{ if(t.type_attack) m[t.type_attack]="Type"; });
+    // T4 (2026-09-19) — every type shelf entry labels its action "Type: <name>" (first writer
+    // wins, so an action shared by two types keeps the first type's name). The legacy
+    // type_attack mirrors core[0], so it is listed first and never disagrees.
+    (data.types||[]).forEach(t=>{ if(!t||!t.type_name) return;
+      [t.type_attack].concat(Array.isArray(t.core_type_actions)?t.core_type_actions:[], Array.isArray(t.mastery_type_actions)?t.mastery_type_actions:[], [(t.reflex_action&&t.reflex_action.id)||""])
+        .forEach(s=>{ if(s && !m[s]) m[s]="Type: "+t.type_name; }); });
     ((data.classes&&data.classes.classes)||[]).forEach(cl=>{
       (cl.core_class_actions||[]).concat(cl.mastery_class_actions||[]).forEach(s=>{ if(!m[s]) m[s]=cl.class_name; });
     });
@@ -4045,7 +4112,7 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
       if(fe2 && e2!==fe2) return false;
       if(fg){
         const g=groupOf[a.id]||"Unique";
-        if(fg==="Type" && g!=="Type") return false;
+        if(fg==="Type" && !String(g).startsWith("Type")) return false;
         else if(fg==="Unique" && g!=="Unique") return false;
         else if(fg!=="Type" && fg!=="Unique" && g!==fg) return false;
       }
@@ -4064,7 +4131,7 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
     const aa=next.actions.find(x=>x.id===selId); if(aa) aa[k]=v;
   }, dy=>dy.actions.add(String(selId)));
 
-  const usage=usageIdx[selId]||{chars:[],classes:[]};
+  const usage=usageIdx[selId]||{chars:[],classes:[],types:[]};
   const issues=a?lintAction(a,charById):[];
   const activeFilterCount=[fp,fg,fdt,fsz,frg,fe1,fe2].filter(v=>v!=="").length;
   const clearFilters=()=>{ setFp(""); setFg(""); setFdt(""); setFsz(""); setFrg(""); setFe1(""); setFe2(""); };
@@ -4145,8 +4212,8 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
             <${BalanceLab} action=${a} enums=${enums} types=${data.types} tm=${data.type_matrix} charById=${charById} />
           </${Group}>
 
-          <${Group} title=${`Used by (${usage.chars.length} chars · ${usage.classes.length} classes)`}>
-            ${(!usage.chars.length && !usage.classes.length)?html`<p class="note">Not referenced by any character or class.</p>`:html`
+          <${Group} title=${`Used by (${usage.chars.length} chars · ${usage.classes.length} classes · ${(usage.types||[]).length} types)`}>
+            ${(!usage.chars.length && !usage.classes.length && !(usage.types||[]).length)?html`<p class="note">Not referenced by any character, class or type.</p>`:html`
               <div class="usages">
                 ${usage.chars.map(id=>{const cc=charById[String(id)];
                   const rx=(usage.reflex||[]).some(r=>String(r)===String(id));
@@ -4154,6 +4221,8 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
                   <span class="ut">char</span>${cc?cc.name:("#"+id)}${rx?" (reflex)":""}</span>`;})}
                 ${usage.classes.map(cn=>html`<span class="usage-chip" onClick=${()=>jumpTo("class",cn)}>
                   <span class="ut">class</span>${cn}</span>`)}
+                ${(usage.types||[]).map((tn,ti)=>html`<span class="usage-chip" key=${"t"+tn+ti} onClick=${()=>jumpTo("type",tn)}>
+                  <span class="ut">type</span>${tn}</span>`)}
               </div>`}
           </${Group}>
 
@@ -4214,11 +4283,27 @@ function BalanceLab({action, enums, types, tm, charById}){
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   TYPES TAB (R3.6) — one action per type, bound to type.type_attack.
-   Reuses the SlotCard collapse/AoE-thumb/pick-create-fork pattern.
+   TYPES TAB — a type's whole action shelf, the way the Classes tab shows a class's:
+   core / mastery / reflex as one ClassActionTable row per SLOT (or the old cards, behind
+   the shared Actions-view toggle). Slot counts + the per-slot reach labels come from the
+   HYBRIDISATION tab; the legacy type_attack is a mirror of core slot 1, not an editor.
    ════════════════════════════════════════════════════════════════════ */
 function TypesTab({data,enums,charById,actionById,usageIdx,summonOptions,commitEdit,sel,setSel,jumpTo}){
+  const isMobile=useMedia("(max-width:760px)");
   const [q,setQ]=useState("");
+  // T4 (2026-09-19) — the same view toggle (and the SAME localStorage keys) as the Classes tab,
+  // so a preference set on one tab is the preference on the other.
+  const actViewKey=isMobile?"phalanx_mobile_action_view":"phalanx_class_action_view";
+  const [actView,setActViewRaw]=useState(()=>{ try{ return localStorage.getItem(actViewKey)||(isMobile?"cards":"table"); }catch(e){ return isMobile?"cards":"table"; } });
+  useEffect(()=>{ try{ setActViewRaw(localStorage.getItem(actViewKey)||(isMobile?"cards":"table")); }catch(e){ setActViewRaw(isMobile?"cards":"table"); } },[actViewKey]);
+  const setActView=(v)=>{ setActViewRaw(v); try{ localStorage.setItem(actViewKey,v); }catch(e){} };
+  // How many slots a type carries is HYBRIDISATION data, not a literal: growing a group there
+  // grows this tab with no code change (3 core / 2 mastery / 2 inherent / 1 reflex on 2026-09-18).
+  const counts=useMemo(()=>hybSlotCounts(data.hybridisation,"types"),[data.hybridisation]);
+  const slotLabels=(group,head)=>Array.from({length:counts[group]||0},(_,i)=>{
+    const r=slotReach(data.hybridisation,"types",group,i);
+    return head+" "+(i+1)+(r?(" · "+r):"");
+  });
   const effectRows = EFFECT_GROUPS.map(g=>({label:g.label,names:g.names}));
   const knownEffects=useMemo(()=>new Set(enums.effects),[enums]);
   const effectByName=useMemo(()=>{ const m={}; (data.effects||[]).forEach(e=>{ if(e&&e.name) m[e.name]=e; }); return m; },[data.effects]);
@@ -4250,41 +4335,61 @@ function TypesTab({data,enums,charById,actionById,usageIdx,summonOptions,commitE
       <div class="list-meta">${list.length} type${list.length===1?"":"s"}${q?" (filtered)":""}</div>
       <div class="list-scroll">
         ${list.map(ty=>{
-          const act=actionById[ty.type_attack];
+          // T4 — the meta is now the SHELF's fill, not the single legacy type_attack:
+          // "2/3 c · 0/2 m", with the red ⚠ kept for a slug no action row answers.
+          const core=typeSlotsPadded(ty,"core_type_actions",counts.core);
+          const mast=typeSlotsPadded(ty,"mastery_type_actions",counts.mastery);
+          const filled=(a)=>a.filter(s=>!!s).length;
+          const unknown=core.concat(mast,[(ty.reflex_action&&ty.reflex_action.id)||""]).filter(s=>s&&!actionById[s]);
           return html`<div class=${"row"+(ty.type_name===selName?" sel":"")} key=${ty.type_name}
             onClick=${()=>setSel(s=>({...s,type:ty.type_name}))}>
             <span class="rname">${ty.type_name}</span>
-            <span class="rmeta">${act?(act.name||ty.type_attack):(ty.type_attack?html`<span style="color:var(--rose)">⚠ ${ty.type_attack}</span>`:"—")}</span>
+            <span class="rmeta">${filled(core)}/${core.length} c · ${filled(mast)}/${mast.length} m${
+              unknown.length?html` <span style="color:var(--rose)">⚠ ${unknown.length}</span>`:null}</span>
           </div>`;
         })}
       </div>
     </div>
     <div class="detail-pane">
-      ${!t?html`<${Empty} big="Select a type" sub="Each type carries 2 core actions, 2 mastery actions, 1 inherent and 1 reflex (pure/hybrid model, 2026-09-08)." />`:html`
+      ${!t?html`<${Empty} big="Select a type" sub=${`Each type carries ${counts.core} core actions, ${counts.mastery} mastery actions, ${counts.inherent} inherent and ${counts.reflex} reflex (pure/hybrid model; slot counts come from the HYBRIDISATION tab).`} />`:html`
         <div class="detail-head"><span class="title">${t.type_name}</span><span class="spacer"></span>
-          <span class="chip">2 core - 2 mastery - 1 inherent - 1 reflex</span></div>
+          <span class="chip">${counts.core} core · ${counts.mastery} mastery · ${counts.inherent} inherent · ${counts.reflex} reflex</span></div>
         <div class="detail-body" style="max-width:960px">
-          <p class="note" style="margin:0 0 10px">2026-09-08 pure/hybrid model: a <b>PURE</b> hero gets both core + both mastery + the inherent + the reflex; a hybrid's <b>PRIMARY</b> type gives core 1-2 + mastery 1 + the inherent + the reflex; the <b>SECONDARY</b> gives core 1-2 + the reflex only. Reflex cooldown ladder: pure &lt; primary &lt; secondary. Inherent effects are catalog rows in the Effects tab (category Inherent); only their ids are referenced here.</p>
+          <p class="note" style="margin:0 0 10px">Pure/hybrid model: WHO receives each slot is the <b>HYBRIDISATION</b> tab's types axis, and the reach shown beside every slot below (<span class="mono">everyone</span> = secondaries too · <span class="mono">primary+</span> = pure + primary · <span class="mono">pure-only</span>) is read straight off it. Reflex cooldown ladder: pure &lt; primary &lt; secondary. Inherent effects are catalog rows in the Effects tab (category Inherent); only their ids are referenced here.</p>
+
+          <div class="viewtoggle">
+            <span class="vt-lead">Actions view</span>
+            <button class=${"expand-toggle"+(actView==="table"?" on":"")}
+              title="Condensed overview — one row per slot; click a row to open its full editor"
+              onClick=${()=>setActView("table")}>▤ ${isMobile?"Wide table":"Table"}</button>
+            <button class=${"expand-toggle"+(actView==="cards"?" on":"")}
+              title="Full editor cards in a grid"
+              onClick=${()=>setActView("cards")}>▦ Cards</button>
+          </div>
           <${FieldChips} />
-          <${Group} title="Core type actions (2)">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">Slot 1 was seeded from the old <span class="mono">type_attack</span> on 2026-09-08 as a placeholder; slot 2 is empty until authored.</p>
-            <div class="cardgrid">
-              <${TypeSlotCard} bind=${["core_type_actions",0]} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions} charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
-              <${TypeSlotCard} bind=${["core_type_actions",1]} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions} charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
-            </div>
+          <${Group} title=${`Core type actions (${counts.core})`}>
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Core slot 1 is also the legacy <span class="mono">type_attack</span> the game's hand composer still falls back to — editing slot 1 here keeps both in step.</p>
+            ${actView==="cards"
+              ?html`<div class="cardgrid">${Array.from({length:counts.core},(_,i)=>html`
+                <${TypeSlotCard} key=${"c"+i} bind=${["core_type_actions",i]} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions} charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />`)}</div>`
+              :html`<${TypeSlotTable} type=${t} keyName="core_type_actions" count=${counts.core} labels=${slotLabels("core","Core")}
+                data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects}
+                summonOptions=${summonOptions} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />`}
           </${Group}>
-          <${Group} title="Mastery type actions (2)">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">Pure heroes get both; a hybrid's primary gets slot 1 only; the secondary gets none.</p>
-            <div class="cardgrid">
-              <${TypeSlotCard} bind=${["mastery_type_actions",0]} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions} charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
-              <${TypeSlotCard} bind=${["mastery_type_actions",1]} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions} charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
-            </div>
+          <${Group} title=${`Mastery type actions (${counts.mastery})`}>
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Mastery is the narrower shelf — see each row's reach label for who actually receives it.</p>
+            ${actView==="cards"
+              ?html`<div class="cardgrid">${Array.from({length:counts.mastery},(_,i)=>html`
+                <${TypeSlotCard} key=${"m"+i} bind=${["mastery_type_actions",i]} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions} charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />`)}</div>`
+              :html`<${TypeSlotTable} type=${t} keyName="mastery_type_actions" count=${counts.mastery} labels=${slotLabels("mastery","Mastery")}
+                data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects}
+                summonOptions=${summonOptions} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />`}
           </${Group}>
-          <${Group} title="Type reflex (1) + cooldown ladder">
+          <${Group} title=${`Type reflex (${counts.reflex}) + cooldown ladder`}>
             <p class="note" style="margin-top:-4px;margin-bottom:8px">Reflexes are TYPE-only (Pat D 2026-09-08): a 0E / CD-0 action row. Which cooldown applies depends on whether the hero holds this type PURE, as PRIMARY, or as SECONDARY.</p>
-            <div class="cardgrid">
-              <${TypeSlotCard} bind=${["reflex_action","id"]} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions} charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
-            </div>
+            <${TypeSlotTable} type=${t} keyName="reflex_action" count=${1} labels=${["Reflex"]}
+              data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects}
+              summonOptions=${summonOptions} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
             <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px">
               ${[["cooldown_pure","Cooldown - pure"],["cooldown_primary","Cooldown - primary"],["cooldown_secondary","Cooldown - secondary"]].map(([k,label])=>html`
                 <${Field} label=${label} key=${k}>
@@ -4295,15 +4400,19 @@ function TypesTab({data,enums,charById,actionById,usageIdx,summonOptions,commitE
                 </${Field}>`)}
             </div>
           </${Group}>
-          <${Group} title="Inherent type effects (primary-only)">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">Add as many as you are exploring (2-3 per type is fine); the shipping target is one per type, trimmed later. New rows are created on the Effects tab (+ New type inherent). Blank duration = permanent.</p>
+          <${Group} title=${`Inherent type effects (${counts.inherent} slot${counts.inherent===1?"":"s"}, primary-only)`}>
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Add as many as you are exploring; the shipping target is ${counts.inherent} per type, trimmed later. Slot ${counts.inherent>1?counts.inherent:1} is filled only in the pure columns of the HYBRIDISATION table, which is what makes a last-slot inherent pure-only by construction. New rows are created on the Effects tab (+ New type inherent). Blank duration = permanent.</p>
             <${InherentEditor} list=${t.inherent_type_effects||[]} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName}
               onChange=${arr=>commitEdit(next=>{ const tt=(next.types||[]).find(x=>x&&x.type_name===selName); if(tt) tt.inherent_type_effects=arr; }, dy=>dy.types=true)} />
           </${Group}>
-          <${Group} title="Legacy type_attack">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">Still what the game's hand composer reads until the per-type slots ship. Keep it equal to core slot 1.</p>
-            <${TypeSlotCard} bind=${"type_attack"} type=${t} data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName} summonOptions=${summonOptions} charById=${charById} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
-          </${Group}>
+          ${(()=>{ // T4 — type_attack has no editor of its own: it MIRRORS core slot 1. This only appears when they disagree.
+            const c0=typeSlotGet(t,["core_type_actions",0]), leg=t.type_attack||"";
+            if(c0===leg) return null;
+            return html`<${Group} title="Legacy type_attack is out of step">
+              <p class="note" style="margin-top:-4px;margin-bottom:8px">The game's hand composer still falls back to <span class="mono">type_attack</span>, which this row sets to <span class="mono">${leg||"(empty)"}</span> while core slot 1 holds <span class="mono">${c0||"(empty)"}</span>. Editing core slot 1 keeps them in step; this repairs a row that drifted before that rule existed.</p>
+              <button class="btn primary" onClick=${()=>commitEdit(next=>{ const tt=(next.types||[]).find(x=>x&&x.type_name===selName); if(tt) tt.type_attack=typeSlotGet(tt,["core_type_actions",0]); }, dy=>dy.types=true)}>Sync to core 1</button>
+            </${Group}>`;
+          })()}
 
           <${Group} title=${`Characters with this type (${tChars.length})`}>
             <p class="note" style="margin-top:-4px;margin-bottom:8px">Cross-linked from each character's <span class="mono">type_1</span> / <span class="mono">type_2</span>. Click to jump.</p>
@@ -4318,10 +4427,14 @@ function TypesTab({data,enums,charById,actionById,usageIdx,summonOptions,commitE
   </div></div>`;
 }
 /* 2026-09-09 (type rework): a type row now carries the pure/hybrid authoring slots:
-   core_type_actions[2] / mastery_type_actions[2] / inherent_type_effects[] /
-   reflex_action {id, cooldown_pure, cooldown_primary, cooldown_secondary}.
-   `bind` names which slug a TypeSlotCard edits: "type_attack" (legacy) |
-   ["core_type_actions",i] | ["mastery_type_actions",i] | ["reflex_action","id"]. */
+   core_type_actions[N] / mastery_type_actions[M] / inherent_type_effects[] /
+   reflex_action {id, cooldown_pure, cooldown_primary, cooldown_secondary}, where N / M
+   are the HYBRIDISATION types-axis slot counts (hybSlotCounts; 3 / 2 since 2026-09-18).
+   `bind` names which slug a slot edits: ["core_type_actions",i] |
+   ["mastery_type_actions",i] | ["reflex_action","id"].
+   T4 (2026-09-19): the legacy `type_attack` has NO editor of its own any more — it is the
+   MIRROR of core slot 1, written by typeSlotSet whenever core[0] changes (the game's hand
+   composer still falls back to it), plus the Types tab's "Sync to core 1" repair button. */
 function typeSlotGet(t, bind){
   if(!t) return "";
   if(typeof bind==="string") return t[bind]||"";
@@ -4329,20 +4442,66 @@ function typeSlotGet(t, bind){
   if(k==="reflex_action") return (t.reflex_action&&t.reflex_action.id)||"";
   const arr=Array.isArray(t[k])?t[k]:[]; return arr[i]||"";
 }
-function typeSlotSet(t, bind, v){
-  if(!t) return;
-  if(typeof bind==="string"){ t[bind]=v; return; }
+/* write slot `bind` on type row `t`; the shelf is padded with "" to `minLen` (never truncated) */
+function typeSlotSet(t, bind, v, minLen){
+  if(!t||typeof bind==="string") return;
   const k=bind[0], i=bind[1];
   if(k==="reflex_action"){ t.reflex_action=Object.assign({id:"",cooldown_pure:0,cooldown_primary:0,cooldown_secondary:0,category:"reflex"}, t.reflex_action||{}, {id:v}); return; }
-  const arr=Array.isArray(t[k])?t[k].slice():[]; while(arr.length<2) arr.push(""); arr[i]=v; t[k]=arr;
+  const arr=Array.isArray(t[k])?t[k].slice():[]; const n=Math.max(minLen|0, (i|0)+1, 2);
+  while(arr.length<n) arr.push(""); arr[i]=v; t[k]=arr;
+  if(k==="core_type_actions" && i===0) t.type_attack=v;   // core 1 IS the legacy type_attack
+}
+/* the shelf `key` of type `t` as a plain string array padded with "" to length n — authored
+   entries beyond n are KEPT (the game trims trailing blanks, so padding is invisible to it) */
+function typeSlotsPadded(t, key, n){
+  const arr=(t&&Array.isArray(t[key]))?t[key].slice():[];
+  while(arr.length<(n|0)) arr.push("");
+  return arr.map(s=>(s==null?"":String(s)));
 }
 function typeSlotLabel(bind){
   if(typeof bind==="string") return bind;
   return bind[0]==="reflex_action" ? "reflex_action" : (bind[0]+"["+bind[1]+"]");
 }
-/* single-slug slot card bound to a type's type_attack */
-function TypeSlotCard({type, bind="type_attack", data, actionById, effectRows, knownEffects, effectByName, summonOptions, charById, usageIdx, commitEdit, selName}){
-  const [open,setOpen]=useState(true);
+/* T4 (2026-09-19) — one FIXED-length shelf of a type (core / mastery / the single reflex)
+   rendered as the generic ClassActionTable. Rows are POSITIONS, never a growing list:
+   ↑↓ swap two positions, × clears a position to "", an empty position offers a picker in
+   its Name cell (ClassActionTable's `onPick`). keyName "reflex_action" binds the one row to
+   reflex_action.id. Core position 1 mirrors into type_attack through typeSlotSet. */
+function TypeSlotTable({type, keyName, count, labels, data, actionById, effectRows, knownEffects, summonOptions, usageIdx, commitEdit, selName}){
+  const isReflex = keyName==="reflex_action";
+  const n = isReflex?1:Math.max(count|0, 1);
+  const bindFor=(i)=> isReflex?["reflex_action","id"]:[keyName,i];
+  const slugs = isReflex?[typeSlotGet(type,bindFor(0))]:typeSlotsPadded(type,keyName,n);
+  const editType=(mutate)=>commitEdit(next=>{
+    const tt=(next.types||[]).find(x=>x&&x.type_name===selName); if(tt) mutate(tt);
+  }, dy=>dy.types=true);
+  const setAt=(i,v)=>editType(tt=>typeSlotSet(tt,bindFor(i),v,n));
+  const swap=(i,j)=>editType(tt=>{
+    const a=typeSlotsPadded(tt,keyName,n); if(j<0||j>=a.length) return;
+    [a[i],a[j]]=[a[j],a[i]]; tt[keyName]=a;
+    if(keyName==="core_type_actions") tt.type_attack=a[0]||"";
+  });
+  const onFork=(i)=>{
+    const slug=slugs[i]; const src=actionById[slug]; if(!src) return;
+    const newSlug=makeForkSlug(slug, actionById);
+    commitEdit(next=>{
+      if(!next.actions.find(a=>a.id===newSlug)){ const copy=clone(src); copy.id=newSlug; next.actions.push(copy); }
+      const tt=(next.types||[]).find(x=>x&&x.type_name===selName); if(tt) typeSlotSet(tt,bindFor(i),newSlug,n);
+    }, dy=>{ dy.types=true; dy.actions.add(newSlug); });
+  };
+  const onActionChange=(updatedAction)=>commitEdit(next=>{
+    const i=next.actions.findIndex(a=>a.id===updatedAction.id);
+    if(i>=0) next.actions[i]=updatedAction;
+  }, dy=>dy.actions.add(String(updatedAction.id)));
+  return html`<${ClassActionTable} slugs=${slugs} rowLabels=${labels} data=${data} actionById=${actionById}
+    effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx}
+    onUp=${slugs.length>1?(i=>swap(i,i-1)):undefined} onDown=${slugs.length>1?(i=>swap(i,i+1)):undefined}
+    onDel=${(i)=>setAt(i,"")} delTitle="Clear this slot" onFork=${onFork} onPick=${(i,v)=>setAt(i,v)}
+    onActionChange=${onActionChange} />`;
+}
+/* single-slug slot card bound to one type slot (cards view); opens COLLAPSED (T4) */
+function TypeSlotCard({type, bind, data, actionById, effectRows, knownEffects, effectByName, summonOptions, charById, usageIdx, commitEdit, selName}){
+  const [open,setOpen]=useState(false);
   const [adding,setAdding]=useState(false);
   const [newId,setNewId]=useState("");
   const slug = typeSlotGet(type, bind) || "";
