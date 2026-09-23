@@ -1271,7 +1271,7 @@ const FIELD_KEYS = [
   {k:"name",         label:"Name"},
   {k:"aoe_thumb",    label:"Shape"},
   {k:"damage_type",  label:"Dmg type"},
-  {k:"damage_modifier",label:"Modifier"},
+  {k:"damage_modifier",label:"Power level"},
   {k:"energy_cost",  label:"Energy"},
   {k:"cooldown_rounds",label:"Cooldown"},
   {k:"aoe_pattern",  label:"Pattern"},
@@ -1452,6 +1452,9 @@ const DMG_MOD_ROWS = [
   {label:"2.6 – 3.0", names:["2.6","2.7","2.8","2.9","3"]},
 ];
 const DMG_MOD_SET = new Set(DMG_MOD_ROWS.flatMap(r=>r.names));
+/* ⚖ 2026-09-23: power level is the authored number; damage_modifier = PL/10 is its derived twin. */
+const plOf = a => { const p=Number(a&&a.power_level); if(p>0) return Math.round(p);
+  const m=parseFloat(a&&a.damage_modifier); return (Number.isFinite(m)&&m>0)?Math.round(m*10):0; };
 
 const COOLDOWN_ROWS = [
   {label:"none", names:["0"]},
@@ -1564,7 +1567,7 @@ function actionSummaryText(a, effectByName){
   bits.push((a.name||a.id||"action")+(a.id?" ("+a.id+")":""));
   if(a.aoe_pattern) bits.push(a.aoe_pattern+" · Size "+(a.aoe_size!=null?a.aoe_size:"?")+" · Range "+(a.aoe_range!=null?a.aoe_range:"?"));
   const dt=DAMAGE_TYPES.find(d=>d.value===a.damage_type);
-  if(num(a.damage_modifier,0)>0) bits.push((dt?dt.label:"")+" ×"+(+num(a.damage_modifier,0))+" dmg");
+  if(num(a.damage_modifier,0)>0) bits.push((dt?dt.label:"")+" PL "+plOf(a)+" dmg");
   else bits.push("support");
   const slots=[["FX1",a.effect1],["FX2",a.effect2],["Self FX1",a.self_effect1],["Self FX2",a.self_effect2],["Enchant",a.enchant_rider]];
   for(const [label,ef] of slots){
@@ -1958,14 +1961,10 @@ function typeMult(tm, atkType, defTypes){
   return total/wsum;
 }
 function formulaL({atkStat, modifier, mult, defStat}){
-  const effAtk = atkStat + atkStat*((Number(modifier)||0) - 1) + atkStat*((Number(mult)||1) - 1);
-  // Equivalent: atk * (1 + (modifier-1) + (mult-1)) = atk * (modifier + mult - 1)
-  const ea = Math.max(0, effAtk);
-  const ed = Math.max(1, Number(defStat)||1);
-  // 115 -> 10 with the 2026-08-06 global stat rescale. MUST track
-  // CombatManager.damage_scalar or every number this editor previews is ~10x the
-  // damage the game actually deals.
-  return Math.max(1, Math.pow(ea,1.05) * 10 / Math.pow(ed,1.1));
+  // ⚖ 2026-09-23: damage = power level + attack - defence, floor 1 (MUST track
+  // DamageFormula.gd). PL = round(10 x modifier); the type multiplier is ignored.
+  const pl = Math.round((Number(modifier)||0) * 10);
+  return Math.max(1, pl + (Number(atkStat)||0) - (Number(defStat)||0));
 }
 function actionAtkStat(action, char){
   // damage_type 0 Normal -> attack ; 1 Special -> special_attack ; 2 Hybrid -> 50/50
@@ -2064,7 +2063,7 @@ function makeForkSlug(oldSlug, actionById){
 /* standard brand-new action stub */
 function newActionStub(slug){
   return {id:slug,name:String(slug).replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase()),
-    damage_type:0,damage_modifier:0.0,aoe_pattern:"Strike",aoe_size:1,aoe_range:1,
+    damage_type:0,damage_modifier:0.0,power_level:0,aoe_pattern:"Strike",aoe_size:1,aoe_range:1,
     trap_tick:2,zone_duration_turns:0,zone_team:0,zone_effect1_team:-1,zone_effect2_team:-1,unlock_round:0,corpse_raise:false,consume_summon:false,energy_cost:3,effect1:null,effect2:null,self_effect1:null,self_effect2:null,enchant_rider:null,summon_character_id:"",action_type:"",
     scale_isolation:0.0,scale_missing_hp:0.0,bonus_vs_rooted:0.0,overheal_to_shield:false,overheal_shield_pct:100.0,scale_per_own_debuff:0.0,detonate_distinct_bonus_pct:0,charge_gain:0,charge_min:0,charge_spend:false,charge_damage_per_point:0.0,charge_heal_per_point:0.0,bonus_vs_marked:0.0,contagion_hops:0,mass_swap_enemies:false,blink_ally:false,stance_id:""};
 }
@@ -2227,8 +2226,8 @@ function MobileHintLayer({mobile}){
 function App(){
   const [session,setSession]=useState(undefined);  // undefined=unknown, null=signed out, obj=in
   const [loading,setLoading]=useState(false);
-  const [data,setData]=useState(null);             // working copy {characters,actions,classes,effects,types,type_matrix,aoe_patterns,glossary,mutators}
-  const [dirty,setDirty]=useState({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false});
+  const [data,setData]=useState(null);             // working copy {characters,actions,classes,effects,types,type_matrix,aoe_patterns,glossary,mutators,reactions,hybridisation}
+  const [dirty,setDirty]=useState({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false,reactions:false});
   const [tab,setTab]=useState("characters");
   syncInherentNames(data&&data.effects);   // keeps the live Type-inherents group current
   const [toasts,setToasts]=useState([]);
@@ -2273,8 +2272,8 @@ function App(){
         }
         return out;
       };
-      const [chars,acts,cls,eff,typ,aoe,tm,prog,tun,glossary,mutators,hybridisation]=await Promise.all(
-        TABLES.concat(["character_class_progression","balance_tunables","glossary","mutators","hybridisation"]).map(fetchTable));
+      const [chars,acts,cls,eff,typ,aoe,tm,prog,tun,glossary,mutators,hybridisation,reactions]=await Promise.all(
+        TABLES.concat(["character_class_progression","balance_tunables","glossary","mutators","hybridisation","reactions"]).map(fetchTable));
       const type_matrix={}; tm.forEach(r=>{type_matrix[r.attacker+":"+r.defender]=r.multiplier;});
       const progression={}; prog.forEach(r=>{ if(r&&r.id!=null) progression[String(r.id)]=r.data||{starting_classes:[],overrides:{}}; });
       const next={
@@ -2289,10 +2288,11 @@ function App(){
         tunables: tun.map(r=>r.data).filter(Boolean),
         glossary: glossary.map(r=>r.data).filter(Boolean),
         hybridisation: hybridisation.map(r=>r.data).filter(Boolean),
+        reactions: reactions.map(r=>r.data).filter(Boolean),
         mutators: mutators.map(r=>r.data).filter(Boolean),
       };
       setData(next);
-      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false});
+      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false,reactions:false});
       setUndo([]); setRedo([]);
       if(!silent) toast("Data loaded",
         `${next.characters.length} characters · ${next.actions.length} actions · ${next.classes.classes.length} classes`,"ok",3000);
@@ -2342,17 +2342,17 @@ function App(){
     return opts;
   },[data]);
 
-  const dirtyCount = dirty.chars.size + dirty.actions.size + (dirty.classes?1:0) + (dirty.effects?1:0) + (dirty.matrix?1:0) + (dirty.types?1:0) + (dirty.tunables?1:0) + (dirty.aoe_patterns?1:0) + (dirty.glossary?1:0) + (dirty.mutators?1:0) + (dirty.hybridisation?1:0);
+  const dirtyCount = dirty.chars.size + dirty.actions.size + (dirty.classes?1:0) + (dirty.effects?1:0) + (dirty.matrix?1:0) + (dirty.types?1:0) + (dirty.tunables?1:0) + (dirty.aoe_patterns?1:0) + (dirty.glossary?1:0) + (dirty.mutators?1:0) + (dirty.hybridisation?1:0) + (dirty.reactions?1:0);
   /* always-current snapshot so unload/hidden flush handlers never use stale closures */
   const liveRef = useRef(); liveRef.current = { data, dirty, dirtyCount };
 
   /* ── mutation helper: snapshot for undo, mutate working copy in place, bump dirty ── */
   const commitEdit = useCallback((mutate, dirtyPatch)=>{
-    setUndo(u=>[...u.slice(-49), {data:clone(data), dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators,hybridisation:dirty.hybridisation}}]);
+    setUndo(u=>[...u.slice(-49), {data:clone(data), dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators,hybridisation:dirty.hybridisation,reactions:!!dirty.reactions}}]);
     setRedo([]);
     setData(prev=>{ const next=clone(prev); mutate(next); return next; });
     setDirty(prev=>{
-      const nx={chars:new Set(prev.chars),actions:new Set(prev.actions),classes:prev.classes,effects:prev.effects,matrix:prev.matrix,types:prev.types,tunables:prev.tunables,aoe_patterns:prev.aoe_patterns,glossary:prev.glossary,mutators:prev.mutators,hybridisation:prev.hybridisation};
+      const nx={chars:new Set(prev.chars),actions:new Set(prev.actions),classes:prev.classes,effects:prev.effects,matrix:prev.matrix,types:prev.types,tunables:prev.tunables,aoe_patterns:prev.aoe_patterns,glossary:prev.glossary,mutators:prev.mutators,hybridisation:prev.hybridisation,reactions:!!prev.reactions};
       if(dirtyPatch) dirtyPatch(nx);
       return nx;
     });
@@ -2362,7 +2362,7 @@ function App(){
     setUndo(u=>{
       if(!u.length) return u;
       const last=u[u.length-1];
-      setRedo(r=>[...r,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators,hybridisation:dirty.hybridisation}}]);
+      setRedo(r=>[...r,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators,hybridisation:dirty.hybridisation,reactions:!!dirty.reactions}}]);
       setData(last.data); setDirty(last.dirty);
       return u.slice(0,-1);
     });
@@ -2371,7 +2371,7 @@ function App(){
     setRedo(r=>{
       if(!r.length) return r;
       const last=r[r.length-1];
-      setUndo(u=>[...u,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators,hybridisation:dirty.hybridisation}}]);
+      setUndo(u=>[...u,{data:clone(data),dirty:{chars:new Set(dirty.chars),actions:new Set(dirty.actions),classes:dirty.classes,effects:dirty.effects,matrix:dirty.matrix,types:dirty.types,tunables:dirty.tunables,aoe_patterns:dirty.aoe_patterns,glossary:dirty.glossary,mutators:dirty.mutators,hybridisation:dirty.hybridisation,reactions:dirty.reactions}}]);
       setData(last.data); setDirty(last.dirty);
       return r.slice(0,-1);
     });
@@ -2397,6 +2397,7 @@ function App(){
         aoe_patterns: dy.aoe_patterns? d.aoe_patterns : null,
         glossary: dy.glossary? d.glossary : null,
         hybridisation: dy.hybridisation? d.hybridisation : null,
+        reactions: dy.reactions? d.reactions : null,
         mutators: dy.mutators? d.mutators : null,
         progression: dy.chars.size? Object.fromEntries([...dy.chars].filter(id=>d.progression&&d.progression[id]).map(id=>[id,d.progression[id]])) : null,
       }));
@@ -2423,7 +2424,7 @@ function App(){
     let raw; try{ raw=localStorage.getItem(DRAFT_KEY); }catch(e){ return; }
     if(!raw) return;
     let d; try{ d=JSON.parse(raw); }catch(e){ return; }
-    const n=(d.chars?.length||0)+(d.actions?.length||0)+(d.classes?1:0)+(d.effects?1:0)+(d.matrix?1:0)+(d.types?1:0)+(d.tunables?1:0)+(d.aoe_patterns?1:0)+(d.glossary?1:0)+(d.mutators?1:0)+(d.hybridisation?1:0);
+    const n=(d.chars?.length||0)+(d.actions?.length||0)+(d.classes?1:0)+(d.effects?1:0)+(d.matrix?1:0)+(d.types?1:0)+(d.tunables?1:0)+(d.aoe_patterns?1:0)+(d.glossary?1:0)+(d.mutators?1:0)+(d.hybridisation?1:0)+(d.reactions?1:0);
     if(!n) return;
     setData(prev=>{
       const next=clone(prev);
@@ -2437,6 +2438,7 @@ function App(){
       if(d.aoe_patterns) next.aoe_patterns=d.aoe_patterns;
       if(d.glossary) next.glossary=d.glossary;
       if(d.hybridisation) next.hybridisation=d.hybridisation;
+      if(d.reactions) next.reactions=d.reactions;
       if(d.mutators) next.mutators=d.mutators;
       if(d.progression){ next.progression=next.progression||{}; Object.assign(next.progression,d.progression); }
       return next;
@@ -2444,7 +2446,7 @@ function App(){
     setDirty({
       chars:new Set((d.chars||[]).map(c=>String(c.id))),
       actions:new Set((d.actions||[]).map(a=>String(a.id))),
-      classes:!!d.classes, effects:!!d.effects, matrix:!!d.matrix, types:!!d.types, tunables:!!d.tunables, aoe_patterns:!!d.aoe_patterns, glossary:!!d.glossary, mutators:!!d.mutators, hybridisation:!!d.hybridisation,
+      classes:!!d.classes, effects:!!d.effects, matrix:!!d.matrix, types:!!d.types, tunables:!!d.tunables, aoe_patterns:!!d.aoe_patterns, glossary:!!d.glossary, mutators:!!d.mutators, hybridisation:!!d.hybridisation, reactions:!!d.reactions,
     });
     /* Order matters: raise the guard BEFORE touching storage, so the pagehide /
        beforeunload handlers that location.reload() triggers cannot write the
@@ -2452,7 +2454,7 @@ function App(){
        somehow ran anyway would have nothing dirty to persist. */
     const discard=()=>{
       discardingRef.current=true;
-      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false});
+      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false,reactions:false});
       try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
       location.reload();
     };
@@ -2528,6 +2530,10 @@ function App(){
         const rows=(data.mutators||[]).filter(m=>m&&m.name).map(m=>({name:m.name,category:m.category,data:m}));
         if(rows.length){const{error}=await db.from("mutators").upsert(rows,{onConflict:"name"});if(error)throw error;}
       }
+      if(dirty.reactions){
+        const rows=(data.reactions||[]).filter(r=>r&&r.id).map(r=>({id:r.id,type:r.type||"",tier:(r.tier|0)||0,data:r}));
+        if(rows.length){const{error}=await db.from("reactions").upsert(rows,{onConflict:"id"});if(error)throw error;}
+      }
       if(dirty.hybridisation){
         const rows=(data.hybridisation||[]).filter(a=>a&&a.axis).map(a=>({axis:a.axis,data:a}));
         if(rows.length){const{error}=await db.from("hybridisation").upsert(rows,{onConflict:"axis"});if(error)throw error;}
@@ -2558,7 +2564,7 @@ function App(){
         if(delErr) throw delErr;
       }
       setData(d=>d?{...d,_effectsDeleted:[]}:d);   // the deletes above are applied
-      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false});
+      setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false,reactions:false});
       try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
       if(unnamedGlossaryCount){
         toast(`${unnamedGlossaryCount} unnamed entries were skipped`,
@@ -2636,7 +2642,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-19 1bcff198</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-23 ead59c30</span></span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -2652,7 +2658,7 @@ function App(){
     </div>
 
     <div class="tabbar">
-      ${tabs.map(t=>html`<button class=${"tab"+(tab===t.id?" active":"")+(t.dirty?" has-dirty":"")}
+      ${tabs.concat([{id:"reactions",label:"REACTIONS",n:(data?.reactions||[]).length,dirty:dirty.reactions}]).map(t=>html`<button class=${"tab"+(tab===t.id?" active":"")+(t.dirty?" has-dirty":"")}
         onClick=${()=>setTab(t.id)}>
         ${t.label}${t.n!=null?html` <span class="badge">${t.n}</span>`:null}<span class="dirtydot"></span>
       </button>`)}
@@ -2672,6 +2678,7 @@ function App(){
         ${tab==="effects" && html`<${EffectsTab} effects=${data.effects} commitEdit=${commitEdit} />`}
         ${tab==="glossary" && html`<${GlossaryTab} glossary=${data.glossary} commitEdit=${commitEdit} />`}
         ${tab==="mutators" && html`<${MutatorsTab} mutators=${data.mutators} commitEdit=${commitEdit} />`}
+        ${tab==="reactions" && html`<${ReactionsTab} reactions=${data.reactions} effects=${data.effects} commitEdit=${commitEdit} />`}
         ${tab==="hybridisation" && html`<${HybridisationTab} axes=${data.hybridisation||[]} commitEdit=${commitEdit} />`}
         ${tab==="matrix" && html`<${MatrixTab} types=${enums.types} matrix=${data.type_matrix} commitEdit=${commitEdit} />`}
         ${tab==="aoe" && html`<${AoeTab} patterns=${data.aoe_patterns} commitEdit=${commitEdit} />`}
@@ -2799,7 +2806,7 @@ function EffectBlock({label, hint, ef, effectRows, knownEffects, onChange, owner
 function slotMeta(act){
   if(!act) return "";
   const bits=[];
-  if(act.damage_modifier!=null && act.damage_modifier!=="") bits.push("×"+act.damage_modifier);
+  if(plOf(act)>0) bits.push("PL "+plOf(act));
   bits.push(act.aoe_pattern||"?");
   bits.push("Size "+(act.aoe_size!=null?act.aoe_size:"?"));
   bits.push("Range "+(act.aoe_range!=null?act.aoe_range:"?"));
@@ -2920,12 +2927,9 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
               if(!ropts.includes(Number(action.aoe_range))) onChangeField("aoe_range",ropts[0]);
             }} />
         </${Field}>`:null}
-        ${vis.has("damage_modifier")?html`<${Field} label="Damage modifier" hint="×stat · 0 = support">
-          <${MatrixDropdown} numeric=${true} noClear=${true} popClass="modmtx"
-            value=${action.damage_modifier==null?"":action.damage_modifier} rows=${DMG_MOD_ROWS}
-            knownSet=${DMG_MOD_SET} placeholder="0"
-            displayFn=${v=>(+Number(v)).toString()}
-            onInput=${v=>set("damage_modifier",v)} />
+        ${vis.has("damage_modifier")?html`<${Field} label="Power level" hint="damage = PL + attack − defence · 0 = support">
+          <${NumInput} int=${true} step=${1} min=${0} max=${99} value=${plOf(action)}
+            onInput=${v=>{ const p=Math.max(0,Math.round(num(v,0))); set("power_level",p); set("damage_modifier",p/10); }} />
         </${Field}>`:null}
         ${vis.has("aoe_size")?html`<${Field} label="AoE size">
           <${NumSelect} value=${action.aoe_size}
@@ -3890,10 +3894,9 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
         <div class="cp-field"><label>Size</label><${NumSelect} value=${act.aoe_size} options=${aoeSizeOptions(act.aoe_pattern)} onInput=${v=>commit("aoe_size",v)} /></div>
         <div class="cp-field"><label>Range</label><${NumSelect} value=${act.aoe_range} options=${aoeRangeOptions(act.aoe_pattern)} onInput=${v=>commit("aoe_range",v)} /></div>
       </div></div>`;
-    if(f==="dmg") return html`<div class="cp-field"><label>Damage modifier <span class="hint">×stat · 0 = support</span></label>
-      <${MatrixDropdown} numeric=${true} noClear=${true} popClass="modmtx" autoOpen=${true}
-        value=${act.damage_modifier==null?"":act.damage_modifier} rows=${DMG_MOD_ROWS} knownSet=${DMG_MOD_SET} placeholder="0"
-        displayFn=${v=>(+Number(v)).toString()} onInput=${v=>commit("damage_modifier",v)} />
+    if(f==="dmg") return html`<div class="cp-field"><label>Power level <span class="hint">damage = PL + attack − defence · 0 = support</span></label>
+      <${NumInput} int=${true} step=${1} min=${0} max=${99} value=${plOf(act)}
+        onInput=${v=>{ const p=Math.max(0,Math.round(num(v,0))); onActionChange({...act, power_level:p, damage_modifier:p/10}); }} />
       <label style="margin-top:9px">Damage type</label>
       <${Select} value=${act.damage_type} options=${DAMAGE_TYPES} onInput=${v=>commit("damage_type",intOf(v,0))} /></div>`;
     if(f==="damage_type") return html`<div class="cp-field"><label>Damage type <span class="hint">Physical (Normal) / Special / Hybrid</span></label>
@@ -3979,10 +3982,10 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
     {vk:"aoe_pattern",th:"Pattern",
       cell:(c)=>html`<td class=${"a-pat"+(c.act?" cell-edit":"")} onClick=${c.ed("aoe_pattern")}>
         ${c.act?html`${c.act.aoe_pattern||"—"}<span class="pr" title="size / range">s${c.act.aoe_size!=null?c.act.aoe_size:"?"} r${c.act.aoe_range!=null?c.act.aoe_range:"?"}</span>`:""}</td>`},
-    {vk:"damage_modifier",th:"Dmg",right:true,
+    {vk:"damage_modifier",th:"PL",right:true,
       cell:(c)=>{ const m=c.act?num(c.act.damage_modifier,0):0, dt=c.act?({0:"N",1:"S",2:"H"}[intOf(c.act.damage_type,0)]||""):"";
         return html`<td class=${"num"+(c.act?" cell-edit":"")} onClick=${c.ed("dmg")}>
-          ${c.act?(m>0?("×"+(+m)+(dt?" "+dt:"")):html`<span class="a-sup">support</span>`):""}</td>`; }},
+          ${c.act?(m>0?("PL "+plOf(c.act)+(dt?" "+dt:"")):html`<span class="a-sup">support</span>`):""}</td>`; }},
     {vk:"damage_type",th:"Type",center:true,title:"Damage type — Physical (Normal) / Special / Hybrid",
       cell:(c)=>{ const t=c.act?({0:"Norm",1:"Spec",2:"Hyb"}[intOf(c.act.damage_type,0)]||"—"):""; return html`<td class=${c.act?"cell-edit":""} style="text-align:center;font-size:11px" onClick=${c.ed("damage_type")}>${t}</td>`; }},
     {vk:"energy_cost",th:"En",right:true,title:"Energy cost",
@@ -4272,7 +4275,7 @@ function BalanceLab({action, enums, types, tm, charById}){
       <div class="blfield"><label>Defender DEF</label>
         <input class="mono" type="number" value=${defStat} onInput=${e=>setDefStat(num(e.target.value,1))} /></div>
     </div>
-    <div class="dmgsub" style="margin-bottom:4px">Damage vs every defender type (atk ${atkStat}, def ${defStat}, modifier ${action.damage_modifier}):</div>
+    <div class="dmgsub" style="margin-bottom:4px">Damage vs every defender type (atk ${atkStat}, def ${defStat}, PL ${plOf(action)}):</div>
     <div style="max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:7px">
       <table class="dmgtable"><tbody>
         ${rows.map(r=>html`<tr><td class="nm">${r.t}</td><td class="mt">${r.mult.toFixed(2)}×</td><td class="dm">~${r.dmg}</td></tr>`)}
@@ -4384,6 +4387,26 @@ function TypesTab({data,enums,charById,actionById,usageIdx,summonOptions,commitE
               :html`<${TypeSlotTable} type=${t} keyName="mastery_type_actions" count=${counts.mastery} labels=${slotLabels("mastery","Mastery")}
                 data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects}
                 summonOptions=${summonOptions} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />`}
+          </${Group}>
+          <${Group} title="Reactions">
+            ${Array.from({length:4},(_,i)=>html`
+              <${Field} key=${i} label=${`Tier ${i+1}`}>
+                <select value=${Array.isArray(t.reactions)?(t.reactions[i]||""):""}
+                  onChange=${e=>{
+                    const value=e.target.value;
+                    commitEdit(next=>{
+                      const tt=(next.types||[]).find(x=>x&&x.type_name===selName);
+                      if(!tt) return;
+                      const slots=Array.isArray(tt.reactions)?tt.reactions:[];
+                      tt.reactions=Array.from({length:4},(_,j)=>slots[j]||"");
+                      tt.reactions[i]=value;
+                    },dy=>dy.types=true);
+                  }}>
+                  <option value="">— none —</option>
+                  ${(data.reactions||[]).filter(r=>r&&r.id&&r.type===t.type_name).map(r=>html`
+                    <option key=${r.id} value=${r.id}>${r.name||r.id}</option>`)}
+                </select>
+              </${Field}>`)}
           </${Group}>
           <${Group} title=${`Type reflex (${counts.reflex}) + cooldown ladder`}>
             <p class="note" style="margin-top:-4px;margin-bottom:8px">Reflexes are TYPE-only (Pat D 2026-09-08): a 0E / CD-0 action row. Which cooldown applies depends on whether the hero holds this type PURE, as PRIMARY, or as SECONDARY.</p>
@@ -4917,6 +4940,96 @@ function HybridisationTab({axes, commitEdit}){
         </div>
       </div>`)}
   </div>`;
+}
+
+function ReactionsTab({reactions, effects, commitEdit}){
+  const typeOrder=["Human","Horde","Arcane","Doom","Celestial","Tech","Elderfolk","Beast","Earth","Sea","Sky"];
+  const effectNames=[...new Set((effects||[]).filter(e=>e&&e.name).map(e=>e.name))].sort((a,b)=>a.localeCompare(b));
+  const setField=(id,key,value)=>commitEdit(next=>{
+    const row=(next.reactions||[]).find(r=>r&&r.id===id);
+    if(row) row[key]=value;
+  },dy=>dy.reactions=true);
+  const addEffect=(id,name)=>commitEdit(next=>{
+    const row=(next.reactions||[]).find(r=>r&&r.id===id);
+    if(!row||!name) return;
+    const ids=Array.isArray(row.effect_ids)?row.effect_ids:[];
+    if(!ids.includes(name)) row.effect_ids=ids.concat(name);
+  },dy=>dy.reactions=true);
+  const removeEffect=(id,name)=>commitEdit(next=>{
+    const row=(next.reactions||[]).find(r=>r&&r.id===id);
+    if(row) row.effect_ids=(Array.isArray(row.effect_ids)?row.effect_ids:[]).filter(value=>value!==name);
+  },dy=>dy.reactions=true);
+  const addReaction=type=>commitEdit(next=>{
+    if(!Array.isArray(next.reactions)) next.reactions=[];
+    const base="reaction_"+type.toLowerCase()+"_new_reaction";
+    const ids=new Set(next.reactions.filter(r=>r&&r.id).map(r=>r.id));
+    let id=base, suffix=2;
+    while(ids.has(id)) id=base+"_"+suffix++;
+    next.reactions.push({id,type,name:"New reaction",tier:4,trigger:"",effect:"",effect_ids:[],trigger_event:"",flag:"",pat_note_applied:false});
+  },dy=>dy.reactions=true);
+  const removeReaction=id=>commitEdit(next=>{
+    next.reactions=(next.reactions||[]).filter(r=>!r||r.id!==id);
+  },dy=>dy.reactions=true);
+  return html`<div class="view"><div class="full-pane">
+    <div class="group-title">Reactions <span class="badge">${(reactions||[]).length}</span></div>
+    <p class="note">Remove only removes a reaction from the working copy. Saving never deletes reactions from Supabase; previously saved rows return on reload.</p>
+    ${typeOrder.map(type=>{
+      const rows=(reactions||[]).filter(r=>r&&r.type===type).sort((a,b)=>(a.tier|0)-(b.tier|0));
+      return html`<section key=${type}>
+        <div class="group-title">${type} <span class="badge">${rows.length}</span></div>
+        <button type="button" class="mini" onClick=${()=>addReaction(type)}>+ New reaction</button>
+        <div class="ref-grid tight">${rows.map(r=>{
+          const selected=Array.isArray(r.effect_ids)?r.effect_ids:[];
+          return html`<div class="ref-card tight" key=${r.id}>
+            <h3>${r.name||"Unnamed reaction"}</h3><span class="cat">${type}</span>
+            <dl>
+              <dd><label><span class="dlbl">name</span>
+                <input type="text" value=${r.name||""}
+                  onInput=${e=>setField(r.id,"name",e.target.value)} />
+              </label></dd>
+              <dd><label><span class="dlbl">tier</span>
+                <select value=${r.tier|0} onChange=${e=>setField(r.id,"tier",Number(e.target.value))}>
+                  ${[1,2,3,4].map(tier=>html`<option key=${tier} value=${tier}>${tier}</option>`)}
+                </select>
+              </label></dd>
+              <dd><label><span class="dlbl">WHEN</span>
+                <textarea class="effect-ref-input" value=${r.trigger||""}
+                  onInput=${e=>setField(r.id,"trigger",e.target.value)}></textarea>
+              </label></dd>
+              <dd><label><span class="dlbl">THEN</span>
+                <textarea class="effect-ref-input" value=${r.effect||""}
+                  onInput=${e=>setField(r.id,"effect",e.target.value)}></textarea>
+              </label></dd>
+              <dd><span class="dlbl">effect_ids</span>
+                ${selected.map(name=>html`<button type="button" class="chip"
+                  key=${name} aria-label=${"Remove effect "+name}
+                  onClick=${()=>removeEffect(r.id,name)}>${name} ×</button>`)}
+                <select value="" aria-label="Add effect"
+                  onChange=${e=>{
+                    const name=e.target.value;
+                    e.target.value="";
+                    if(name) addEffect(r.id,name);
+                  }}>
+                  <option value="">+ Add effect</option>
+                  ${effectNames.filter(name=>!selected.includes(name)).map(name=>html`
+                    <option key=${name} value=${name}>${name}</option>`)}
+                </select>
+              </dd>
+              <dd><label><span class="dlbl">trigger_event</span>
+                <input class="mono" type="text" placeholder="runtime seam -- later"
+                  value=${r.trigger_event||""} onInput=${e=>setField(r.id,"trigger_event",e.target.value)} />
+              </label></dd>
+              <dd><label><span class="dlbl">flag</span>
+                <input type="text" value=${r.flag||""}
+                  onInput=${e=>setField(r.id,"flag",e.target.value)} />
+              </label></dd>
+            </dl>
+            <button type="button" class="mini" onClick=${()=>removeReaction(r.id)}>Remove reaction</button>
+          </div>`;
+        })}</div>
+      </section>`;
+    })}
+  </div></div>`;
 }
 
 function MutatorsTab({mutators, commitEdit}){
