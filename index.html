@@ -2720,7 +2720,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-24 pushB-fields</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-24 pushC-fields</span></span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -5320,7 +5320,7 @@ const RX_EVENTS = [
 const RX_ROLE_VALUES = ["self","partner","pair","ally","ally_not_partner","enemy","any","own_summon"];
 const RX_FILTER_KEYS = {
   actor:"role", target:"role",
-  within:"int", min_distance:"int",
+  within:"int", min_distance:"int", within_at_start:"int",
   effect_id:"text|list", harmful:"bool",
   damage_type:"normal|special|hybrid", damaging:"bool", pattern:"list",
   crit:"bool", killed:"bool", shield_broken:"bool", kind:"text", source_kind:"text", crossed_below_pct:"int",
@@ -5345,7 +5345,7 @@ const RX_OPS = [
   {v:"modify_hit",           l:"modify_hit (pre_hit only)"},
 ];
 const RX_OP_KEYS = {   // which inputs each op shows (reactions.md §4)
-  apply_effect:["effect_id","magnitude","duration","recipient","basis","stack"],
+  apply_effect:["effect_id","magnitude","duration","recipient","basis","stack","grace"],
   damage:["magnitude","basis","recipient"], heal:["magnitude","basis","recipient"],
   gain_charge:["magnitude"], strip:["count","which","recipient"],
   transfer_effect:["effect_ids","from","to","pick"], copy_event_effect:["recipient"],
@@ -5457,6 +5457,7 @@ function RxThenLine({t, i, effectNames, upd, del}){
       ${has("crit_add")?numIn("crit_add","crit +"):null}
       ${has("dodge_add")?numIn("dodge_add","dodge +"):null}
       ${has("undodgeable")?html`<label>undodgeable<input type="checkbox" checked=${!!t.undodgeable} onChange=${e=>upd(i,{undodgeable:e.target.checked||undefined})} /></label>`:null}
+      ${has("grace")?html`<label title="Push C: a grant landing in the recipient's OWN turn normally also covers its next turn (R10 grace). Ticked = duration 1 ends at the end of THIS turn (Markstalker).">ends this turn<input type="checkbox" checked=${t.grace===false} onChange=${e=>upd(i,{grace:e.target.checked?false:undefined})} /></label>`:null}
     </div>
   </div>`;
 }
