@@ -1214,11 +1214,7 @@ const playstyleColor = (ps)=> PLAYSTYLE_COLORS[ps] || "#3a464d";
    synergy pointed at a dead stat is a permanent no-op that data_lint cannot see
    (it has no synergy-stat validation). */
 const STAT_FIELDS = ["health","attack","defense","special_attack","special_defense","speed","dodge","crit_chance","crit_bonus"];
-/* Captain rework 2026-07-18: the stat the captain's 5-hex aura boosts for
-   teammates while the captain lives (game reads captain_stat /
-   captain_stat_mag off the character row). health is deliberately excluded —
-   the captain's own +25% HP is the fixed rule. */
-const CAPTAIN_STAT_OPTIONS = ["","attack","defense","special_attack","special_defense","speed","dodge","crit_chance"];
+/* (removed 2026-09-23: captain retired) */
 const INT_STATS = ["health","attack","defense","special_attack","special_defense","speed"];
 const SYNERGY_STATS = ["Attack","Defense","Special Attack","Special Defense","Dodge","Crit Chance","Crit Bonus","Health","Speed"];
 const CHAR_SLOTS = ["standard_attack","reflex_action","type_attack","class_action"].concat(Array.from({length:15},(_,i)=>"unique_action_"+(i+1)));
@@ -1255,7 +1251,7 @@ function reflexIssues(act, wrapper){
   return out;
 }
 const charSlotLabel = (slot)=> slot==="standard_attack" ? "Standard"
-  : slot===REFLEX_SLOT ? "Reflex"
+  : slot===REFLEX_SLOT ? "Reflex · RETIRED"
   : slot.replace(/^unique_action_/,"Unique ");
 const DAMAGE_TYPES = [{value:0,label:"Normal"},{value:1,label:"Special"},{value:2,label:"Hybrid"}];
 // trap_tick: 0=Trigger(Trap), 1=Zone, 2=No(None default) — confirmed via ActionData.gd
@@ -1419,7 +1415,7 @@ function rng(min,max,step){
        of the roster off-grid long before the rescale.
      dodge / crit_chance / crit_bonus  already fractions — untouched.
    `regen` is GONE (stat removed 2026-08-06) — no row here, and it is off
-   STAT_FIELDS / INT_STATS / CAPTAIN_STAT_OPTIONS too. */
+   STAT_FIELDS / INT_STATS too. */
 const STAT_MATRIX = {
   health:{opts:rng(0,130,1), float:false},
   attack:{opts:rng(0,30,1), float:false},
@@ -2642,7 +2638,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-23 ead59c30</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-23 0b2da9f0</span></span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -3319,20 +3315,7 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
             </div>
           </${Group}>
 
-          <${Group} title="Captain Perk">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">When this character is the team <b>captain</b> they get <b>+25% HP</b> (fixed rule) and project a <b>captain aura</b>: ONE stat boosted for every teammate within <b>5 hexes</b> — unique per character, active only <b>while the captain lives</b>. Primary stats: +mag% of each member's base stat. Dodge / Crit Chance: +mag percentage points. Leave the stat empty for no aura.</p>
-            <div class="grid cols-4">
-              <${Field} label="Team Stat">
-                <${Select} value=${c.captain_stat||""} options=${CAPTAIN_STAT_OPTIONS}
-                  onInput=${v=>edit(cc=>cc.captain_stat=v)} />
-              </${Field}>
-              <${Field} label="Magnitude" hint="% (points for dodge/crit)">
-                <${NumSelect} value=${num(c.captain_stat_mag,0)}
-                  options=${[0,5,10,15,20,25,30,35,40,45,50]}
-                  onInput=${v=>edit(cc=>cc.captain_stat_mag=v)} />
-              </${Field}>
-            </div>
-          </${Group}>
+          <!-- (removed 2026-09-23: captain retired) -->
 
           <${Group} title="Class Progression">
             <p class="note" style="margin-top:-4px;margin-bottom:8px">Drag each class into a difficulty bucket: which classes this character can unlock and how hard. <b>Starting</b> = already unlocked (first one is the primary default; click another to promote it). <b>Locked</b> = unavailable. Everything else is the unlock cost tier. Chip fill = the class's primary playstyle. Saved to the <span class="mono">character_class_progression</span> table.</p>
@@ -3522,7 +3505,7 @@ function SlotCardBound({slot, owner, ownerKind, data, actionById, enums, effectR
     }, dy=>dy.actions.add(String(aid)));
   };
 
-  return html`<${SlotCard} slotLabel=${isReflex?"Reflex":slot} value=${value} actionById=${actionById}
+  return html`<${SlotCard} slotLabel=${isReflex?"Reflex · RETIRED (kept for re-authoring as reactions)":slot} value=${value} actionById=${actionById}
     allActions=${data.actions} effectRows=${effectRows} knownEffects=${knownEffects}
     summonOptions=${summonOptions} charById=${charById} tm=${tm} caster=${caster}
     usageCount=${uses} onFork=${onFork} effectByName=${effectByName} defaultOpen=${true}
@@ -4410,7 +4393,7 @@ function TypesTab({data,enums,charById,actionById,usageIdx,summonOptions,commitE
           </${Group}>
           <${Group} title=${`Type reflex (${counts.reflex}) + cooldown ladder`}>
             <p class="note" style="margin-top:-4px;margin-bottom:8px">Reflexes are TYPE-only (Pat D 2026-09-08): a 0E / CD-0 action row. Which cooldown applies depends on whether the hero holds this type PURE, as PRIMARY, or as SECONDARY.</p>
-            <${TypeSlotTable} type=${t} keyName="reflex_action" count=${1} labels=${["Reflex"]}
+            <${TypeSlotTable} type=${t} keyName="reflex_action" count=${1} labels=${["Reflex · RETIRED"]}
               data=${data} actionById=${actionById} effectRows=${effectRows} knownEffects=${knownEffects}
               summonOptions=${summonOptions} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
             <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px">
