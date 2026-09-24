@@ -1178,6 +1178,23 @@ table.acttable td.a-ops .mini.exp.on{color:var(--accent);border-color:var(--acce
 .cellpop .cp-add-opt-label{display:block;color:var(--ink);font-weight:600}
 .cellpop .cp-add-opt-hint{display:block;margin-top:2px;color:var(--ink-3);font-size:10px;
   line-height:1.35;white-space:normal;overflow-wrap:anywhere}
+
+/* ── PUSH B authoring fields (2026-09-24): fields ahead of the runtime ── */
+.prov{display:inline-block;font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.6px;color:var(--amber);
+  border:1px solid #4a3b22;background:rgba(240,162,75,.1);border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:middle;text-transform:uppercase}
+.pb-box{border:1px dashed #4a3b22;border-radius:8px;padding:10px 12px;margin-top:10px;background:rgba(240,162,75,.03)}
+.pb-box>.pb-hd{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--ink-2);margin:0 0 8px}
+.pb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;align-items:end}
+.pb-line{display:grid;gap:6px;align-items:end;margin-bottom:6px}
+.pb-line label{display:flex;flex-direction:column;gap:3px;font-family:var(--mono);font-size:9.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.4px}
+.pb-line input,.pb-line select{min-width:0}
+.pb-line label>.prov{align-self:flex-start;margin-left:0}
+.pb-grid label{display:flex;flex-direction:column;gap:3px;font-family:var(--mono);font-size:9.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.4px}
+.pb-grid input,.pb-grid select{min-width:0}
+.pb-btn{width:auto;padding:0 10px;height:26px;font-size:11px;font-weight:600}
+.pb-note{font-size:11px;color:var(--ink-3);margin:4px 0 6px}
+.chip.bad{color:var(--rose);border-color:#48272d}
+.pb-sec-tabs{display:flex;gap:6px;margin:6px 0 12px}
 </style>
 </head>
 <body>
@@ -1269,7 +1286,7 @@ const FIELD_KEYS = [
   {k:"damage_type",  label:"Dmg type"},
   {k:"damage_modifier",label:"Power level"},
   {k:"energy_cost",  label:"Energy"},
-  {k:"cooldown_rounds",label:"Cooldown"},
+  {k:"recent_use_window",label:"Recent use"},
   {k:"aoe_pattern",  label:"Pattern"},
   {k:"aoe_size",     label:"Size"},
   {k:"aoe_range",    label:"Range"},
@@ -1283,16 +1300,22 @@ const FIELD_KEYS = [
   {k:"unlock_round", label:"Unlock rd"},
   {k:"corpse_raise", label:"Corpse"},
   {k:"newmech",      label:"New mech"},
+  {k:"partner_fx",   label:"Partner fx"},
   {k:"balance",      label:"Balance"},
   {k:"usage",        label:"Uses"},
 ];
 // Default visible set = the 2026-07-02 recipe (extras summon/balance/usage stay off).
 const FIELD_VIS_DEFAULT = ["name","aoe_thumb","damage_type","damage_modifier",
-  "energy_cost","cooldown_rounds","trap_tick","unlock_round","aoe_pattern","aoe_size","aoe_range","effect1","effect2"];
+  "energy_cost","recent_use_window","trap_tick","unlock_round","aoe_pattern","aoe_size","aoe_range","effect1","effect2","partner_fx"];
 const FIELD_VIS_LS_KEY = "phalanx_editor_field_vis_v2";
+const PUSHB_NEW_FIELDS = ["partner_fx","recent_use_window"];
 const _fieldVisListeners = new Set();
 function _loadFieldVis(){
-  try{ const raw=localStorage.getItem(FIELD_VIS_LS_KEY); if(raw){ const a=JSON.parse(raw); if(Array.isArray(a)) return new Set(a); } }catch(e){}
+  try{ const raw=localStorage.getItem(FIELD_VIS_LS_KEY); if(raw){ const a=JSON.parse(raw); if(Array.isArray(a)){
+    const st=new Set(a);
+    /* Push B (2026-09-24): a saved field set predates the new fields — switch them on ONCE so they are discoverable */
+    if(!st.has("__pushB1")){ PUSHB_NEW_FIELDS.forEach(k=>st.add(k)); st.add("__pushB1"); }
+    return st; } } }catch(e){}
   return new Set(FIELD_VIS_DEFAULT);
 }
 let _fieldVis = _loadFieldVis();
@@ -1460,6 +1483,49 @@ const COOLDOWN_ROWS = [
   {label:"16 – 20", names:["16","17","18","19","20"]},
 ];
 const COOLDOWN_SET = new Set(COOLDOWN_ROWS.flatMap(r=>r.names));
+/* ═══ PUSH B (2026-09-24) — RECENT USE replaces cooldowns (recent_use.md §2 / G6) ═══
+   recent_use_window: int rounds 1–64 on the ACTION row. Absent ⇒ the loader falls back to
+   cooldown_rounds (seeded 1:1), so an untouched row keeps exactly today's number.
+   cooldown_rounds is RETIRED: shown read-only, never written by these fields. */
+const WINDOW_ROWS = [
+  {label:"1 – 5",   names:["1","2","3","4","5"]},
+  {label:"6 – 10",  names:["6","7","8","9","10"]},
+  {label:"11 – 15", names:["11","12","13","14","15"]},
+  {label:"16 – 20", names:["16","17","18","19","20"]},
+  {label:"21 – 30", names:["21","22","23","24","25","26","27","28","29","30"]},
+  {label:"long",    names:["32","36","40","48","56","64"]},
+];
+const WINDOW_SET = new Set(WINDOW_ROWS.flatMap(r=>r.names));
+const hasOwnWindow = a => !!a && a.recent_use_window!=null && a.recent_use_window!=="";
+/* ⚖ RU-05 (Pat D 2026-09-24, override): the standard attack's window is 3 rounds. A card counts as a
+   standard attack if it is one of the three shared basics or sits in any character's standard_attack
+   slot (synced from the working copy each render). */
+const RU_STD_WINDOW = 3;
+const STD_ATTACK_IDS = new Set(["basic_strike","basic_blast","basic_rend"]);
+function syncStdAttackIds(data){
+  if(!data) return;
+  STD_ATTACK_IDS.clear(); ["basic_strike","basic_blast","basic_rend"].forEach(x=>STD_ATTACK_IDS.add(x));
+  (data.characters||[]).forEach(c=>{ const w=c&&c.standard_attack; const id=(w&&typeof w==="object")?w.id:w; if(id) STD_ATTACK_IDS.add(String(id)); });
+}
+const isStdAttack = a => !!a && STD_ATTACK_IDS.has(String(a.id));
+/* the default window when none is authored: the retired cooldown (seeded 1:1), floored at 3 for a
+   standard attack (RU-05); minimum 1 */
+const winDefault = a => { const cd=Math.max(1,intOf(a&&a.cooldown_rounds,0)); return isStdAttack(a)?Math.max(RU_STD_WINDOW,cd):cd; };
+const winOf = a => hasOwnWindow(a) ? Math.max(1,intOf(a.recent_use_window,1)) : winDefault(a);
+function RecentUseField({action, set, autoOpen}){
+  const own=hasOwnWindow(action), inh=winDefault(action), std=isStdAttack(action);
+  return html`<div>
+    <${MatrixDropdown} numeric=${true} noClear=${true} popClass="modmtx" autoOpen=${!!autoOpen}
+      value=${own?String(action.recent_use_window):""} rows=${WINDOW_ROWS} knownSet=${WINDOW_SET}
+      placeholder=${"= "+inh+(std?" (standard atk)":" (inherited)")} btnTitle="Recent-use window: the card is weakened for this many rounds after use (core ~1–14, mastery long). Unset = inherits the retired cooldown." displayFn=${v=>(+Number(v)).toString()}
+      onInput=${v=>set("recent_use_window", Math.min(64,Math.max(1,intOf(v,inh))))} />
+    <div class="pb-note" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:0">
+      ${own?html`<button class="mini pb-btn" title="Delete recent_use_window so the card inherits its (retired) cooldown again" onClick=${()=>set("recent_use_window",undefined)}>↺ inherit</button>`:null}
+      <span title="cooldown_rounds is RETIRED (no cooldowns) — read only; the Push B loader uses it only as the fallback window">CD retired: ${intOf(action.cooldown_rounds,0)}</span>
+      ${std?html`<span title="⚖ RU-05: a standard attack's window is 3 rounds (never lower)">· standard attack → ${RU_STD_WINDOW}</span>`:null}
+    </div>
+  </div>`;
+}
 
 /* Effect magnitude / duration dropdowns (spec §Shared dropdown rules). */
 /* ⚖ 2026-08-06 GLOBAL STAT RESCALE — the FLAT-HP effects are measured in HP, so
@@ -2060,7 +2126,7 @@ function makeForkSlug(oldSlug, actionById){
 function newActionStub(slug){
   return {id:slug,name:String(slug).replace(/_/g," ").replace(/\b\w/g,m=>m.toUpperCase()),
     damage_type:0,damage_modifier:0.0,power_level:0,aoe_pattern:"Strike",aoe_size:1,aoe_range:1,
-    trap_tick:2,zone_duration_turns:0,zone_team:0,zone_effect1_team:-1,zone_effect2_team:-1,unlock_round:0,corpse_raise:false,consume_summon:false,energy_cost:3,effect1:null,effect2:null,self_effect1:null,self_effect2:null,enchant_rider:null,summon_character_id:"",action_type:"",
+    trap_tick:2,partner_effects:[],zone_duration_turns:0,zone_team:0,zone_effect1_team:-1,zone_effect2_team:-1,unlock_round:0,corpse_raise:false,consume_summon:false,energy_cost:3,effect1:null,effect2:null,self_effect1:null,self_effect2:null,enchant_rider:null,summon_character_id:"",action_type:"",
     scale_isolation:0.0,scale_missing_hp:0.0,bonus_vs_rooted:0.0,overheal_to_shield:false,overheal_shield_pct:100.0,scale_per_own_debuff:0.0,detonate_distinct_bonus_pct:0,charge_gain:0,charge_min:0,charge_spend:false,charge_damage_per_point:0.0,charge_heal_per_point:0.0,bonus_vs_marked:0.0,contagion_hops:0,mass_swap_enemies:false,blink_ally:false,stance_id:""};
 }
 function lintAction(a, charById){
@@ -2079,13 +2145,18 @@ function lintAction(a, charById){
      at size 2 (19 hexes); size 2 is reserved for CD>=12 signature casts; cheap
      (CD<12) zones keep lifetimes <= 6 turns. Mirrors data_lint.gd's backstop —
      a dropdown is a convention, not a guard (the charge-audit lesson). */
-  const tt=intOf(a.trap_tick,2), cd=Number(a.cooldown_rounds||0);
+  /* Push B (recent_use.md G6): the hazard gates key off the recent-use WINDOW (falls back to the retired cooldown) */
+  const tt=intOf(a.trap_tick,2), cd=winOf(a);
   if(tt!==2 && pat==="Area" && sz!=null && sz>=3)
     out.push({k:"err",t:`Area hazard size ${sz}: hazards hard-cap at size 2 (⚖ 08-21)`});
   else if(tt!==2 && pat==="Area" && sz===2 && cd<12)
-    out.push({k:"warn",t:`19-hex zone at CD ${cd}: size-2 hazards are for CD>=12 signatures`});
+    out.push({k:"warn",t:`19-hex zone at window ${cd}: size-2 hazards are for window>=12 signatures`});
   if(tt===1 && cd<12 && Number(a.zone_duration_turns||0)>6)
-    out.push({k:"warn",t:`zone lives ${a.zone_duration_turns} turns at CD ${cd}: cheap zones cap at 6`});
+    out.push({k:"warn",t:`zone lives ${a.zone_duration_turns} turns at window ${cd}: cheap zones cap at 6`});
+  if(hasOwnWindow(a) && (intOf(a.recent_use_window,0)<1 || intOf(a.recent_use_window,0)>64))
+    out.push({k:"err",t:`recent-use window ${a.recent_use_window}: must be 1–64`});
+  if(hasOwnWindow(a) && isStdAttack(a) && intOf(a.recent_use_window,0)<RU_STD_WINDOW)
+    out.push({k:"warn",t:`standard attack window ${a.recent_use_window}: RU-05 rules ${RU_STD_WINDOW} rounds`});
   [a.effect1,a.effect2].forEach((ef,i)=>{
     if(!ef||!ef.effect_type) return;
     const mo=magnitudeOptions(ef.effect_type), du=durationOptions(ef.effect_type);
@@ -2226,6 +2297,8 @@ function App(){
   const [dirty,setDirty]=useState({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false,reactions:false});
   const [tab,setTab]=useState("characters");
   syncInherentNames(data&&data.effects);   // keeps the live Type-inherents group current
+  syncPartnerVocab(data);                  // Push B: class / type lists for partner-effect conditions
+  syncStdAttackIds(data);                  // Push B RU-05: which cards are standard attacks (window 3)
   const [toasts,setToasts]=useState([]);
   const [cmdk,setCmdk]=useState(false);
   const [undoStack,setUndo]=useState([]);
@@ -2558,6 +2631,14 @@ function App(){
         if(keep.length) del=del.not("id","in","("+keep.join(",")+")");
         const{error:delErr}=await del;
         if(delErr) throw delErr;
+        // Push B (2026-09-24): the enemy_hybrid_* / recent_use_* rows are removable too (✕ = back to the code default).
+        for(const pre of ["enemy_hybrid_","recent_use_"]){
+          const keepH=rows.map(r=>r.id).filter(id=>id.startsWith(pre));
+          let delH=db.from("balance_tunables").delete().like("id",pre+"%");
+          if(keepH.length) delH=delH.not("id","in","("+keepH.join(",")+")");
+          const{error:delHErr}=await delH;
+          if(delHErr) throw delHErr;
+        }
       }
       setData(d=>d?{...d,_effectsDeleted:[]}:d);   // the deletes above are applied
       setDirty({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false,reactions:false});
@@ -2597,6 +2678,7 @@ function App(){
   const [sel,setSel]=useState({character:null,action:null,class:null});
   const jumpTo=useCallback((kind,id)=>{
     if(kind==="effect"||kind==="type"){ setTab(kind==="effect"?"effects":"matrix"); return; }
+    if(kind==="reactions"){ setTab("reactions"); setCmdk(false); return; }
     setSel(s=>({...s,[kind]:id}));
     setTab(kind==="character"?"characters":kind==="action"?"actions":"classes");
     setCmdk(false);
@@ -2638,7 +2720,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-23 0b2da9f0</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-24 pushB-fields</span></span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -2674,7 +2756,7 @@ function App(){
         ${tab==="effects" && html`<${EffectsTab} effects=${data.effects} commitEdit=${commitEdit} />`}
         ${tab==="glossary" && html`<${GlossaryTab} glossary=${data.glossary} commitEdit=${commitEdit} />`}
         ${tab==="mutators" && html`<${MutatorsTab} mutators=${data.mutators} commitEdit=${commitEdit} />`}
-        ${tab==="reactions" && html`<${ReactionsTab} reactions=${data.reactions} effects=${data.effects} commitEdit=${commitEdit} />`}
+        ${tab==="reactions" && html`<${ReactionsTab} reactions=${data.reactions} effects=${data.effects} classes=${data.classes.classes} commitEdit=${commitEdit} />`}
         ${tab==="hybridisation" && html`<${HybridisationTab} axes=${data.hybridisation||[]} commitEdit=${commitEdit} />`}
         ${tab==="matrix" && html`<${MatrixTab} types=${enums.types} matrix=${data.type_matrix} commitEdit=${commitEdit} />`}
         ${tab==="aoe" && html`<${AoeTab} patterns=${data.aoe_patterns} commitEdit=${commitEdit} />`}
@@ -2808,6 +2890,7 @@ function slotMeta(act){
   bits.push("Range "+(act.aoe_range!=null?act.aoe_range:"?"));
   const en=actionEffectNames(act)||[];
   for(const e of en) bits.push(e);
+  if(Array.isArray(act.partner_effects)&&act.partner_effects.length) bits.push("⚭ "+act.partner_effects.length);
   return bits.join(" · ");
 }
 
@@ -2847,9 +2930,9 @@ function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEf
             onInput=${v=>onPick(v)} />
         </${Field}>
         ${value&&typeof value==="object"?html`
-          <${Field} label="Cooldown (rounds)" hint="per-slot">
-            <${NumInput} int=${true} min=${0} value=${value.cooldown_rounds} onInput=${v=>onActionChange({...value,cooldown_rounds:v})} />
-          </${Field}>
+          ${num(value.cooldown_rounds,0)!==0?html`<${Field} label="Slot cooldown" hint="RETIRED · read only">
+            <input class="mono" disabled value=${value.cooldown_rounds} title="A legacy per-slot cooldown override. Cooldowns are retired (recent use replaces them); the window lives on the ACTION row." />
+          </${Field}>`:null}
           <${Field} label="Category" hint="per-slot">
             <${Select} value=${value.category||""} options=${ACTION_CATS.map(c=>({value:c,label:c||"(none)"}))} onInput=${v=>onActionChange({...value,category:v})} />
           </${Field}>
@@ -2898,7 +2981,7 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
   const vis=showAll?{has:()=>true}:visRaw;
   const set=(k,v)=>onChangeField(k,v);
   const issues=lintAction(action, charById);
-  const showDaoeFields = ["damage_type","damage_modifier","energy_cost","cooldown_rounds","trap_tick","aoe_pattern","aoe_size","aoe_range"].some(k=>vis.has(k));
+  const showDaoeFields = ["damage_type","damage_modifier","energy_cost","recent_use_window","trap_tick","aoe_pattern","aoe_size","aoe_range"].some(k=>vis.has(k));
   const showThumb = vis.has("aoe_thumb");
   const showDaoeGroup = showDaoeFields || showThumb || issues.length>0;
   const showEffects = vis.has("effect1") || vis.has("effect2") || vis.has("enchant_rider");
@@ -2940,12 +3023,8 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
         ${vis.has("damage_type")?html`<${Field} label="Damage type">
           <${Select} value=${action.damage_type} options=${DAMAGE_TYPES} onInput=${v=>set("damage_type",intOf(v,0))} />
         </${Field}>`:null}
-        ${vis.has("cooldown_rounds")?html`<${Field} label="Cooldown (rounds)" hint="0 = none · core 1-3 · mastery long">
-          <${MatrixDropdown} numeric=${true} noClear=${true} popClass="modmtx"
-            value=${action.cooldown_rounds==null?"0":String(action.cooldown_rounds)} rows=${COOLDOWN_ROWS}
-            knownSet=${COOLDOWN_SET} placeholder="0"
-            displayFn=${v=>(+Number(v)).toString()}
-            onInput=${v=>set("cooldown_rounds",intOf(v,0))} />
+        ${vis.has("recent_use_window")?html`<${Field} label="Recent use" hint="rounds">
+          <${RecentUseField} action=${action} set=${set} />
         </${Field}>`:null}
         ${vis.has("energy_cost")?html`<${Field} label="Energy cost" hint="1-5 · default 3">
           <${NumSelect} value=${action.energy_cost} options=${[1,2,3,4,5]} onInput=${v=>set("energy_cost",v)} />
@@ -2953,9 +3032,9 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
         ${vis.has("trap_tick")?html`<${Field} label="Trap tick">
           <${Select} value=${action.trap_tick} options=${TRAP_TICKS} onInput=${v=>set("trap_tick",intOf(v,2))} />
         </${Field}>`:null}
-        ${intOf(action.trap_tick,2)===1?html`<${Field} label="Zone duration" hint="turns · 0 = auto · cheap (CD<12) zones cap at 6 (⚖ 08-21)">
+        ${intOf(action.trap_tick,2)===1?html`<${Field} label="Zone duration" hint="turns · 0 = auto · cheap (window<12) zones cap at 6 (⚖ 08-21)">
           <${NumSelect} value=${action.zone_duration_turns==null?0:action.zone_duration_turns}
-            options=${Number(action.cooldown_rounds||0)<12
+            options=${winOf(action)<12
               ? [0,1,2,3,4,5,6]
               : [0,1,2,3,4,5,6,8,10,12,15,20,25,30,40,50]} onInput=${v=>set("zone_duration_turns",v)} />
         </${Field}>`:null}
@@ -2983,6 +3062,9 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
           effectByName=${effectByName} onChange=${v=>set("enchant_rider",v)} />`:null}
       </div>
     </${Group}>`:null}
+    ${(vis.has("partner_fx")||(Array.isArray(action.partner_effects)&&action.partner_effects.length))?html`<${Group} title=${"Partner effects"+(Array.isArray(action.partner_effects)&&action.partner_effects.length?(" ("+action.partner_effects.length+")"):"")}>
+      <${PartnerEffectsEditor} action=${action} onChangeField=${set} knownEffects=${knownEffects} effectRows=${effectRows} effectByName=${effectByName} />
+    </${Group}>`:null}
     ${vis.has("summon")?html`<${Group} title="Summon">
       <div class="summon-row">
         <${Field} label="Summon character">
@@ -3006,6 +3088,185 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
       <p class="note" style="margin-top:-4px;margin-bottom:8px">Only fields SET on this action show here (a class that uses none shows nothing) — add one with the picker below. These are the 2026-07 mechanic fields.</p>
       <${AdvancedFields} action=${action} setField=${set} />
     </${Group}>`:null}
+  </div>`;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   PUSH B (2026-09-24) — PARTNER EFFECTS on an action row (B2).
+   Spec: docs/plans/batch_2026-09-22/pushB/conditional_effects.md §1 / §2 / §9.
+     partner_effects: [ { when:{kind, value}, then:{kind, …} } ]      absent / [] ⇒ today
+       when.kind  class | type | playstyle (PE-01 A: any side in play) | partner (any living partner)
+                  | none (lone wolf: no living, on-board partner) — PE-02 "A and B"
+       then.kind  effect {to: target|self|partner (PE-04 A), effect:{effect_type,effect_magnitude,effect_duration}}
+                  boost  {slot: effect1|effect2|self_effect1|self_effect2, magnitude ±, duration ±}   (PE-03 A)
+                  power  {delta ±int}                                                          (PE-03 A)
+   ⚖ Pat D 2026-09-24 (pushB/rulings.md PE-01..04): all ruled — no provisional options remain.
+   ⚠ the key name "none" for the lone-wolf condition is this editor's choice (the spec named only
+     "partner"); the build lead's loader must accept the same word.
+   The field is written only when a row is added, and removing the last row
+   DELETES the key again, so an untouched action round-trips byte-for-byte.
+   ════════════════════════════════════════════════════════════════════ */
+const PE_NO_VALUE_KINDS = ["partner","none"];   // conditions that name no class/type/playstyle
+const PE_VOCAB = {classes:[], types:[]};           // refreshed from the working copy at every App render
+function syncPartnerVocab(data){
+  if(!data) return;
+  PE_VOCAB.classes=((data.classes&&data.classes.classes)||[]).filter(c=>c&&c.class_name&&c.class_name!=="Minion").map(c=>c.class_name).sort((a,b)=>a.localeCompare(b));
+  PE_VOCAB.types=(data.types||[]).filter(t=>t&&t.type_name).map(t=>t.type_name);
+  PE_VOCAB.effectCat={}; (data.effects||[]).forEach(e=>{ if(e&&e.name) PE_VOCAB.effectCat[e.name]=String(e.category||""); });
+}
+/* mirror of StatusEffectHandler._HARMFUL_EFFECTS + the "-" suffix rule (is_harmful_effect) */
+const PE_HARMFUL = new Set(["Burn","Poison","Bleed","Rupture","Time Bomb","Mirage","Anti Heal","Stun","Root","Silence","Blind","Curse","Mark","Push","Pull",
+  "Intimidate","Suppress","Corrode","Breach","Hinder","Dull","Expose","Wither","Unravel","Erode","Dissonance","Fatigue","Dispel","Buff Block","Dispel Steal"]);
+const peHarmful = n => !!n && (String(n).endsWith("-") || PE_HARMFUL.has(n));
+/* mirror of StatusEffectHandler.is_hostile_action (conservative on mixed payloads) */
+function peHostileAction(a){
+  if(!a) return false;
+  if(num(a.damage_modifier,0)>0 || plOf(a)>0) return true;
+  let harmful=false;
+  for(const ef of [a.effect1,a.effect2]){ if(!ef||!ef.effect_type) continue; if(peHarmful(ef.effect_type)) harmful=true; else return false; }
+  return harmful;
+}
+const peStoresPayloadElsewhere = a => !!a && (intOf(a.trap_tick,2)!==2 || !!a.place_wall || !!a.place_tripwire || !!a.place_hazard_edge || !!a.stance_id || a.aoe_pattern==="Jump");
+const PE_SLOTS=[{v:"effect1",l:"effect 1"},{v:"effect2",l:"effect 2"},{v:"self_effect1",l:"self fx 1"},{v:"self_effect2",l:"self fx 2"}];
+
+function peLint(a, row, knownEffects){
+  const out=[]; const w=(row&&row.when)||{}, t=(row&&row.then)||{};
+  const vocab = w.kind==="class"?PE_VOCAB.classes : w.kind==="type"?PE_VOCAB.types : w.kind==="playstyle"?PLAYSTYLES : null;
+  if(!["class","type","playstyle","partner","none"].includes(w.kind)) out.push("pick a WHEN kind");
+  else if(vocab && !vocab.includes(w.value)) out.push(w.value?`“${w.value}” is not a ${w.kind}`:`pick a ${w.kind}`);
+  if(t.kind==="effect"){
+    const et=t.effect&&t.effect.effect_type;
+    if(!et) out.push("pick an effect");
+    else {
+      if(knownEffects && !knownEffects.has(et)) out.push(`“${et}” is not in the effect catalog`);
+      const cat=(PE_VOCAB.effectCat||{})[et]||"";
+      if(cat==="Summon"||et==="Summon") out.push("a Summon cannot be a partner effect");
+      if(/aura/i.test(cat)) out.push("an Aura-category effect cannot ride a partner line (one aura carrier per cast)");
+      if(t.to==="partner" && peHarmful(et)) out.push("to partner must be beneficial");
+      if(t.to==="target"){
+        const hostile=peHostileAction(a);
+        if(hostile && !peHarmful(et)) out.push("a hostile card's target extra must be harmful (it would land on the enemy)");
+        if(!hostile && peHarmful(et)) out.push("a support card's target extra must be beneficial (it lands on allies)");
+      }
+    }
+    if(!["target","self","partner"].includes(t.to)) out.push("pick who it lands on");
+    if(t.to==="partner" && w.kind==="none") out.push("a lone-wolf line cannot land on the partner — there is none");
+    if(t.to==="target" && peStoresPayloadElsewhere(a)) out.push("v1: trap / zone / edge / stance / Jump cards take only power, to self or to partner");
+  } else if(t.kind==="boost"){
+    if(!PE_SLOTS.some(s=>s.v===t.slot)) out.push("pick a slot to boost");
+    else if(!(a&&a[t.slot]&&a[t.slot].effect_type)) out.push(`this card has no ${t.slot} to boost`);
+    else if((t.slot==="effect1"||t.slot==="effect2") && peStoresPayloadElsewhere(a)) out.push("v1: effect1/2 boosts are refused on trap / zone / edge / stance / Jump cards");
+    if(!num(t.magnitude,0) && !intOf(t.duration,0)) out.push("a boost of 0 / 0 does nothing");
+  } else if(t.kind==="power"){
+    if(!intOf(t.delta,0)) out.push("a PL change of 0 does nothing");
+  } else out.push("pick a THEN kind");
+  return out;
+}
+
+const peShortEff = ef => { if(!ef||!ef.effect_type) return "?"; const n=String(ef.effect_type).toUpperCase().replace(/-$/,"−").replace(/\+$/,"+");
+  const m=num(ef.effect_magnitude,0), d=intOf(ef.effect_duration,0);
+  return n+(m?(" "+m+(FLAT_HP_EFFECTS.has(ef.effect_type)?"":"%")):"")+(d?(" · "+d+"T"):""); };
+/* the card-grammar preview line (§5): "WITH A FIGHTER PARTNER · DEF− 20% · 2T" */
+function pePreview(a, row){
+  const w=(row&&row.when)||{}, t=(row&&row.then)||{};
+  const head = w.kind==="partner" ? "WITH A LIVING PARTNER" : w.kind==="none" ? "WITH NO PARTNER" : (w.value?("WITH A "+String(w.value).toUpperCase()+" PARTNER"):"WITH A ? PARTNER");
+  let body="?";
+  if(t.kind==="effect") body=(t.to==="self"?"YOU · ":t.to==="partner"?"PARTNER · ":"")+peShortEff(t.effect);
+  else if(t.kind==="boost"){ const lab=(PE_SLOTS.find(s=>s.v===t.slot)||{l:"?"}).l.toUpperCase(); const m=num(t.magnitude,0), d=intOf(t.duration,0);
+    body=lab+(a&&a[t.slot]&&a[t.slot].effect_type?(" ("+String(a[t.slot].effect_type).toUpperCase()+")"):"")+(m?(" "+(m>0?"+":"")+m):"")+(d?(" · "+(d>0?"+":"")+d+"T"):""); }
+  else if(t.kind==="power"){ const d=intOf(t.delta,0); body="PL "+(d>=0?"+":"")+d; }
+  return head+" · "+body;
+}
+
+function PartnerEffectRow({a, row, i, n, knownEffects, effectRows, effectByName, onChange, onMove, onDel}){
+  const w=row.when||{}, t=row.then||{};
+  const issues=peLint(a,row,knownEffects);
+  const setWhen=p=>onChange({...row,when:{...w,...p}});
+  const setThen=p=>onChange({...row,then:{...t,...p}});
+  const setKind=k=>{
+    if(k==="effect") onChange({...row,then:{kind:"effect",to:(t.to||"target"),effect:(t.effect||{effect_type:"",effect_magnitude:0,effect_duration:0})}});
+    else if(k==="boost") onChange({...row,then:{kind:"boost",slot:(t.slot||"effect1"),magnitude:num(t.magnitude,0),duration:intOf(t.duration,0)}});
+    else if(k==="power") onChange({...row,then:{kind:"power",delta:intOf(t.delta,0)}});
+  };
+  const valueOpts = w.kind==="class"?PE_VOCAB.classes : w.kind==="type"?PE_VOCAB.types : w.kind==="playstyle"?PLAYSTYLES : [];
+  const ef=t.effect||{};
+  return html`<div class="pb-box" style=${issues.length?"border-color:#48272d;background:rgba(245,106,122,.04)":""}>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+      <span class="mono" style="font-size:11px;font-weight:700;color:${issues.length?"var(--rose)":"var(--accent)"};flex:1">⚭ ${pePreview(a,row)}</span>
+      <button class="mini" disabled=${i===0} title="Up" onClick=${()=>onMove(i,-1)}>↑</button>
+      <button class="mini" disabled=${i===n-1} title="Down" onClick=${()=>onMove(i,1)}>↓</button>
+      <button class="mini del" title="Remove this partner effect" onClick=${()=>onDel(i)}>×</button>
+    </div>
+    <div class="pb-line" style="grid-template-columns:1fr 1.3fr 1fr">
+      <label>when partner is
+        <select value=${w.kind||""} onChange=${e=>{ const k=e.target.value; onChange({...row,when:PE_NO_VALUE_KINDS.includes(k)?{kind:k}:{kind:k,value:(k===w.kind?w.value:"")}}); }}>
+          <option value="">— kind —</option>
+          <option value="class">class</option><option value="type">type</option><option value="playstyle">playstyle</option>
+          <option value="partner">any living partner</option>
+          <option value="none">no partner (lone wolf)</option>
+        </select></label>
+      <label>${PE_NO_VALUE_KINDS.includes(w.kind)?"—":"value"}
+        ${PE_NO_VALUE_KINDS.includes(w.kind)?html`<input type="text" disabled value=${w.kind==="none"?"(partner dead, parked or absent)":"(no value)"} />`:html`<select value=${w.value||""} onChange=${e=>setWhen({value:e.target.value})}>
+          <option value="">— ${w.kind||"value"} —</option>
+          ${(w.value&&!valueOpts.includes(w.value))?html`<option value=${w.value}>⚠ ${w.value}</option>`:null}
+          ${valueOpts.map(v=>html`<option key=${v} value=${v}>${v}</option>`)}
+        </select>`}</label>
+      <label>then
+        <select value=${t.kind||""} onChange=${e=>setKind(e.target.value)}>
+          <option value="">— lights —</option>
+          <option value="effect">extra effect</option>
+          <option value="boost">boost an effect</option>
+          <option value="power">power ±</option>
+        </select></label>
+    </div>
+    ${t.kind==="effect"?html`<div class="pb-line" style="grid-template-columns:.8fr 1.6fr .7fr .7fr">
+      <label>lands on
+        <select value=${t.to||"target"} onChange=${e=>setThen({to:e.target.value})}>
+          <option value="target">target (rides effect1's hits)</option><option value="self">self (once per cast)</option>
+          <option value="partner">partner (once per cast, any distance)</option>
+        </select></label>
+      <label>effect
+        <${MatrixDropdown} value=${ef.effect_type} rows=${effectRows} placeholder="— effect —" knownSet=${knownEffects}
+          optTitleFn=${nm=>effectDescText((effectByName||{})[nm])}
+          onInput=${v=>{ const mo=magnitudeOptions(v), du=durationOptions(v);
+            setThen({effect:{effect_type:v, effect_magnitude:mo.includes(Number(ef.effect_magnitude))?ef.effect_magnitude:mo[0], effect_duration:du.includes(Number(ef.effect_duration))?ef.effect_duration:du[0]}}); }} /></label>
+      <label>magnitude
+        <${NumSelect} value=${ef.effect_magnitude} float=${ef.effect_type==="Bleed"||ef.effect_type==="Poison"}
+          options=${magnitudeOptions(ef.effect_type)} onInput=${v=>setThen({effect:{...ef,effect_magnitude:v}})} /></label>
+      <label>duration (T)
+        <${NumSelect} value=${ef.effect_duration} options=${durationOptions(ef.effect_type)} onInput=${v=>setThen({effect:{...ef,effect_duration:v}})} /></label>
+    </div>`:null}
+    ${t.kind==="boost"?html`<div class="pb-line" style="grid-template-columns:1.2fr .8fr .8fr">
+      <label>boost slot
+        <select value=${t.slot||""} onChange=${e=>setThen({slot:e.target.value})}>
+          ${PE_SLOTS.map(s=>html`<option key=${s.v} value=${s.v}>${s.l}${(a&&a[s.v]&&a[s.v].effect_type)?(" — "+a[s.v].effect_type):" — (empty)"}</option>`)}
+        </select></label>
+      <label>magnitude ±
+        <input class="mono" type="number" step="any" value=${t.magnitude==null?0:t.magnitude} onChange=${e=>setThen({magnitude:num(e.target.value,0)})} /></label>
+      <label>duration ± (T)
+        <input class="mono" type="number" step="1" value=${t.duration==null?0:t.duration} onChange=${e=>setThen({duration:intOf(e.target.value,0)})} /></label>
+    </div>`:null}
+    ${t.kind==="power"?html`<div class="pb-line" style="grid-template-columns:.6fr 1.4fr">
+      <label>PL ±
+        <input class="mono" type="number" step="1" value=${t.delta==null?0:t.delta} onChange=${e=>setThen({delta:intOf(e.target.value,0)})} /></label>
+      <span class="pb-note">card PL ${plOf(a)} → ${plOf(a)+intOf(t.delta,0)} when lit (before recent-use weakening)</span>
+    </div>`:null}
+    ${issues.length?html`<div class="pb-note" style="color:var(--rose)">⚠ ${issues.join(" · ")}</div>`:null}
+  </div>`;
+}
+
+function PartnerEffectsEditor({action, onChangeField, knownEffects, effectRows, effectByName}){
+  const rows=Array.isArray(action.partner_effects)?action.partner_effects:[];
+  const write=arr=>onChangeField("partner_effects", arr.length?arr:undefined);
+  const upd=(i,r)=>write(rows.map((x,j)=>j===i?r:x));
+  const move=(i,d)=>{ const a=rows.slice(); const j=i+d; if(j<0||j>=a.length) return; [a[i],a[j]]=[a[j],a[i]]; write(a); };
+  const del=i=>write(rows.filter((_,j)=>j!==i));
+  const add=()=>write([...rows,{when:{kind:"playstyle",value:""},then:{kind:"effect",to:peHostileAction(action)?"target":"self",effect:{effect_type:"",effect_magnitude:0,effect_duration:0}}}]);
+  return html`<div>
+    <p class="note" style="margin-top:-4px;margin-bottom:8px">⚖ 7.2 / 7.7 / 7.8 + PE-01..04: a line that <b>lights</b> when the caster's current partner qualifies (checked at cast; a dead or parked partner is none — which is exactly when a <i>no partner</i> line lights). A class / type condition counts any side in play at the partner's slider position. Always printed on the card — lit, or dimmed “needs X partner”. No limit per card.${rows.length>4?html` <span class="warn-text">${rows.length} rows — readability warning (more than 4).</span>`:""}</p>
+    ${rows.map((r,i)=>html`<${PartnerEffectRow} key=${i} a=${action} row=${r} i=${i} n=${rows.length} knownEffects=${knownEffects}
+      effectRows=${effectRows} effectByName=${effectByName} onChange=${nr=>upd(i,nr)} onMove=${move} onDel=${del} />`)}
+    <button class="mini pb-btn" style="margin-top:8px" onClick=${add}>+ Add partner effect</button>
   </div>`;
 }
 
@@ -3355,7 +3616,7 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
                   const labels=filled.map(f=>charSlotLabel(f.slot));
                   const onBody=(u)=>commitEdit(next=>{ const i=next.actions.findIndex(a=>a.id===u.id); if(i>=0) next.actions[i]=u; }, dy=>dy.actions.add(String(u.id)));
                   const onClear=(i)=>{ const slot=filled[i].slot; commitEdit(next=>{ const o=next.characters.find(x=>String(x.id)===String(selId)); if(o) o[slot]={}; }, dy=>dy.chars.add(String(selId))); };
-                  const assign=(id,stub)=>{ if(!emptySlot) return; commitEdit(next=>{ if(stub && !next.actions.find(a=>a.id===id)) next.actions.push(newActionStub(id)); const o=next.characters.find(x=>String(x.id)===String(selId)); if(o) o[emptySlot]={id,cooldown_rounds:0,category:""}; }, dy=>{ dy.chars.add(String(selId)); if(stub) dy.actions.add(String(id)); }); };
+                  const assign=(id,stub)=>{ if(!emptySlot) return; commitEdit(next=>{ if(stub && !next.actions.find(a=>a.id===id)) next.actions.push(newActionStub(id)); const o=next.characters.find(x=>String(x.id)===String(selId)); if(o) o[emptySlot]={id,category:""}; }, dy=>{ dy.chars.add(String(selId)); if(stub) dy.actions.add(String(id)); }); };
                   return html`
                     ${filled.length?html`<${ClassActionTable} slugs=${filled.map(f=>f.id)} rowLabels=${labels} data=${data} actionById=${actionById}
                       effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx}
@@ -3472,12 +3733,12 @@ function SlotCardBound({slot, owner, ownerKind, data, actionById, enums, effectR
       commitEdit(next=>{
         if(!next.actions.find(a=>a.id===slug)){ const st=newActionStub(slug); if(isReflex){ st.energy_cost=0; st.cooldown_rounds=0; } next.actions.push(st); }
         const o=next.characters.find(x=>String(x.id)===String(selId));
-        if(o) o[slot]={id:slug,cooldown_rounds:0,category:defCat};
+        if(o) o[slot]={id:slug,category:defCat};
       }, dy=>{ dy.chars.add(String(selId)); dy.actions.add(slug); });
       return;
     }
     if(!v){ setWrapper({}); return; }
-    setWrapper({id:v, cooldown_rounds:(value&&value.cooldown_rounds)||0, category:(value&&value.category)||defCat});
+    setWrapper({id:v, category:(value&&value.category)||defCat});   // Push B: no per-slot cooldown (retired)
   };
   const onClear=()=>setWrapper({});
   // R2.5 — fork: copy the canonical action to a new slug + point THIS slot at it.
@@ -3489,12 +3750,14 @@ function SlotCardBound({slot, owner, ownerKind, data, actionById, enums, effectR
         const copy=clone(src); copy.id=newSlug; next.actions.push(copy);
       }
       const o=next.characters.find(x=>String(x.id)===String(selId));
-      if(o) o[slot]={id:newSlug, cooldown_rounds:(value&&value.cooldown_rounds)||0, category:(value&&value.category)||defCat};
+      if(o){ const w={id:newSlug, category:(value&&value.category)||defCat}; if(value&&value.cooldown_rounds!=null) w.cooldown_rounds=value.cooldown_rounds; o[slot]=w; }
     }, dy=>{ dy.chars.add(String(selId)); dy.actions.add(newSlug); });
   };
   const onActionChange=(updatedAction)=>{
-    // either wrapper (cd/cat) or the action body. Distinguish: wrappers have id+cooldown_rounds.
-    if(updatedAction && updatedAction.id!==undefined && updatedAction.cooldown_rounds!==undefined && updatedAction.damage_type===undefined){
+    // either wrapper (cd/cat) or the action body. Distinguish: wrappers have id + (category or the
+    // legacy cooldown_rounds) and no damage_type. Push B re-keyed this onto category (recent_use.md G6).
+    if(updatedAction && updatedAction.id!==undefined && updatedAction.damage_type===undefined
+       && (updatedAction.category!==undefined || updatedAction.cooldown_rounds!==undefined)){
       setWrapper(updatedAction); return;
     }
     // it's the action body — write back into actions[]
@@ -3622,10 +3885,11 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
           </${Group}>
 
           <${Group} title="Inherent Class Effects">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">Blank duration = permanent. 0 = instant.</p>
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">Blank duration = permanent. 0 = instant. ⚖ 2026-09-24: inherent slots hold <b>plain stats</b> (class auras + Protector stay here too); rule inherents — the ramps Focus · Fervor · Attune, Catalysis, Outcast — move to <b>Class reactions</b> below. How many a unit receives per slider position is the HYBRIDISATION classes-axis <span class="mono">inherent</span> row (${hybSlotCounts(data.hybridisation,"classes").inherent} slots); entries past that are not granted.</p>
             <${InherentEditor} list=${c.inherent_class_effects||[]} effectRows=${effectRows} knownEffects=${knownEffects} effectByName=${effectByName}
               onChange=${arr=>edit(cc=>cc.inherent_class_effects=arr)} />
           </${Group}>
+          <${ClassReactionsGroup} c=${c} data=${data} commitEdit=${commitEdit} selName=${selName} jumpTo=${jumpTo} />
 
           <div class="viewtoggle">
             <span class="vt-lead">Actions view</span>
@@ -3637,6 +3901,9 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
               onClick=${()=>setActView("cards")}>▦ Cards</button>
           </div>
           <${FieldChips} />
+          ${(()=>{ const sl=[...(c.core_class_actions||[]),...(c.mastery_class_actions||[])]; let rows=0,cards=0,bad=0;
+            sl.forEach(id=>{ const a=actionById[id]; const pe=a&&Array.isArray(a.partner_effects)?a.partner_effects:[]; if(pe.length){ cards++; rows+=pe.length; bad+=pe.filter(r=>peLint(a,r,null).length).length; } });
+            return html`<p class="note" style="margin:6px 0 10px">⚭ this class: <b>${rows}</b> partner effect${rows===1?"":"s"} on <b>${cards}</b> card${cards===1?"":"s"} (of ${sl.length})${bad?html` · <span style="color:var(--rose)">${bad} with problems</span>`:""} — ⚖ 7.3 no limit, it varies by class.</p>`; })()}
           <${Group} title="Core Class Actions">
             <${ClassActionList} c=${c} keyName="core_class_actions" data=${data} actionById=${actionById} viewMode=${actView}
               enums=${enums} effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
@@ -3660,6 +3927,53 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
       `}
     </div>
   </div></div>`;
+}
+
+/* PUSH B (2026-09-24) — a class's reaction slots. `class.reactions` mirrors `types.reactions`:
+   an array of reaction ids, slot i <-> the HYBRIDISATION classes-axis `reactions` cell i.
+   Absent until edited (today's rows round-trip unchanged); nothing in the game reads it yet. */
+function ClassReactionsGroup({c, data, commitEdit, selName, jumpTo}){
+  const ax=hybAxis(data.hybridisation,"classes");
+  const g=ax&&(ax.groups||[]).find(x=>x&&x.group==="reactions");
+  const n=(g&&(g.slots|0)>0)?(g.slots|0):2;
+  const mine=(data.reactions||[]).filter(r=>r&&r.id&&rxOwner(r)==="class"&&r.class===selName);
+  const byId={}; (data.reactions||[]).forEach(r=>{ if(r&&r.id) byId[r.id]=r; });
+  const slots=Array.isArray(c.reactions)?c.reactions:[];
+  const setSlot=(i,id)=>commitEdit(next=>{
+    const cc=next.classes.classes.find(x=>x.class_name===selName); if(!cc) return;
+    const cur=Array.isArray(cc.reactions)?cc.reactions:[];
+    cc.reactions=Array.from({length:Math.max(n,cur.length)},(_,j)=>cur[j]||"");
+    cc.reactions[i]=id;
+  },dy=>dy.classes=true);
+  const addNew=()=>commitEdit(next=>{
+    if(!Array.isArray(next.reactions)) next.reactions=[];
+    const row=newReactionRow(next.reactions,"class",selName);
+    const cc=next.classes.classes.find(x=>x.class_name===selName);
+    const cur=cc&&Array.isArray(cc.reactions)?cc.reactions:[];
+    const free=Array.from({length:n},(_,j)=>cur[j]||"").findIndex(v=>!v);
+    row.tier=(free>=0?free:0)+1;
+    next.reactions.push(row);
+    if(cc&&free>=0){ cc.reactions=Array.from({length:Math.max(n,cur.length)},(_,j)=>cur[j]||""); cc.reactions[free]=row.id; }
+  },dy=>{ dy.reactions=true; dy.classes=true; });
+  return html`<${Group} title=${`Class reactions (${n})`}>
+    <p class="note" style="margin-top:-4px;margin-bottom:8px">⚖ 2026-09-24: a pure class carries <b>2 reactions</b> (WHEN / THEN, timed, strippable) beside its 2 stat inherents; the ramps (Focus · Fervor · Attune) and Catalysis / Outcast move here. Who receives slot <i>i</i> is the HYBRIDISATION classes-axis <span class="mono">reactions</span> row${g?"":html` — <span class="warn-text">that row does not exist yet (add it on the Hybridisation tab)</span>`}. Rows are authored on the <b>Reactions</b> tab → Class reactions. <${Prov} on=${RX_PROV.owner} /></p>
+    ${Array.from({length:n},(_,i)=>{
+      const id=slots[i]||""; const r=byId[id];
+      const reach=g?slotReach(data.hybridisation,"classes","reactions",i):"";
+      return html`<${Field} key=${i} label=${`Reaction ${i+1}`} hint=${reach}>
+        <select value=${id} onChange=${e=>setSlot(i,e.target.value)}>
+          <option value="">— none —</option>
+          ${(id&&!mine.some(m=>m.id===id))?html`<option value=${id}>${r?(r.name||id)+" (owned by "+(r.class||r.type||"?")+")":"⚠ "+id+" (missing)"}</option>`:null}
+          ${mine.map(m=>html`<option key=${m.id} value=${m.id}>${m.name||m.id}</option>`)}
+        </select>
+        ${r?html`<p class="note" style="margin:4px 0 0"><b>WHEN</b> ${r.trigger||"—"} · <b>THEN</b> ${r.effect||"—"}${(r.when&&r.when.event)?html` · <span class="mono">${r.when.event}</span>`:html` · <span class="warn-text">no structured WHEN yet</span>`}</p>`:null}
+      </${Field}>`;
+    })}
+    <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+      <button class="mini pb-btn" onClick=${addNew}>+ New class reaction</button>
+      <span class="note" style="margin:0">${mine.length} authored for ${selName}${jumpTo?html` · <a href="#" onClick=${e=>{e.preventDefault(); jumpTo("reactions");}}>open Reactions tab</a>`:""}</span>
+    </div>
+  </${Group}>`;
 }
 
 function InherentEditor({list, effectRows, knownEffects, effectByName, onChange}){
@@ -3731,13 +4045,14 @@ function ClassActionList({c, keyName, data, actionById, enums, effectRows, known
   const swapDown=(i)=>{const a=slugs.slice();[a[i+1],a[i]]=[a[i],a[i+1]];setSlugs(a);};
   const delAt=(i)=>setSlugs(slugs.filter((_,j)=>j!==i));
   // T4 (2026-09-19) — the 09-18 ranking grants core[0..N) + mastery[0..M) where N / M are the
-  // HYBRIDISATION classes-axis slot counts; anything past that is BENCH (kept, not granted).
+  // HYBRIDISATION classes-axis slot counts. ⚖ HT-01 (2026-09-24): anything past that is simply
+  // NOT in the hand — there is no bench, so the row reads "not granted".
   // Granted rows carry who receives them (everyone / primary+ / pure-only) read off that table.
   const hybCounts = hybSlotCounts(data.hybridisation,"classes");
   const grantedN = isMastery?hybCounts.mastery:hybCounts.core;
   const rowLabels = slugs.map((_,i)=>{
     const head=isMastery?("Lv "+(i+1)):("#"+(i+1));
-    if(i>=grantedN) return head+" · BENCH";
+    if(i>=grantedN) return head+" · not granted";
     const r=slotReach(data.hybridisation,"classes",isMastery?"mastery":"core",i);
     return head+(r?(" · "+r):"");
   });
@@ -3886,10 +4201,8 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
       <${Select} value=${act.damage_type} options=${DAMAGE_TYPES} onInput=${v=>commitClose("damage_type",intOf(v,0))} /></div>`;
     if(f==="energy_cost") return html`<div class="cp-field"><label>Energy cost <span class="hint">1-5 · default 3</span></label>
       <${NumSelect} value=${act.energy_cost} options=${[1,2,3,4,5]} onInput=${v=>commitClose("energy_cost",v)} /></div>`;
-    if(f==="cooldown_rounds") return html`<div class="cp-field"><label>Cooldown (rounds)</label>
-      <${MatrixDropdown} numeric=${true} noClear=${true} popClass="modmtx" autoOpen=${true}
-        value=${act.cooldown_rounds==null?"0":String(act.cooldown_rounds)} rows=${COOLDOWN_ROWS} knownSet=${COOLDOWN_SET} placeholder="0"
-        displayFn=${v=>(+Number(v)).toString()} onInput=${v=>commit("cooldown_rounds",intOf(v,0))} /></div>`;
+    if(f==="recent_use_window") return html`<div class="cp-field"><label>Recent-use window (rounds) <span class="hint">weakened for this many rounds after use</span></label>
+      <${RecentUseField} action=${act} set=${commit} autoOpen=${true} /></div>`;
     if(f==="effect1"||f==="effect2") return html`<${EffectBlock} label=${f==="effect1"?"Effect 1":"Effect 2"}
       ef=${act[f]} ownerKey=${act.id+"_"+f} effectRows=${effectRows} knownEffects=${knownEffects}
       effectByName=${effectByName} onChange=${v=>commit(f,v)} />`;
@@ -3901,6 +4214,8 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
       hint="Spellblade Enchant Weapon: the effect an enchanted ally's next attack applies to whoever it hits"
       ef=${act.enchant_rider} ownerKey=${act.id+"_ench"} effectRows=${effectRows} knownEffects=${knownEffects}
       effectByName=${effectByName} onChange=${v=>commit("enchant_rider",v)} />`;
+    if(f==="partner_fx") return html`<div class="cp-field"><label>Partner effects <span class="hint">conditional_effects.md</span></label>
+      <${PartnerEffectsEditor} action=${act} onChangeField=${commit} knownEffects=${knownEffects} effectRows=${effectRows} effectByName=${effectByName} /></div>`;
     if(f==="trap_tick") return html`<div class="cp-field"><label>Trap tick <span class="hint">Trap / Zone / None</span></label>
       <${Select} value=${act.trap_tick} options=${TRAP_TICKS} onInput=${v=>commitClose("trap_tick",intOf(v,2))} /></div>`;
     if(f==="unlock_round") return html`<div class="cp-field"><label>Unlock round <span class="hint">0 = from start · N = locked until round N</span></label>
@@ -3943,7 +4258,7 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
         onClick=${()=>{ onActionChange({...act,[f]:dflt}); unreveal(edit.slug,f); closeEdit(); }}>✕ Remove field</button></div>`; }
     return null;
   };
-  const wideField = edit && (edit.wide || ["aoe_pattern","effect1","effect2","self_effect1","self_effect2","enchant_rider","__add"].indexOf(edit.field)>=0);
+  const wideField = edit && (edit.wide || ["aoe_pattern","effect1","effect2","self_effect1","self_effect2","enchant_rider","partner_fx","__add"].indexOf(edit.field)>=0);
 
   // Column model — the middle columns follow the SHOW FIELDS chips, so enabling a
   // field surfaces it as a compact per-cell-editable column (fills the empty row
@@ -3973,14 +4288,18 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
       cell:(c)=>{ const t=c.act?({0:"Norm",1:"Spec",2:"Hyb"}[intOf(c.act.damage_type,0)]||"—"):""; return html`<td class=${c.act?"cell-edit":""} style="text-align:center;font-size:11px" onClick=${c.ed("damage_type")}>${t}</td>`; }},
     {vk:"energy_cost",th:"En",right:true,title:"Energy cost",
       cell:(c)=>html`<td class=${"num"+(c.act?" cell-edit":"")} onClick=${c.ed("energy_cost")}>${c.act?(c.act.energy_cost!=null?c.act.energy_cost:"—"):""}</td>`},
-    {vk:"cooldown_rounds",th:"CD",right:true,title:"Cooldown (rounds)",
-      cell:(c)=>html`<td class=${"num"+(c.act?" cell-edit":"")} onClick=${c.ed("cooldown_rounds")}>${c.act?(+num(c.act.cooldown_rounds,0)):""}</td>`},
+    {vk:"recent_use_window",th:"WIN",right:true,title:"Recent-use window (rounds) — dim* = not set, inherits the retired cooldown",
+      cell:(c)=>html`<td class=${"num"+(c.act?" cell-edit":"")} onClick=${c.ed("recent_use_window")}>${c.act?(hasOwnWindow(c.act)?winOf(c.act):html`<span style="opacity:.55" title="inherits cooldown_rounds">${winOf(c.act)}*</span>`):""}</td>`},
     ...["effect1","effect2","self_effect1","self_effect2","enchant_rider"].map((fk,fi)=>({
       vk:fk, th:["Effect 1","Effect 2","Self fx 1","Self fx 2","Enchant"][fi],
       title:["","","Self effect 1 (to caster)","Self effect 2 (to caster)","Enchant rider (ally's next-hit effect)"][fi]||undefined,
       cell:(c)=>{ const t=c.act?effectCellText(c.act[fk]):"";
         const hint=[effectHintText(c.act&&c.act[fk],effectByName), c.act?"Click to edit":""].filter(Boolean).join("\n");
         return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed(fk)} title=${hint}>${t||"—"}</td>`; }})),
+    {vk:"partner_fx",th:"⚭",center:true,title:"Partner effects — lines that light when the partner qualifies (click to edit)",
+      cell:(c)=>{ const pe=c.act&&Array.isArray(c.act.partner_effects)?c.act.partner_effects:[]; const bad=c.act?pe.filter(r=>peLint(c.act,r,null).length).length:0;
+        return html`<td class=${c.act?"cell-edit":""} style=${"text-align:center;font-size:12px"+(bad?";color:var(--rose)":"")} onClick=${c.ed("partner_fx")}
+          title=${pe.map(r=>pePreview(c.act,r)).join(" | ")||"none — click to add"}>${c.act?(pe.length?("⚭ "+pe.length+(bad?" ⚠":"")):"—"):""}</td>`; }},
     {vk:"summon",th:"Summon",title:"Summon character / consume-summon",
       cell:(c)=>{ let t="—"; if(c.act){ if(c.act.summon_character_id){ const ch=charById[String(c.act.summon_character_id)]; t=ch?(ch.name||String(ch.id)):String(c.act.summon_character_id); if(c.act.consume_summon) t+=" ⊗"; } else if(c.act.consume_summon){ t="⊗ consume"; } } return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("summon")} title=${t}>${t}</td>`; }},
     {vk:"trap_tick",th:"Trap",center:true,title:"Trap tick — Trap / Zone / None",
@@ -4862,6 +5181,11 @@ function GlossaryTab({glossary, commitEdit}){
    second-slot inherent (Sky's Overflight) pure-only BY CONSTRUCTION, with no flag
    for compose_action_hand to branch on. Moving it breaks that. */
 const HYB_CYCLE=["","1","2","both"];
+/* ⚖ HT-01 (Pat D 2026-09-24): "the hybridization table determines which core and mastery actions they
+   get from each class" — grant mode stays `slots`; the share / all modes are NOT used, so the editor
+   offers no mode control (a stray `mode` key is flagged with a clear button). Ruled core row: */
+const HYB_RULED_CORE = {pure1:["1","1","1","1"],p1s2:["both","1","1",""],even:["both","both","",""],p2s1:["both","2","2",""],pure2:["2","2","2","2"]};
+const hybIsRuledCore = g => (g.slots|0)===4 && Object.keys(HYB_RULED_CORE).every(k=>JSON.stringify((g.positions||{})[k]||[])===JSON.stringify(HYB_RULED_CORE[k]));
 function HybridisationTab({axes, commitEdit}){
   const setCell=(ai,gi,pos,si,value)=>commitEdit(next=>{
     const g=next.hybridisation?.[ai]?.groups?.[gi];
@@ -4877,6 +5201,26 @@ function HybridisationTab({axes, commitEdit}){
       for(let i=0;i<want;i++) if(!HYB_CYCLE.includes(arr[i])) arr[i]="";
     }
   },dy=>dy.hybridisation=true);
+  const addClassReactionsGroup=(ai)=>commitEdit(next=>{
+    const ax=next.hybridisation?.[ai]; if(!ax) return;
+    if(!Array.isArray(ax.groups)) ax.groups=[];
+    if(ax.groups.some(g=>g&&g.group==="reactions")) return;
+    ax.groups.push({group:"reactions",label:"Reactions",slots:2,
+      positions:{pure1:["1","1"],p1s2:["1",""],even:["both",""],p2s1:["2",""],pure2:["2","2"]}});
+  },dy=>dy.hybridisation=true);
+  /* hand_and_teams.md §1.2: optional per-group grant `mode`; absent = "slots" = today, so choosing
+     "slots" DELETES the key again and the row round-trips unchanged. */
+  const setMode=(ai,gi,m)=>commitEdit(next=>{
+    const g=next.hybridisation?.[ai]?.groups?.[gi]; if(!g) return;
+    if(!m||m==="slots") delete g.mode; else g.mode=m;
+  },dy=>dy.hybridisation=true);
+  const setRuledCore=(ai,gi)=>commitEdit(next=>{
+    const g=next.hybridisation?.[ai]?.groups?.[gi]; if(!g) return;
+    g.slots=4; g.positions=JSON.parse(JSON.stringify(HYB_RULED_CORE));
+  },dy=>dy.hybridisation=true);
+  const removeGroup=(ai,gi)=>commitEdit(next=>{
+    const ax=next.hybridisation?.[ai]; if(ax&&Array.isArray(ax.groups)) ax.groups.splice(gi,1);
+  },dy=>dy.hybridisation=true);
   const granted=(axis,posKey)=>{
     let n=0;
     for(const g of axis.groups||[]) for(const v of (g.positions?.[posKey]||[]))
@@ -4889,7 +5233,10 @@ function HybridisationTab({axes, commitEdit}){
       <b>both</b> means one from each, so it counts twice in the totals.</p>
     ${axes.map((axis,ai)=>html`
       <div class="card" key=${axis.axis} style="margin-bottom:18px">
-        <div class="card-hd">${axis.label||axis.axis}</div>
+        <div class="card-hd">${axis.label||axis.axis}
+          ${(axis.axis==="classes" && !(axis.groups||[]).some(g=>g&&g.group==="reactions"))?html`<button class="mini pb-btn" style="float:right"
+            title="Push B (2026-09-24): class reactions 2 at the ruled split — pure1 2-0 · p1s2 1-0 · 50/50 1-1 · p2s1 0-1 · pure2 0-2 (a BOTH cell is one from EACH side). Edits the working copy; Save to Supabase to keep it. Nothing in the game reads it until Push B."
+            onClick=${()=>addClassReactionsGroup(ai)}>+ Add class Reactions group (2)</button>`:null}</div>
         <div style="overflow-x:auto">
         <table class="grid" style="min-width:820px">
           <thead><tr><th style="text-align:left;min-width:190px">Slot</th>
@@ -4899,7 +5246,14 @@ function HybridisationTab({axes, commitEdit}){
             ${(axis.groups||[]).map((g,gi)=>html`
               <${Fragment} key=${g.group}>
               <tr><td colspan=${1+(axis.positions||[]).length} style="background:var(--bg-3);font-weight:600">
-                ${g.label}
+                ${g.label} <span class="mono" style="color:var(--ink-3);font-weight:400;font-size:10.5px">${g.group}</span>
+                ${(g.mode&&g.mode!=="slots")?html`<span class="wchip err" style="margin-left:10px" title="HT-01 (Pat D 2026-09-24): the table's cells decide the hand — grant mode is always slots. This group carries a stray mode key.">mode “${g.mode}” is unused (HT-01)
+                  <button class="mini pb-btn" style="margin-left:6px;height:20px" onClick=${()=>setMode(ai,gi,"slots")}>clear</button></span>`:null}
+                ${(axis.axis==="classes"&&g.group==="core"&&!hybIsRuledCore(g))?html`<button class="mini pb-btn" style="margin-left:10px"
+                  title="HT-01 director's reading: the ruled core allocation 4-0 · 3-1 · 2-2 · 1-3 · 0-4 (four slots). Publish WITH Push B, never alone (today's composer reads slot_count)."
+                  onClick=${()=>setRuledCore(ai,gi)}>set ruled core row (4-0 · 3-1 · 2-2)</button>`:null}
+                <button class="mini del" style="float:right;margin-left:6px" title=${"Remove the whole \""+(g.label||g.group)+"\" group from this axis (working copy; Save to keep)"}
+                  onClick=${()=>{ if(confirm("Remove the \""+(g.label||g.group)+"\" group from the "+(axis.label||axis.axis)+" axis?")) removeGroup(ai,gi); }}>×</button>
                 <button class="mini" style="float:right;margin-left:6px" onClick=${()=>setSlots(ai,gi,1)}>+ slot</button>
                 <button class="mini" style="float:right" onClick=${()=>setSlots(ai,gi,-1)}>− slot</button>
               </td></tr>
@@ -4925,91 +5279,350 @@ function HybridisationTab({axes, commitEdit}){
   </div>`;
 }
 
-function ReactionsTab({reactions, effects, commitEdit}){
-  const typeOrder=["Human","Horde","Arcane","Doom","Celestial","Tech","Elderfolk","Beast","Earth","Sea","Sky"];
+/* ════════════════════════════════════════════════════════════════════
+   PUSH B AUTHORING (2026-09-24) — REACTIONS
+   Pat D authors Push B data BEFORE the runtime reads it, so every field here
+   is OPTIONAL and absent-by-default: a row nobody touches round-trips byte-for-
+   byte (nothing is written until a control is used; clearing a control DELETES
+   its key). Shapes: docs/plans/batch_2026-09-22/pushB/reactions.md §2–4.
+   Anything still waiting on a Pat D ruling carries a PROVISIONAL badge.
+   Row additions:
+     owner_kind  "type" | "class"          absent ⇒ "type" (all 44 legacy rows)
+     class       class_name                 only when owner_kind = "class"
+     when        {event, filter{}}          §3 (prose `trigger` stays as display text); absent ⇒ row inert
+     then        [{op?, effect_id, magnitude, duration, recipient, basis?, stack?, …}]   §4; absent ⇒ inert
+     limit       {per, count, while_active} absent per ⇒ once per round (⚖ RX-01 A)
+     stack_duration int turns               absent ⇒ 10 (⚖ RX-06: per-reaction DATA so any row can differ)
+     announce    bool                       absent ⇒ true (false for "always")
+   ════════════════════════════════════════════════════════════════════ */
+const RX_PROV = {when:false, then:false, limit:false, owner:false};   // shapes SETTLED by reactions.md §2–4 (2026-09-24)
+/* reactions.md §3.1 — the event enum */
+const RX_EVENTS = [
+  {v:"",              l:"— event (row inert until set) —"},
+  {v:"cast",          l:"cast — once per settled attack entry"},
+  {v:"pre_hit",       l:"pre_hit — before the dodge roll (modify_hit only)"},
+  {v:"hit",           l:"hit — a hit landed"},
+  {v:"dodge",         l:"dodge — a hit was dodged"},
+  {v:"damaged",       l:"damaged — lost HP from any source"},
+  {v:"death",         l:"death — a unit died"},
+  {v:"effect_gained", l:"effect_gained — an effect landed / refreshed"},
+  {v:"effect_ended",  l:"effect_ended — expired or stripped (reserved, v1 fires none)"},
+  {v:"healed",        l:"healed — HP restored"},
+  {v:"displaced",     l:"displaced — moved against its will"},
+  {v:"turn_start",    l:"turn_start — an activation begins"},
+  {v:"turn_end",      l:"turn_end — an activation ends"},
+  {v:"round_start",   l:"round_start"},
+  {v:"round_end",     l:"round_end"},
+  {v:"swap",          l:"swap — pair traffic (swap / delay / arrival)"},
+  {v:"always",        l:"always — standing passive, re-armed each turn (legacy-rule migration)"},
+];
+/* reactions.md §3.2 — filter vocabulary. An unknown key is a lint ERROR in the runtime. */
+const RX_ROLE_VALUES = ["self","partner","pair","ally","ally_not_partner","enemy","any","own_summon"];
+const RX_FILTER_KEYS = {
+  actor:"role", target:"role",
+  within:"int", min_distance:"int",
+  effect_id:"text|list", harmful:"bool",
+  damage_type:"normal|special|hybrid", damaging:"bool", pattern:"list",
+  crit:"bool", killed:"bool", shield_broken:"bool", kind:"text", source_kind:"text", crossed_below_pct:"int",
+  self_hp_below_pct:"int", self_hp_full:"bool",
+  self_adjacent_allies_min:"int", self_adjacent_allies_max:"int", self_outnumbered:"bool", self_moved_this_turn:"bool",
+  self_has_any:"list", partner_adjacent:"bool",
+  target_has_effect:"text", target_harmful_count_min:"int", target_not_acted_this_round:"bool",
+  pair_hit_same_target_this_round:"bool", partner_adjacent_to_target:"bool", self_adjacent_to_target:"bool",
+  match_first_kill:"bool", distinct_actions_hit_this_round:"int", streak_rounds_no_enemy_adjacent:"int",
+  rounds_since_partner_adjacent_min:"int", streak_turns_enemy_adjacent:"int", streak_turns_adjacent_enemy_unmoved:"int",
+};
+/* reactions.md §4 — THEN ops, recipients, basis */
+const RX_OPS = [
+  {v:"apply_effect",         l:"apply_effect (default)"},
+  {v:"damage",               l:"damage — deterministic HP loss"},
+  {v:"heal",                 l:"heal"},
+  {v:"gain_charge",          l:"gain_charge"},
+  {v:"strip",                l:"strip"},
+  {v:"transfer_effect",      l:"transfer_effect"},
+  {v:"copy_event_effect",    l:"copy_event_effect"},
+  {v:"next_hit_undodgeable", l:"next_hit_undodgeable"},
+  {v:"modify_hit",           l:"modify_hit (pre_hit only)"},
+];
+const RX_OP_KEYS = {   // which inputs each op shows (reactions.md §4)
+  apply_effect:["effect_id","magnitude","duration","recipient","basis","stack"],
+  damage:["magnitude","basis","recipient"], heal:["magnitude","basis","recipient"],
+  gain_charge:["magnitude"], strip:["count","which","recipient"],
+  transfer_effect:["effect_ids","from","to","pick"], copy_event_effect:["recipient"],
+  next_hit_undodgeable:["vs"], modify_hit:["dmg_pct","crit_add","dodge_add","undodgeable"],
+};
+const RX_RECIPIENTS = ["self","partner","pair","trigger_source","trigger_target","adjacent_allies","adjacent_enemies",
+  "allies_within","enemies_within","nearest_enemy","nearest_enemy_to_target","enemies_adjacent_to_target","streak_enemies"].map(v=>({v,l:v}));
+const RX_BASIS = ["flat","pct_event_amount","pct_holder_max_hp","pct_recipient_max_hp",
+  "holder_stat:attack","holder_stat:defense","holder_stat:special_attack","holder_stat:special_defense","holder_stat:speed"];
+const RX_LIMIT_PER = [{v:"",l:"(default) once per round · RX-01"},{v:"none",l:"none — every time"},{v:"cast",l:"per cast"},
+  {v:"turn",l:"per turn"},{v:"round",l:"per round"},{v:"match",l:"per match"}];
+const RX_TYPE_ORDER = ["Human","Horde","Arcane","Doom","Celestial","Tech","Elderfolk","Beast","Earth","Sea","Sky"];
+const rxOwner = r => (r&&r.owner_kind==="class") ? "class" : "type";
+const Prov = ({on, why}) => on ? html`<span class="prov" title=${why||"Waits on a Pat D ruling — may change before the runtime reads it."}>provisional</span>` : null;
+const rxSig = r => JSON.stringify({w:(r&&r.when)||null, t:(r&&r.then)||null});
+
+/* per-row lint mirror (reactions.md §11 / RX-G): what the runtime will refuse or ignore */
+function rxLint(r, effectSet, allRows){
+  const out=[]; const when=(r.when&&typeof r.when==="object")?r.when:{}; const then=Array.isArray(r.then)?r.then:[];
+  if(!when.event) out.push({k:"warn",t:"inert: no WHEN event"});
+  else if(!RX_EVENTS.some(e=>e.v===when.event)) out.push({k:"err",t:`unknown event “${when.event}”`});
+  if(!then.length) out.push({k:"warn",t:"inert: no THEN line"});
+  if(r.stack_duration!=null && !(intOf(r.stack_duration,0)>=1)) out.push({k:"err",t:`stack_duration ${r.stack_duration}: must be ≥ 1 turn`});
+  Object.keys(when.filter||{}).forEach(k=>{ if(!RX_FILTER_KEYS[k]) out.push({k:"err",t:`unknown filter key “${k}”`}); });
+  ["actor","target"].forEach(k=>{ const v=(when.filter||{})[k]; if(v!=null && !RX_ROLE_VALUES.includes(v)) out.push({k:"err",t:`${k}: “${v}” is not a role`}); });
+  then.forEach((t,i)=>{
+    const op=t.op||"apply_effect";
+    if(!RX_OP_KEYS[op]) out.push({k:"err",t:`THEN ${i+1}: unknown op “${op}”`});
+    if(op==="modify_hit" && when.event!=="pre_hit") out.push({k:"err",t:`THEN ${i+1}: modify_hit is pre_hit only`});
+    if(op==="apply_effect"){ if(!t.effect_id) out.push({k:"err",t:`THEN ${i+1}: pick an effect`}); else if(effectSet&&!effectSet.has(t.effect_id)) out.push({k:"err",t:`THEN ${i+1}: “${t.effect_id}” not in the effect catalog`}); }
+    if(t.recipient && !RX_RECIPIENTS.some(o=>o.v===t.recipient)) out.push({k:"err",t:`THEN ${i+1}: unknown recipient “${t.recipient}”`});
+  });
+  if(rxOwner(r)==="class" && when.event && then.length){
+    const sig=rxSig(r); const dup=(allRows||[]).find(o=>o!==r && rxOwner(o)==="type" && rxSig(o)===sig);
+    if(dup) out.push({k:"err",t:`exact duplicate of type reaction ${dup.name||dup.id} (2.2 C bans only this)`});
+  }
+  return out;
+}
+
+/* when.filter editor: known keys from §3.2 (datalist), typed coercion, unknown keys flagged */
+function FilterEditor({obj, onChange}){
+  const entries=Object.entries(obj&&typeof obj==="object"?obj:{});
+  const coerce=(k,v)=>{ const kind=RX_FILTER_KEYS[k]||""; const t=String(v).trim();
+    if(t==="true") return true; if(t==="false") return false;
+    if((kind.includes("list")) && t.includes(",")) return t.split(",").map(x=>x.trim()).filter(Boolean);
+    if(t!==""&&Number.isFinite(Number(t))) return Number(t); return v; };
+  const write=(list)=>{ const o={}; list.forEach(([k,v])=>{ if(String(k).trim()!=="") o[String(k).trim()]=v; }); onChange(Object.keys(o).length?o:null); };
+  const show=v=>Array.isArray(v)?v.join(", "):(typeof v==="object"&&v!==null?JSON.stringify(v):String(v));
+  return html`<div>
+    <datalist id="rx-filter-keys">${Object.keys(RX_FILTER_KEYS).map(k=>html`<option key=${k} value=${k}>${RX_FILTER_KEYS[k]}</option>`)}</datalist>
+    <datalist id="rx-role-values">${RX_ROLE_VALUES.map(v=>html`<option key=${v} value=${v} />`)}</datalist>
+    ${entries.map(([k,v],i)=>{ const known=!!RX_FILTER_KEYS[k]; const role=RX_FILTER_KEYS[k]==="role";
+      return html`<div class="pb-line" key=${i} style="grid-template-columns:1fr 1fr auto">
+      <input class="mono" type="text" list="rx-filter-keys" value=${k} placeholder="filter key" style=${known?"":"border-color:var(--rose)"}
+        title=${known?("expects: "+RX_FILTER_KEYS[k]):"unknown filter key — the runtime lint rejects it"}
+        onChange=${e=>{ const l=entries.slice(); l[i]=[e.target.value,v]; write(l); }} />
+      <input class="mono" type="text" list=${role?"rx-role-values":undefined} value=${show(v)} placeholder=${RX_FILTER_KEYS[k]||"value"}
+        onChange=${e=>{ const l=entries.slice(); l[i]=[k,coerce(k,e.target.value)]; write(l); }} />
+      <button class="mini del" title="Remove" onClick=${()=>write(entries.filter((_,j)=>j!==i))}>×</button>
+    </div>`; })}
+    <button class="mini pb-btn" onClick=${()=>{ const l=entries.slice(); let n="actor"; if(l.some(([k])=>k===n)) n="target"; let i=2; while(l.some(([k])=>k===n)) n="within"+(i++); l.push([n,n==="actor"||n==="target"?"self":""]); write(l); }}>+ filter</button>
+  </div>`;
+}
+
+/* one THEN line — inputs follow the op (reactions.md §4); absent op = apply_effect */
+function RxThenLine({t, i, effectNames, upd, del}){
+  const op=t.op||"apply_effect"; const keys=RX_OP_KEYS[op]||RX_OP_KEYS.apply_effect;
+  const has=k=>keys.includes(k);
+  const numIn=(k,label,step)=>html`<label>${label}
+    <input class="mono" type="number" step=${step||"any"} value=${t[k]==null?"":t[k]} onChange=${e=>upd(i,{[k]:e.target.value===""?undefined:num(e.target.value,0)})} /></label>`;
+  const sel=(k,label,opts,dflt)=>html`<label>${label}
+    <select value=${t[k]==null?(dflt||""):t[k]} onChange=${e=>upd(i,{[k]:(e.target.value===""||e.target.value===dflt)?undefined:e.target.value})}>
+      ${opts.map(o=>html`<option key=${o.v} value=${o.v}>${o.l}</option>`)}
+      ${(t[k]!=null && !opts.some(o=>o.v===t[k]))?html`<option value=${t[k]}>⚠ ${t[k]}</option>`:null}
+    </select></label>`;
+  const effSel=(k,label)=>html`<label>${label}
+    <select value=${t[k]||""} onChange=${e=>upd(i,{[k]:e.target.value})}>
+      <option value="">— effect —</option>
+      ${(t[k]&&!effectNames.includes(t[k]))?html`<option value=${t[k]}>⚠ ${t[k]} (not in catalog)</option>`:null}
+      ${effectNames.map(n=>html`<option key=${n} value=${n}>${n}</option>`)}
+    </select></label>`;
+  const recips=RX_RECIPIENTS;
+  return html`<div style="border-top:1px dashed var(--line);padding-top:6px;margin-top:6px">
+    <div class="pb-line" style="grid-template-columns:1.2fr auto">
+      <label>THEN ${i+1} · op
+        <select value=${op} onChange=${e=>upd(i,{op:e.target.value==="apply_effect"?undefined:e.target.value}, true)}>
+          ${RX_OPS.map(o=>html`<option key=${o.v} value=${o.v}>${o.l}</option>`)}
+        </select></label>
+      <button class="mini del" title="Remove this THEN line" onClick=${()=>del(i)}>×</button>
+    </div>
+    <div class="pb-grid">
+      ${has("effect_id")?effSel("effect_id","effect"):null}
+      ${has("magnitude")?numIn("magnitude","magnitude"):null}
+      ${has("duration")?numIn("duration","duration (turns)","1"):null}
+      ${has("recipient")?sel("recipient","recipient",recips,"self"):null}
+      ${(has("recipient")&&(t.recipient==="allies_within"||t.recipient==="enemies_within"))?numIn("within","within (default 2)","1"):null}
+      ${has("basis")?sel("basis","basis",RX_BASIS.map(v=>({v,l:v})),"flat"):null}
+      ${has("stack")?sel("stack","stack",[{v:"refresh",l:"refresh (default)"},{v:"add",l:"add — new stack per firing"}],"refresh"):null}
+      ${has("count")?numIn("count","count","1"):null}
+      ${has("which")?sel("which","which",[{v:"oldest_harmful",l:"oldest_harmful"},{v:"newest_buff",l:"newest_buff"}],"oldest_harmful"):null}
+      ${has("effect_ids")?html`<label>effect_ids (comma)
+        <input class="mono" type="text" value=${Array.isArray(t.effect_ids)?t.effect_ids.join(", "):""}
+          onChange=${e=>{ const a=e.target.value.split(",").map(x=>x.trim()).filter(Boolean); upd(i,{effect_ids:a.length?a:undefined}); }} /></label>`:null}
+      ${has("from")?sel("from","from",recips,"self"):null}
+      ${has("to")?sel("to","to",recips,"nearest_enemy"):null}
+      ${has("pick")?sel("pick","pick",[{v:"all",l:"all"},{v:"rng_one",l:"rng_one"}],"all"):null}
+      ${has("vs")?sel("vs","vs",[{v:"trigger_target",l:"trigger_target"}],"trigger_target"):null}
+      ${has("dmg_pct")?numIn("dmg_pct","dmg %"):null}
+      ${has("crit_add")?numIn("crit_add","crit +"):null}
+      ${has("dodge_add")?numIn("dodge_add","dodge +"):null}
+      ${has("undodgeable")?html`<label>undodgeable<input type="checkbox" checked=${!!t.undodgeable} onChange=${e=>upd(i,{undodgeable:e.target.checked||undefined})} /></label>`:null}
+    </div>
+  </div>`;
+}
+
+/* the structured WHEN / THEN / LIMIT block for one reaction row (reactions.md §2–4) */
+function ReactionStructured({r, effectNames, patch}){
+  const when=(r.when&&typeof r.when==="object")?r.when:{};
+  const then=Array.isArray(r.then)?r.then:[];
+  const limit=(r.limit&&typeof r.limit==="object")?r.limit:{};
+  const known=new Set(RX_EVENTS.map(e=>e.v));
+  const setWhen=(p)=>{ const w={...when,...p}; Object.keys(w).forEach(k=>{ if(w[k]==null||w[k]==="") delete w[k]; }); patch({when:Object.keys(w).length?w:null}); };
+  const setThen=(arr)=>patch({then:arr.length?arr:null});
+  /* updThen: undefined deletes a key; `reset` (op change) drops keys the new op does not use */
+  const updThen=(i,p,reset)=>setThen(then.map((t,j)=>{ if(j!==i) return t;
+    let n={...t,...p};
+    if(reset){ const keep=new Set([...(RX_OP_KEYS[n.op||"apply_effect"]||[]),"op","within"]); Object.keys(n).forEach(k=>{ if(!keep.has(k)) delete n[k]; }); }
+    Object.keys(n).forEach(k=>{ if(n[k]===undefined) delete n[k]; }); return n; }));
+  const setLimit=(p)=>{ const l={...limit,...p}; Object.keys(l).forEach(k=>{ if(l[k]==null||l[k]===""||l[k]===false) delete l[k]; }); patch({limit:Object.keys(l).length?l:null}); };
+  const announceDefault = when.event!=="always";
+  const announce = r.announce==null ? announceDefault : !!r.announce;
+  return html`<div class="pb-box">
+    <div class="pb-hd">Structured — what the ReactionResolver reads</div>
+    <div class="pb-line" style="grid-template-columns:1fr">
+      <label>WHEN event
+        <select value=${known.has(when.event||"")?(when.event||""):"__custom"} onChange=${e=>{ const v=e.target.value; if(v!=="__custom") setWhen({event:v}); }}>
+          ${RX_EVENTS.map(e=>html`<option key=${e.v} value=${e.v}>${e.l}</option>`)}
+          ${(when.event&&!known.has(when.event))?html`<option value="__custom">⚠ unknown: ${when.event}</option>`:null}
+        </select></label>
+    </div>
+    <div class="pb-note">WHEN filter — all keys ANDed (<span class="mono">actor</span> / <span class="mono">target</span> take a role: self · partner · pair · ally · enemy …).</div>
+    <${FilterEditor} obj=${when.filter} onChange=${f=>setWhen({filter:f})} />
+    <div class="pb-note" style="margin-top:10px">THEN — one line per op; an absent op is apply_effect.</div>
+    ${then.map((t,i)=>html`<${RxThenLine} key=${i} t=${t} i=${i} effectNames=${effectNames} upd=${updThen} del=${j=>setThen(then.filter((_,k)=>k!==j))} />`)}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+      <button class="mini pb-btn" onClick=${()=>setThen([...then,{effect_id:"",magnitude:0,duration:1,recipient:"self"}])}>+ THEN line</button>
+      ${(!then.length && Array.isArray(r.effect_ids) && r.effect_ids.length)?html`<button class="mini pb-btn" title="Seed one apply_effect line per legacy effect_ids chip (magnitude 0 — fill in by hand)"
+        onClick=${()=>setThen(r.effect_ids.map(id=>({effect_id:id,magnitude:0,duration:1,recipient:"self"})))}>seed from effect_ids</button>`:null}
+    </div>
+    <div class="pb-line" style="grid-template-columns:1.3fr .5fr .8fr;margin-top:10px">
+      <label title="⚖ RX-01: a reaction with no limit set fires at most once per round">LIMIT per
+        <select value=${limit.per||""} onChange=${e=>setLimit({per:e.target.value})}>
+          ${RX_LIMIT_PER.map(o=>html`<option key=${o.v} value=${o.v}>${o.l}</option>`)}
+        </select></label>
+      <label>times
+        <input class="mono" type="number" min="1" step="1" placeholder="1" value=${limit.count==null?"":limit.count}
+          onChange=${e=>setLimit({count:e.target.value===""?null:Math.max(1,intOf(e.target.value,1))})} /></label>
+      <label title="Skip if an effect this row granted is still on the recipient — what lets a ramp grow">while_active
+        <input type="checkbox" checked=${!!limit.while_active} onChange=${e=>setLimit({while_active:e.target.checked})} /></label>
+    </div>
+    <div class="pb-line" style="grid-template-columns:.8fr 1.2fr;margin-top:4px">
+      <label title="⚖ RX-06: how many turns each stack / timed grant from this reaction lasts. Absent = 10 (the class-ramp length). Stored per reaction in Supabase so any row can be made unique.">stack duration (turns)
+        <input class="mono" type="number" min="1" step="1" placeholder="10 (default)" value=${r.stack_duration==null?"":r.stack_duration}
+          onChange=${e=>patch({stack_duration:e.target.value===""?null:Math.max(1,intOf(e.target.value,10))})} /></label>
+      <span class="pb-note" style="align-self:end">${r.stack_duration==null?"absent → 10 (RX-06)":"set on this row"}</span>
+    </div>
+    <div class="pb-line" style="grid-template-columns:auto 1fr;margin-top:4px">
+      <label title="Presentation only: a board caption when it fires. Default true, false for 'always'.">announce
+        <input type="checkbox" checked=${announce} onChange=${e=>patch({announce:(e.target.checked===announceDefault)?null:e.target.checked})} /></label>
+      <span class="pb-note" style="align-self:center">${r.announce==null?"(default)":"(set explicitly — untick/tick back to the default to clear)"}</span>
+    </div>
+  </div>`;
+}
+
+function ReactionCard({r, effectNames, effectSet, setField, patch, removeReaction, ownerLabel, allRows}){
+  const selected=Array.isArray(r.effect_ids)?r.effect_ids:[];
+  const isClass=rxOwner(r)==="class";
+  const lint=rxLint(r, effectSet, allRows);
+  return html`<div class="ref-card tight">
+    <h3>${r.name||"Unnamed reaction"}</h3><span class="cat">${ownerLabel}</span>
+    <dl>
+      <dd><label><span class="dlbl">name</span>
+        <input type="text" value=${r.name||""} onInput=${e=>setField(r.id,"name",e.target.value)} /></label></dd>
+      <dd><label><span class="dlbl">${isClass?"slot":"tier"}</span>
+        <select value=${r.tier|0} onChange=${e=>setField(r.id,"tier",Number(e.target.value))}>
+          ${(isClass?[1,2]:[1,2,3,4]).map(tier=>html`<option key=${tier} value=${tier}>${tier}</option>`)}
+        </select></label></dd>
+      <dd><label><span class="dlbl">WHEN (prose)</span>
+        <textarea class="effect-ref-input" value=${r.trigger||""} onInput=${e=>setField(r.id,"trigger",e.target.value)}></textarea></label></dd>
+      <dd><label><span class="dlbl">THEN (prose)</span>
+        <textarea class="effect-ref-input" value=${r.effect||""} onInput=${e=>setField(r.id,"effect",e.target.value)}></textarea></label></dd>
+      <dd><span class="dlbl" title="Kept: the bio's reaction glyph source (BioKitGlyphs.reaction_glyph) — must be catalog spellings">effect_ids (bio glyphs)</span>
+        ${selected.map(name=>html`<button type="button" class=${"chip"+(effectSet.has(name)?"":" bad")} key=${name}
+          title=${effectSet.has(name)?"Remove":"Not a catalog effect name — fix the spelling (or remove)"}
+          onClick=${()=>patch(r.id,{effect_ids:selected.filter(v=>v!==name)})}>${effectSet.has(name)?"":"⚠ "}${name} ×</button>`)}
+        <select value="" aria-label="Add effect" onChange=${e=>{ const name=e.target.value; e.target.value=""; if(name&&!selected.includes(name)) patch(r.id,{effect_ids:selected.concat(name)}); }}>
+          <option value="">+ Add effect</option>
+          ${effectNames.filter(name=>!selected.includes(name)).map(name=>html`<option key=${name} value=${name}>${name}</option>`)}
+        </select></dd>
+      ${r.trigger_event?html`<dd><span class="dlbl">trigger_event (legacy, superseded by WHEN event)</span> <span class="mono">${r.trigger_event}</span></dd>`:null}
+      <dd><label><span class="dlbl">flag</span>
+        <input type="text" value=${r.flag||""} onInput=${e=>setField(r.id,"flag",e.target.value)} /></label></dd>
+    </dl>
+    <${ReactionStructured} r=${r} effectNames=${effectNames} patch=${p=>patch(r.id,p)} />
+    ${lint.length?html`<div style="margin-top:6px"><${LintChips} issues=${lint} /></div>`:null}
+    <button type="button" class="mini pb-btn" style="margin-top:8px" onClick=${()=>removeReaction(r.id)}>Remove reaction</button>
+  </div>`;
+}
+
+/* new-row factory shared by the Reactions tab and the Classes tab */
+function newReactionRow(existing, owner, name){
+  const ids=new Set((existing||[]).filter(r=>r&&r.id).map(r=>r.id));
+  const slug=String(name||"").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
+  const base=(owner==="class"?"reaction_class_":"reaction_")+slug+"_new_reaction";
+  let id=base, n=2; while(ids.has(id)) id=base+"_"+(n++);
+  const row={id,name:"New reaction",tier:owner==="class"?1:4,trigger:"",effect:"",effect_ids:[],trigger_event:"",flag:"",pat_note_applied:false,stack_duration:10};
+  if(owner==="class"){ row.owner_kind="class"; row.class=name; row.type=""; }
+  else { row.type=name; }
+  return row;
+}
+
+function ReactionsTab({reactions, effects, classes, commitEdit}){
+  const [view,setViewRaw]=useState(()=>{ try{ return localStorage.getItem("phalanx_rx_view")||"type"; }catch(e){ return "type"; } });
+  const setView=v=>{ setViewRaw(v); try{ localStorage.setItem("phalanx_rx_view",v); }catch(e){} };
+  const [q,setQ]=useState("");
   const effectNames=[...new Set((effects||[]).filter(e=>e&&e.name).map(e=>e.name))].sort((a,b)=>a.localeCompare(b));
+  const effectSet=new Set(effectNames);
   const setField=(id,key,value)=>commitEdit(next=>{
     const row=(next.reactions||[]).find(r=>r&&r.id===id);
     if(row) row[key]=value;
   },dy=>dy.reactions=true);
-  const addEffect=(id,name)=>commitEdit(next=>{
-    const row=(next.reactions||[]).find(r=>r&&r.id===id);
-    if(!row||!name) return;
-    const ids=Array.isArray(row.effect_ids)?row.effect_ids:[];
-    if(!ids.includes(name)) row.effect_ids=ids.concat(name);
+  /* patch: a null value DELETES the key, so clearing a structured field restores the untouched shape */
+  const patch=(id,p)=>commitEdit(next=>{
+    const row=(next.reactions||[]).find(r=>r&&r.id===id); if(!row) return;
+    for(const [k,v] of Object.entries(p)){ if(v==null) delete row[k]; else row[k]=v; }
   },dy=>dy.reactions=true);
-  const removeEffect=(id,name)=>commitEdit(next=>{
-    const row=(next.reactions||[]).find(r=>r&&r.id===id);
-    if(row) row.effect_ids=(Array.isArray(row.effect_ids)?row.effect_ids:[]).filter(value=>value!==name);
-  },dy=>dy.reactions=true);
-  const addReaction=type=>commitEdit(next=>{
+  const addReaction=(owner,name)=>commitEdit(next=>{
     if(!Array.isArray(next.reactions)) next.reactions=[];
-    const base="reaction_"+type.toLowerCase()+"_new_reaction";
-    const ids=new Set(next.reactions.filter(r=>r&&r.id).map(r=>r.id));
-    let id=base, suffix=2;
-    while(ids.has(id)) id=base+"_"+suffix++;
-    next.reactions.push({id,type,name:"New reaction",tier:4,trigger:"",effect:"",effect_ids:[],trigger_event:"",flag:"",pat_note_applied:false});
+    next.reactions.push(newReactionRow(next.reactions, owner, name));
   },dy=>dy.reactions=true);
   const removeReaction=id=>commitEdit(next=>{
     next.reactions=(next.reactions||[]).filter(r=>!r||r.id!==id);
   },dy=>dy.reactions=true);
+  const all=(reactions||[]).filter(Boolean);
+  const match=r=>!q||[r.name,r.id,r.trigger,r.effect,r.class,r.type].some(v=>String(v||"").toLowerCase().includes(q.toLowerCase()));
+  const typeRows=all.filter(r=>rxOwner(r)==="type");
+  const classRows=all.filter(r=>rxOwner(r)==="class");
+  const classNames=(classes||[]).filter(c=>c&&c.class_name&&c.class_name!=="Minion").map(c=>c.class_name);
+  const unstructured=all.filter(r=>!(r.when&&r.when.event)).length;
+  const badIds=all.reduce((n,r)=>n+(Array.isArray(r.effect_ids)?r.effect_ids.filter(x=>!effectSet.has(x)).length:0),0);
+  const groups = view==="type"
+    ? RX_TYPE_ORDER.map(t=>({key:t, label:t, rows:typeRows.filter(r=>r.type===t)}))
+    : classNames.map(c=>({key:c, label:c, rows:classRows.filter(r=>r.class===c)}));
   return html`<div class="view"><div class="full-pane">
-    <div class="group-title">Reactions <span class="badge">${(reactions||[]).length}</span></div>
-    <p class="note">Remove only removes a reaction from the working copy. Saving never deletes reactions from Supabase; previously saved rows return on reload.</p>
-    ${typeOrder.map(type=>{
-      const rows=(reactions||[]).filter(r=>r&&r.type===type).sort((a,b)=>(a.tier|0)-(b.tier|0));
-      return html`<section key=${type}>
-        <div class="group-title">${type} <span class="badge">${rows.length}</span></div>
-        <button type="button" class="mini" onClick=${()=>addReaction(type)}>+ New reaction</button>
-        <div class="ref-grid tight">${rows.map(r=>{
-          const selected=Array.isArray(r.effect_ids)?r.effect_ids:[];
-          return html`<div class="ref-card tight" key=${r.id}>
-            <h3>${r.name||"Unnamed reaction"}</h3><span class="cat">${type}</span>
-            <dl>
-              <dd><label><span class="dlbl">name</span>
-                <input type="text" value=${r.name||""}
-                  onInput=${e=>setField(r.id,"name",e.target.value)} />
-              </label></dd>
-              <dd><label><span class="dlbl">tier</span>
-                <select value=${r.tier|0} onChange=${e=>setField(r.id,"tier",Number(e.target.value))}>
-                  ${[1,2,3,4].map(tier=>html`<option key=${tier} value=${tier}>${tier}</option>`)}
-                </select>
-              </label></dd>
-              <dd><label><span class="dlbl">WHEN</span>
-                <textarea class="effect-ref-input" value=${r.trigger||""}
-                  onInput=${e=>setField(r.id,"trigger",e.target.value)}></textarea>
-              </label></dd>
-              <dd><label><span class="dlbl">THEN</span>
-                <textarea class="effect-ref-input" value=${r.effect||""}
-                  onInput=${e=>setField(r.id,"effect",e.target.value)}></textarea>
-              </label></dd>
-              <dd><span class="dlbl">effect_ids</span>
-                ${selected.map(name=>html`<button type="button" class="chip"
-                  key=${name} aria-label=${"Remove effect "+name}
-                  onClick=${()=>removeEffect(r.id,name)}>${name} ×</button>`)}
-                <select value="" aria-label="Add effect"
-                  onChange=${e=>{
-                    const name=e.target.value;
-                    e.target.value="";
-                    if(name) addEffect(r.id,name);
-                  }}>
-                  <option value="">+ Add effect</option>
-                  ${effectNames.filter(name=>!selected.includes(name)).map(name=>html`
-                    <option key=${name} value=${name}>${name}</option>`)}
-                </select>
-              </dd>
-              <dd><label><span class="dlbl">trigger_event</span>
-                <input class="mono" type="text" placeholder="runtime seam -- later"
-                  value=${r.trigger_event||""} onInput=${e=>setField(r.id,"trigger_event",e.target.value)} />
-              </label></dd>
-              <dd><label><span class="dlbl">flag</span>
-                <input type="text" value=${r.flag||""}
-                  onInput=${e=>setField(r.id,"flag",e.target.value)} />
-              </label></dd>
-            </dl>
-            <button type="button" class="mini" onClick=${()=>removeReaction(r.id)}>Remove reaction</button>
-          </div>`;
-        })}</div>
+    <div class="group-title">Reactions <span class="badge">${all.length}</span></div>
+    <p class="note">Remove only removes a reaction from the working copy. Saving never deletes reactions from Supabase; previously saved rows return on reload.
+      Prose WHEN / THEN is what players read; the dashed <b>Structured</b> box is what the Push B ReactionResolver will read. A row is untouched (and round-trips unchanged) until you edit its structured fields.</p>
+    ${(()=>{ const missing=all.filter(r=>r.stack_duration==null).length; return html`<p class="note">⚖ RX-06: <span class="mono">stack_duration</span> lives on every reaction (default 10). ${missing
+      ? html`${missing} of ${all.length} rows don't carry it yet (they read as 10). <button class="mini pb-btn" title="Writes stack_duration: 10 onto every reaction row that lacks it (working copy — Save to keep). Rows that already have a value are untouched."
+          onClick=${()=>commitEdit(next=>{ (next.reactions||[]).forEach(r=>{ if(r&&r.stack_duration==null) r.stack_duration=10; }); },dy=>dy.reactions=true)}>write 10 on all ${missing}</button>`
+      : "Every row carries it."}</p>`; })()}
+    <p class="note">${unstructured} of ${all.length} rows have no structured WHEN event yet (inert — the bio keeps NOT ACTIVE YET)${badIds?html` · <span class="warn-text">${badIds} effect_ids tag(s) don't match a catalog effect name (they are the bio's glyph source — fix the spelling)</span>`:""}.</p>
+    <div class="pb-sec-tabs">
+      <button class=${"expand-toggle"+(view==="type"?" on":"")} onClick=${()=>setView("type")}>Type reactions (${typeRows.length})</button>
+      <button class=${"expand-toggle"+(view==="class"?" on":"")} onClick=${()=>setView("class")}>Class reactions (${classRows.length}) <${Prov} on=${RX_PROV.owner} /></button>
+      <input class="search" style="max-width:260px;margin-left:auto" placeholder="Filter reactions…" value=${q} onInput=${e=>setQ(e.target.value)} />
+    </div>
+    ${view==="class"?html`<p class="note">Class reactions (⚖ 2026-09-24: a pure class carries 2; the ramps Focus / Fervor / Attune and Catalysis / Outcast move here). Rows are stored in the same <span class="mono">reactions</span> table with <span class="mono">owner_kind: "class"</span> + <span class="mono">class</span>; assign them to a class's two slots on the <b>Classes</b> tab.</p>`:null}
+    ${groups.map(g=>{
+      const rows=g.rows.filter(match).sort((a,b)=>(a.tier|0)-(b.tier|0));
+      if(q && !rows.length) return null;
+      return html`<section key=${g.key}>
+        <div class="group-title">${g.label} <span class="badge">${g.rows.length}</span></div>
+        <button type="button" class="mini pb-btn" onClick=${()=>addReaction(view,g.key)}>+ New ${view} reaction</button>
+        <div class="ref-grid tight" style="margin-top:8px">${rows.map(r=>html`<${ReactionCard} key=${r.id} r=${r}
+          effectNames=${effectNames} effectSet=${effectSet} setField=${setField} patch=${patch} removeReaction=${removeReaction}
+          ownerLabel=${view==="class"?("class · "+g.label):g.label} allRows=${all} />`)}</div>
       </section>`;
     })}
   </div></div>`;
@@ -5243,6 +5856,54 @@ function ClassCostsTab({tunables, commitEdit}){
    TUNABLES TAB (2026-07-01) — global balance knobs (balance_tunables table →
    data/balance_tunables.json → Constants autoload at boot).
    ════════════════════════════════════════════════════════════════════ */
+/* Push B (hand_and_teams.md §2.1) — enemy hybridisation policy rows. Absent = the code default
+   (pure-only weights until Pat D rules Q4a/Q4b/Q6), which is byte-identical to today's hands. */
+const PUSHB_TUNABLE_GROUPS=[
+ {title:"Push B · recent use", prefix:"recent_use_",
+  note:"⚖ RU-01 A (recovery curve) · RU-02 A (only the card's power shrinks) · RU-03 A (no-number effects off whenever weakened) · RU-04 A (one use per card per turn) · RU-05: standard attack window 3 (set per card on the action). The ruled values ARE the code defaults, so no row is needed — an absent row means the value in brackets. Author only pins it as a Supabase row.",
+  rows:[
+  {id:"recent_use_curve",            step:1,    seed:0,      int:true, desc:"weakening curve: 0 = recovery (regain 1/window per round) · 1 = halving · 2 = thirds — ⚖ RU-01 A = 0 [default 0]"},
+  {id:"recent_use_binary_threshold", step:0.05, seed:1.0,    desc:"effects with no magnitude (Stun, Root…) stay OFF while strength is below this — ⚖ RU-03 A = 1.0, off whenever weakened at all [default 1.0]"},
+  {id:"recent_use_thirds_step",      step:0.0001,seed:0.3333,desc:"strength lost per recent use under the thirds curve only — unused under the ruled recovery curve [default 0.3333]"},
+ ]},
+ {title:"Push B · enemy hybridisation", prefix:"enemy_hybrid_",
+  note:"⚖ Pat D 2026-09-24 (#7 + HT-05/06/07): enemy heroes and lieutenants roll a class_2 and a slider position (pure 40 · primary 35 · 50/50 15 · secondary-lean 10); a second TYPE only if authored. ⚖ HT-02: enemies and sims play at MAX mastery, sized by the table's mastery row for their rolled position (a code rule, not a tunable). The ruled numbers should be the code defaults; Author pins the same value as a Supabase row.",
+  rows:null},
+];
+const PUSHB_TUNABLES=[
+  {id:"enemy_hybrid_w_pure",      step:0.05, seed:0.40, desc:"weight an enemy rolls PURE (class 1 only) — ⚖ HT-07 b = 0.40"},
+  {id:"enemy_hybrid_w_primary",   step:0.05, seed:0.35, desc:"weight for 1 primary / 2 secondary (p1s2) — ⚖ HT-07 b = 0.35"},
+  {id:"enemy_hybrid_w_even",      step:0.05, seed:0.15, desc:"weight for 50 / 50 — ⚖ HT-07 b = 0.15"},
+  {id:"enemy_hybrid_w_secondary", step:0.05, seed:0.10, desc:"weight for 2 primary / 1 secondary (p2s1) — ⚖ HT-07 b = 0.10"},
+  {id:"enemy_hybrid_w_pure2",     step:0.05, seed:0,    desc:"weight for PURE 2 (a full flip to side 2) — not in HT-07's split, so 0"},
+  {id:"enemy_hybrid_type2_mode",  step:1,    seed:0,    int:true, desc:"second TYPE source: 0 = authored type_2 only · 1 = authored, else roll · 2 = always roll — ⚖ HT-06 a = 0"},
+  {id:"enemy_hybrid_tiers",       step:1,    seed:3,    int:true, desc:"bitmask of tiers that hybridise: 1 = hero · 2 = lieutenant · 4 = minion — ⚖ HT-05 a = 3 (heroes + lieutenants; minions and summons stay pure)"},
+];
+PUSHB_TUNABLE_GROUPS[1].rows=PUSHB_TUNABLES;
+const PUSHB_TUNABLE_IDS=new Set(PUSHB_TUNABLE_GROUPS.flatMap(g=>g.rows.map(r=>r.id)));
+function PushBTunables({tunables, commitEdit}){
+  return html`${PUSHB_TUNABLE_GROUPS.map(g=>html`<${PushBTunableGroup} key=${g.prefix} group=${g} tunables=${tunables} commitEdit=${commitEdit} />`)}`;
+}
+function PushBTunableGroup({group, tunables, commitEdit}){
+  const byId={}; (tunables||[]).forEach((t,i)=>{ if(t&&t.id) byId[t.id]=i; });
+  const setVal=(id,v,def)=>commitEdit(next=>{ const i=(next.tunables||[]).findIndex(t=>t&&t.id===id);
+    if(i>=0) next.tunables[i].value=v; else next.tunables.push({id,value:v,description:def.desc}); }, dy=>{ dy.tunables=true; });
+  const drop=id=>commitEdit(next=>{ next.tunables=(next.tunables||[]).filter(t=>!t||t.id!==id); }, dy=>{ dy.tunables=true; });
+  return html`<div class="pb-box" style="margin-top:22px">
+    <div class="pb-hd">${group.title}</div>
+    <p class="pb-note">${group.note} ✕ removes an authored row again (the save deletes it from Supabase).</p>
+    ${group.rows.map(def=>{ const i=byId[def.id]; const t=i!=null?tunables[i]:null;
+      return html`<div key=${def.id} style="display:flex;gap:14px;align-items:center;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.06)">
+        <div style="flex:1;min-width:0"><b class="mono" style="font-size:12px">${def.id}</b>
+          <div style="opacity:.7;font-size:12px;margin-top:2px">${def.desc}</div></div>
+        ${t?html`${Number(t.value)!==Number(def.seed)?html`<span class="wchip warn" title="differs from the ruled value">ruled ${def.seed}</span>`:null}<input type="number" step=${def.step} value=${t.value} style="width:110px;text-align:right"
+            onChange=${e=>{ const v=def.int?parseInt(e.target.value,10):parseFloat(e.target.value); if(!isNaN(v)) setVal(def.id,v,def); }} />
+          <button class="mini del" title="Remove the row (back to the code default)" onClick=${()=>drop(def.id)}>×</button>`
+          :html`<span class="note" style="margin:0">code default · ruled ${def.seed}</span>
+          <button class="mini pb-btn" title=${"Add this row with the recommended value "+def.seed} onClick=${()=>setVal(def.id,def.seed,def)}>Author</button>`}
+      </div>`; })}
+  </div>`;
+}
 function TunablesTab({tunables, commitEdit}){
   if(!tunables) return html`<div class="wrap"><p class="note">No tunables loaded.</p></div>`;
   return html`<div class="wrap"><div class="pane" style="max-width:780px;margin:18px auto;padding:20px">
@@ -5251,7 +5912,7 @@ function TunablesTab({tunables, commitEdit}){
       ⚠ A changed value changes combat outcomes — after publishing, the next repo push must re-baseline the
       determinism golden file: <code>bash tools/rebaseline_golden.sh</code> (commits <code>tools/determinism_golden.txt</code>).
       Since 2026-07-26, final live stats use absolute <code>stat_cap_&lt;name&gt;</code> rows; synergy counts and accumulation are unbounded.</p>
-    ${tunables.map((t,i)=>html`<div key=${t.id} style="display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08)">
+    ${tunables.filter(t=>!(t&&PUSHB_TUNABLE_IDS.has(String(t.id||"")))).map((t)=>{ const i=tunables.indexOf(t); return html`<div key=${t.id} style="display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.08)">
       <div style="flex:1;min-width:0">
         <b>${t.id}${t.id==="max_stat_multiplier"?" — RETIRED 2026-07-26":""}</b>
         <div style="opacity:.7;font-size:12px;margin-top:2px">${t.id==="max_stat_multiplier"
@@ -5265,7 +5926,8 @@ function TunablesTab({tunables, commitEdit}){
           if(isNaN(v)) return;
           commitEdit(next=>{ next.tunables[i].value=v; }, dy=>{ dy.tunables=true; });
         }} />
-    </div>`)}
+    </div>`; })}
+    <${PushBTunables} tunables=${tunables} commitEdit=${commitEdit} />
   </div></div>`;
 }
 
