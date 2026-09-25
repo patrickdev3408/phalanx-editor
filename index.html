@@ -1344,8 +1344,10 @@ function syncInherentNames(effects){
   const n=(effects||[]).filter(e=>e&&e.name&&e.category==="Inherent").map(e=>e.name).sort((a,b)=>a.localeCompare(b));
   INHERENT_NAMES.length=0; n.forEach(x=>INHERENT_NAMES.push(x));
 }
+/* 2026-09-25 (Push I, H13): MaxHP+ and Sequence dropped -- both effect rows were deleted in Push H
+   (nothing grants either), so no picker may offer them. */
 const EFFECT_GROUPS = [
-  {label:"Positive stat deltas", names:["Atk+","SpcAtk+","Def+","SpcDef+","Speed+","Crit+","Dodge+","MaxHP+"]},
+  {label:"Positive stat deltas", names:["Atk+","SpcAtk+","Def+","SpcDef+","Speed+","Crit+","Dodge+"]},
   {label:"Negative stat deltas", names:["Atk-","SpcAtk-","Def-","SpcDef-","Speed-","Crit-","Dodge-"]},
   {label:"Buff Auras", names:["Warcry","ArcaneCry","Bulwark","Ward","Tailwind","Perception","Shroud"]},
   {label:"Debuff Auras", names:["Intimidate","Suppress","Corrode","Breach","Hinder","Dull","Expose"]},
@@ -1357,7 +1359,7 @@ const EFFECT_GROUPS = [
   {label:"Damage over time", names:["Burn","Poison","Bleed"]},
   {label:"Control / disrupt", names:["Stun","Root","Anti Heal","Silence","Blind","Curse","Mark","Push","Pull"]},
   {label:"Utility / triggers", names:["Dispel","Buff Block","Death Ward","Time Bomb","Mirage","Dispel Steal","Rupture"]},
-  {label:"Class identities", names:["Legion","Resonance","Undead Contagion","Dying Blessing","Grudge","Soul Reservoir","Braced","Markstalker","Riposte","Sequence","WeaponEnchant","Vindication","OverhealShield","Outcast","Penance","Sure Strike"]},
+  {label:"Class identities", names:["Legion","Resonance","Undead Contagion","Dying Blessing","Grudge","Soul Reservoir","Braced","Markstalker","Riposte","WeaponEnchant","Vindication","OverhealShield","Outcast","Penance","Sure Strike"]},
   {label:"Summon", names:["Summon"]},
   {label:"Type inherents (category Inherent - primary-only passives, never on an action; add / rename / delete them in this tab)", get names(){ return INHERENT_NAMES.slice(); }},
 ];
@@ -2720,7 +2722,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-25 pushF-vocab</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-25 pushI</span></span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -5415,6 +5417,7 @@ function rxLint(r, effectSet, allRows){
     if(op==="apply_effect"||op==="extend_effect"||op==="shorten_effect"){ if(!t.effect_id) out.push({k:"err",t:`THEN ${i+1}: pick an effect`}); else if(effectSet&&!effectSet.has(t.effect_id)) out.push({k:"err",t:`THEN ${i+1}: “${t.effect_id}” not in the effect catalog`}); }
     if((op==="push"||op==="pull") && t.direction && !RX_DIRECTIONS[op].some(o=>o.v===t.direction)) out.push({k:"err",t:`THEN ${i+1}: a ${op} cannot go “${t.direction}”`});
     if(t.recipient && !RX_RECIPIENTS.some(o=>o.v===t.recipient)) out.push({k:"err",t:`THEN ${i+1}: unknown recipient “${t.recipient}”`});
+    if(op==="transfer_effect" && t.pick==="event_effect" && when.event!=="effect_gained") out.push({k:"err",t:`THEN ${i+1}: pick event_effect needs an effect_gained WHEN`});
   });
   if(rxOwner(r)==="class" && when.event && then.length){
     const sig=rxSig(r); const dup=(allRows||[]).find(o=>o!==r && rxOwner(o)==="type" && rxSig(o)===sig);
@@ -5490,7 +5493,7 @@ function RxThenLine({t, i, effectNames, upd, del}){
           onChange=${e=>{ const a=e.target.value.split(",").map(x=>x.trim()).filter(Boolean); upd(i,{effect_ids:a.length?a:undefined}); }} /></label>`:null}
       ${has("from")?sel("from","from",recips,"self"):null}
       ${has("to")?sel("to","to",recips,"nearest_enemy"):null}
-      ${has("pick")?sel("pick","pick",[{v:"all",l:"all"},{v:"rng_one",l:"rng_one"}],"all"):null}
+      ${has("pick")?sel("pick","pick",[{v:"all",l:"all"},{v:"rng_one",l:"rng_one"},{v:"event_effect",l:"event_effect — exactly the effect that just landed (effect_gained rows only; Push I)"}],"all"):null}
       ${has("vs")?sel("vs","vs",[{v:"trigger_target",l:"trigger_target"}],"trigger_target"):null}
       ${has("dmg_pct")?numIn("dmg_pct","dmg %"):null}
       ${has("crit_add")?numIn("crit_add","crit +"):null}
