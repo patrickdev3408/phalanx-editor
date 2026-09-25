@@ -2720,7 +2720,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-24 pushC-fields</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-24 pushD-fields</span></span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -5014,6 +5014,13 @@ function EffectsTab({effects, commitEdit}){
           <textarea class="effect-ref-input" style=${editStyle} placeholder="in-game hover / glossary text…"
             value=${e.notes||""} ref=${growTextarea}
             onInput=${ev=>{growTextarea(ev.target);setField(e.name,"notes",ev.target.value);}}></textarea></dd>
+        <dd><span class="dlbl" title="Push D: what PLAYERS read on every hover / glossary / card. Blank = they see the note above (developer text).">player</span>
+          <textarea class="effect-ref-input" style=${editStyle} placeholder="player text — shown in game instead of the note (blank = the note)"
+            value=${e.player_text||""} ref=${growTextarea}
+            onInput=${ev=>{growTextarea(ev.target);setField(e.name,"player_text",ev.target.value);}}></textarea></dd>
+        <dd><span class="dlbl" title="Push D: the one-line version for tight rows (bio / muster).">short</span>
+          <input class="effect-ref-input" style=${editStyle} placeholder="player short — one line"
+            value=${e.player_short||""} onInput=${ev=>setField(e.name,"player_short",ev.target.value)} /></dd>
         <dd><span class="dlbl">mag</span>
           <input class="effect-ref-input" style=${editStyle} placeholder="magnitude meaning (hover fallback when note is blank)"
             value=${e.magnitude_meaning||""} onInput=${ev=>setField(e.name,"magnitude_meaning",ev.target.value)} /></dd>
@@ -5331,6 +5338,7 @@ const RX_FILTER_KEYS = {
   pair_hit_same_target_this_round:"bool", partner_adjacent_to_target:"bool", self_adjacent_to_target:"bool",
   match_first_kill:"bool", distinct_actions_hit_this_round:"int", streak_rounds_no_enemy_adjacent:"int",
   rounds_since_partner_adjacent_min:"int", streak_turns_enemy_adjacent:"int", streak_turns_adjacent_enemy_unmoved:"int",
+  partner_alive:"bool", self_in_own_zone:"bool",
 };
 /* reactions.md §4 — THEN ops, recipients, basis */
 const RX_OPS = [
@@ -5343,13 +5351,15 @@ const RX_OPS = [
   {v:"copy_event_effect",    l:"copy_event_effect"},
   {v:"next_hit_undodgeable", l:"next_hit_undodgeable"},
   {v:"modify_hit",           l:"modify_hit (pre_hit only)"},
+  {v:"step_toward",          l:"step_toward — the holder steps toward the event's unit (Push D)"},
 ];
 const RX_OP_KEYS = {   // which inputs each op shows (reactions.md §4)
-  apply_effect:["effect_id","magnitude","duration","recipient","basis","stack","grace"],
+  apply_effect:["effect_id","magnitude","duration","recipient","basis","stack","grace","delay","from_seat"],
   damage:["magnitude","basis","recipient"], heal:["magnitude","basis","recipient"],
   gain_charge:["magnitude"], strip:["count","which","recipient"],
   transfer_effect:["effect_ids","from","to","pick"], copy_event_effect:["recipient"],
   next_hit_undodgeable:["vs"], modify_hit:["dmg_pct","crit_add","dodge_add","undodgeable"],
+  step_toward:["magnitude","toward","from_seat"],
 };
 const RX_RECIPIENTS = ["self","partner","pair","trigger_source","trigger_target","adjacent_allies","adjacent_enemies",
   "allies_within","enemies_within","nearest_enemy","nearest_enemy_to_target","enemies_adjacent_to_target","streak_enemies"].map(v=>({v,l:v}));
@@ -5457,6 +5467,9 @@ function RxThenLine({t, i, effectNames, upd, del}){
       ${has("crit_add")?numIn("crit_add","crit +"):null}
       ${has("dodge_add")?numIn("dodge_add","dodge +"):null}
       ${has("undodgeable")?html`<label>undodgeable<input type="checkbox" checked=${!!t.undodgeable} onChange=${e=>upd(i,{undodgeable:e.target.checked||undefined})} /></label>`:null}
+      ${has("delay")?sel("delay","delay",[{v:"",l:"(none) now"},{v:"next_round",l:"next_round — held until the next round starts"}],""):null}
+      ${has("from_seat")?sel("from_seat","from seat",[{v:"",l:"(none)"},{v:"magnitude",l:"magnitude ← the inherent seat"},{v:"duration",l:"duration ← the inherent seat"}],""):null}
+      ${has("toward")?sel("toward","toward",[{v:"trigger_target",l:"trigger_target"},{v:"trigger_source",l:"trigger_source"}],"trigger_target"):null}
       ${has("grace")?html`<label title="Push C: a grant landing in the recipient's OWN turn normally also covers its next turn (R10 grace). Ticked = duration 1 ends at the end of THIS turn (Markstalker).">ends this turn<input type="checkbox" checked=${t.grace===false} onChange=${e=>upd(i,{grace:e.target.checked?false:undefined})} /></label>`:null}
     </div>
   </div>`;
