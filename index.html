@@ -2720,7 +2720,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-25 pushE-fields</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-25 pushF-vocab</span></span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -5313,7 +5313,7 @@ const RX_EVENTS = [
   {v:"damaged",       l:"damaged — lost HP from any source"},
   {v:"death",         l:"death — a unit died"},
   {v:"effect_gained", l:"effect_gained — an effect landed / refreshed"},
-  {v:"effect_ended",  l:"effect_ended — expired or stripped (reserved, v1 fires none)"},
+  {v:"effect_ended",  l:"effect_ended — expired / cleansed / dispelled / Shield broken (kind = reason) · Push F"},
   {v:"healed",        l:"healed — HP restored"},
   {v:"displaced",     l:"displaced — moved against its will"},
   {v:"turn_start",    l:"turn_start — an activation begins"},
@@ -5322,6 +5322,12 @@ const RX_EVENTS = [
   {v:"round_end",     l:"round_end"},
   {v:"swap",          l:"swap — pair traffic (swap / delay / arrival)"},
   {v:"always",        l:"always — standing passive, re-armed each turn (legacy-rule migration)"},
+  /* Push F (2026-09-25) — reactions.md §18 */
+  {v:"stepped_adjacent", l:"stepped_adjacent — a unit arrives next to another (actor = mover, target = the neighbour; walk step / landing)"},
+  {v:"move_finished",    l:"move_finished — a walk ends or a jump / leap / dash lands (kind walk|jump|leap|dash)"},
+  {v:"recent_use",       l:"recent_use — a card used at full strength (kind used_fresh) or recovered to full (kind recovered)"},
+  {v:"summoned",         l:"summoned — a summon joined the board (actor = summoner, target = summon)"},
+  {v:"trap_triggered",   l:"trap_triggered — the actor's trap / zone / tripwire fired on the target"},
 ];
 /* reactions.md §3.2 — filter vocabulary. An unknown key is a lint ERROR in the runtime. */
 const RX_ROLE_VALUES = ["self","partner","pair","ally","ally_not_partner","enemy","any","own_summon"];
@@ -5341,6 +5347,9 @@ const RX_FILTER_KEYS = {
   partner_alive:"bool", self_in_own_zone:"bool",
   /* Push E (2026-09-25): Sentry Mode · Auto-Repair · Tailwind Wake */
   self_cast_this_turn:"bool", self_undamaged_since_last_turn:"bool", moved_hexes_min:"int",
+  /* Push F (2026-09-25): C-01 · C-02 · C-03 · C-05 · C-08 */
+  target_hp_below_pct:"int", max_distance:"int", partner_hp_below_pct:"int", damage_min:"int",
+  self_in_any_zone:"bool", self_adjacent_to_wall:"bool",
 };
 /* reactions.md §4 — THEN ops, recipients, basis */
 const RX_OPS = [
@@ -5354,6 +5363,14 @@ const RX_OPS = [
   {v:"next_hit_undodgeable", l:"next_hit_undodgeable"},
   {v:"modify_hit",           l:"modify_hit (pre_hit only)"},
   {v:"step_toward",          l:"step_toward — the holder steps toward the event's unit (Push D)"},
+  /* Push F (2026-09-25) */
+  {v:"push",                 l:"push — N hexes away from the holder / the event's target"},
+  {v:"pull",                 l:"pull — N hexes toward the holder"},
+  {v:"swap_with_partner",    l:"swap_with_partner — the holder and its partner trade hexes"},
+  {v:"recover_card",         l:"recover_card — the recipient's most weakened card counts N rounds older"},
+  {v:"weaken_card",          l:"weaken_card — the recipient's last-used card counts as used again (N rounds newer)"},
+  {v:"extend_effect",        l:"extend_effect — +N turns on an effect already on the recipient"},
+  {v:"shorten_effect",       l:"shorten_effect — −N turns on an effect already on the recipient (0 ends it)"},
 ];
 const RX_OP_KEYS = {   // which inputs each op shows (reactions.md §4)
   apply_effect:["effect_id","magnitude","duration","recipient","basis","stack","grace","delay","from_seat"],
@@ -5362,9 +5379,17 @@ const RX_OP_KEYS = {   // which inputs each op shows (reactions.md §4)
   transfer_effect:["effect_ids","from","to","pick"], copy_event_effect:["recipient"],
   next_hit_undodgeable:["vs"], modify_hit:["dmg_pct","crit_add","dodge_add","undodgeable"],
   step_toward:["magnitude","toward","from_seat"],
+  push:["magnitude","direction","recipient","from_seat"], pull:["magnitude","direction","recipient","from_seat"],
+  swap_with_partner:[], recover_card:["magnitude","recipient","from_seat"], weaken_card:["magnitude","recipient","from_seat"],
+  extend_effect:["effect_id","magnitude","recipient","from_seat"], shorten_effect:["effect_id","magnitude","recipient","from_seat"],
 };
+const RX_DIRECTIONS = {push:[{v:"away_from_holder",l:"away_from_holder (default)"},{v:"away_from_target",l:"away_from_target — away from the event's target"}],
+  pull:[{v:"toward_holder",l:"toward_holder (default)"}]};
+const RX_WITHIN_RECIPIENTS = ["allies_within","enemies_within","lowest_hp_ally_within","farthest_enemy_within"];
 const RX_RECIPIENTS = ["self","partner","pair","trigger_source","trigger_target","adjacent_allies","adjacent_enemies",
-  "allies_within","enemies_within","nearest_enemy","nearest_enemy_to_target","enemies_adjacent_to_target","streak_enemies"].map(v=>({v,l:v}));
+  "allies_within","enemies_within","nearest_enemy","nearest_enemy_to_target","enemies_adjacent_to_target","streak_enemies",
+  /* Push F: R-01 · R-02 · R-03 · R-05 */
+  "lowest_hp_ally_within","trigger_source_partner","farthest_enemy_within","other_pair"].map(v=>({v,l:v}));
 const RX_BASIS = ["flat","pct_event_amount","pct_holder_max_hp","pct_recipient_max_hp",
   "holder_stat:attack","holder_stat:defense","holder_stat:special_attack","holder_stat:special_defense","holder_stat:speed"];
 const RX_LIMIT_PER = [{v:"",l:"(default) once per round · RX-01"},{v:"none",l:"none — every time"},{v:"cast",l:"per cast"},
@@ -5387,7 +5412,8 @@ function rxLint(r, effectSet, allRows){
     const op=t.op||"apply_effect";
     if(!RX_OP_KEYS[op]) out.push({k:"err",t:`THEN ${i+1}: unknown op “${op}”`});
     if(op==="modify_hit" && when.event!=="pre_hit") out.push({k:"err",t:`THEN ${i+1}: modify_hit is pre_hit only`});
-    if(op==="apply_effect"){ if(!t.effect_id) out.push({k:"err",t:`THEN ${i+1}: pick an effect`}); else if(effectSet&&!effectSet.has(t.effect_id)) out.push({k:"err",t:`THEN ${i+1}: “${t.effect_id}” not in the effect catalog`}); }
+    if(op==="apply_effect"||op==="extend_effect"||op==="shorten_effect"){ if(!t.effect_id) out.push({k:"err",t:`THEN ${i+1}: pick an effect`}); else if(effectSet&&!effectSet.has(t.effect_id)) out.push({k:"err",t:`THEN ${i+1}: “${t.effect_id}” not in the effect catalog`}); }
+    if((op==="push"||op==="pull") && t.direction && !RX_DIRECTIONS[op].some(o=>o.v===t.direction)) out.push({k:"err",t:`THEN ${i+1}: a ${op} cannot go “${t.direction}”`});
     if(t.recipient && !RX_RECIPIENTS.some(o=>o.v===t.recipient)) out.push({k:"err",t:`THEN ${i+1}: unknown recipient “${t.recipient}”`});
   });
   if(rxOwner(r)==="class" && when.event && then.length){
@@ -5453,7 +5479,8 @@ function RxThenLine({t, i, effectNames, upd, del}){
       ${has("magnitude")?numIn("magnitude","magnitude"):null}
       ${has("duration")?numIn("duration","duration (turns)","1"):null}
       ${has("recipient")?sel("recipient","recipient",recips,"self"):null}
-      ${(has("recipient")&&(t.recipient==="allies_within"||t.recipient==="enemies_within"))?numIn("within","within (default 2)","1"):null}
+      ${(has("recipient")&&RX_WITHIN_RECIPIENTS.includes(t.recipient))?numIn("within","within (default 2)","1"):null}
+      ${has("direction")?sel("direction","direction",RX_DIRECTIONS[op]||[],(RX_DIRECTIONS[op]||[{v:""}])[0].v):null}
       ${has("basis")?sel("basis","basis",RX_BASIS.map(v=>({v,l:v})),"flat"):null}
       ${has("stack")?sel("stack","stack",[{v:"refresh",l:"refresh (default)"},{v:"add",l:"add — new stack per firing"}],"refresh"):null}
       ${has("count")?numIn("count","count","1"):null}
