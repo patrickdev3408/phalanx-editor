@@ -240,6 +240,7 @@ input[type=number]::-webkit-inner-spin-button{opacity:.35}
   border:1px solid var(--line-2);background:var(--panel);border-radius:7px;
   padding:8px 13px;font-size:12px;font-weight:600;color:var(--ink-2);
 }
+.off-flag{font-family:var(--mono);font-size:9.5px;font-weight:700;color:var(--ink-3);border:1px solid #384850;border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:1px}
 .toggle:hover{border-color:#384850}
 .toggle input{display:none}
 .toggle .sw{width:30px;height:17px;border-radius:99px;background:#2a343a;position:relative;transition:.15s;flex:none}
@@ -2722,7 +2723,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-25 pushI</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-25 6596136fe</span></span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -3491,6 +3492,9 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
         <select class="mono" style="height:28px;width:auto" onChange=${e=>{if(e.target.value){bulkSet("class_name_char",e.target.value);e.target.value="";}}}>
           <option value="">Set class…</option>${enums.classes.map(cn=>html`<option value=${cn}>${cn}</option>`)}
         </select>
+        <select class="mono" style="height:28px;width:auto" onChange=${e=>{if(e.target.value){bulkSet("available_in_kw",e.target.value==="on");e.target.value="";}}}>
+          <option value="">Set in game…</option><option value="on">available</option><option value="off">not available</option>
+        </select>
         <button class="btn ghost" style="height:28px" onClick=${()=>setBulk(new Set())}>clear</button>
       </div>`:null}
       <div class="list-meta">${list.length} character${list.length===1?"":"s"}${(q||tier||t1||t2)?" (filtered)":""}</div>
@@ -3526,7 +3530,7 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
             <div class="cb-hit" onClick=${e=>{e.stopPropagation();toggleBulk(id);}}><span class=${"cb"+(bulk.has(id)?" on":"")}>${bulk.has(id)?"✓":""}</span></div>
             <span class="rid mono">${id}</span>
             <span class=${"tier-letter tier-"+(ch.tier||"minion")} title=${ch.tier||"minion"}>${tierLetter(ch.tier)}</span>
-            <span class="rname">${ch.name||"(unnamed)"}${issues.length?html`<span class="lint-flag" title=${issues.map(i=>i.t).join("; ")}>⚠</span>`:null}</span>
+            <span class="rname">${ch.name||"(unnamed)"}${ch.available_in_kw===false?html`<span class="off-flag" title="Not available in game (available_in_kw off)">off</span>`:null}${issues.length?html`<span class="lint-flag" title=${issues.map(i=>i.t).join("; ")}>⚠</span>`:null}</span>
             <span class="rtypes" title=${typeLine(ch)}>${typeLine(ch)}</span>
           </div>`;
         })}
@@ -3551,6 +3555,9 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
             <div class="grid cols-2">
               <${Field} label="Name"><${TextInput} value=${c.name} onInput=${v=>edit(cc=>cc.name=v)} /></${Field}>
               <${Field} label="Tier"><${Select} value=${c.tier} options=${["hero","lieutenant","minion"]} onInput=${v=>edit(cc=>cc.tier=v)} /></${Field}>
+            </div>
+            <div style="margin-top:8px" title="available_in_kw — off = hidden from the draft, AI enemy pools, Orb, challenges and PvP. A missing value counts as ON (the game's default).">
+              <${Toggle} label="Available in game" on=${c.available_in_kw!==false} onInput=${v=>edit(cc=>cc.available_in_kw=v)} />
             </div>
           </${Group}>
 
