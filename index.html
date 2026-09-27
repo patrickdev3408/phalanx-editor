@@ -2723,7 +2723,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-25 6596136fe</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build (local)</span></span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -3135,7 +3135,7 @@ const PE_SLOTS=[{v:"effect1",l:"effect 1"},{v:"effect2",l:"effect 2"},{v:"self_e
 function peLint(a, row, knownEffects){
   const out=[]; const w=(row&&row.when)||{}, t=(row&&row.then)||{};
   const vocab = w.kind==="class"?PE_VOCAB.classes : w.kind==="type"?PE_VOCAB.types : w.kind==="playstyle"?PLAYSTYLES : null;
-  if(!["class","type","playstyle","partner","none"].includes(w.kind)) out.push("pick a WHEN kind");
+  if(!["class","type","playstyle","partner","none"].includes(w.kind)) out.push("pick a Trigger kind");
   else if(vocab && !vocab.includes(w.value)) out.push(w.value?`“${w.value}” is not a ${w.kind}`:`pick a ${w.kind}`);
   if(t.kind==="effect"){
     const et=t.effect&&t.effect.effect_type;
@@ -3162,7 +3162,7 @@ function peLint(a, row, knownEffects){
     if(!num(t.magnitude,0) && !intOf(t.duration,0)) out.push("a boost of 0 / 0 does nothing");
   } else if(t.kind==="power"){
     if(!intOf(t.delta,0)) out.push("a PL change of 0 does nothing");
-  } else out.push("pick a THEN kind");
+  } else out.push("pick a Response kind");
   return out;
 }
 
@@ -3965,7 +3965,7 @@ function ClassReactionsGroup({c, data, commitEdit, selName, jumpTo}){
     if(cc&&free>=0){ cc.reactions=Array.from({length:Math.max(n,cur.length)},(_,j)=>cur[j]||""); cc.reactions[free]=row.id; }
   },dy=>{ dy.reactions=true; dy.classes=true; });
   return html`<${Group} title=${`Class reactions (${n})`}>
-    <p class="note" style="margin-top:-4px;margin-bottom:8px">⚖ 2026-09-24: a pure class carries <b>2 reactions</b> (WHEN / THEN, timed, strippable) beside its 2 stat inherents; the ramps (Focus · Fervor · Attune) and Catalysis / Outcast move here. Who receives slot <i>i</i> is the HYBRIDISATION classes-axis <span class="mono">reactions</span> row${g?"":html` — <span class="warn-text">that row does not exist yet (add it on the Hybridisation tab)</span>`}. Rows are authored on the <b>Reactions</b> tab → Class reactions. <${Prov} on=${RX_PROV.owner} /></p>
+    <p class="note" style="margin-top:-4px;margin-bottom:8px">⚖ 2026-09-24: a pure class carries <b>2 reactions</b> (Trigger / Response, timed, strippable) beside its 2 stat inherents; the ramps (Focus · Fervor · Attune) and Catalysis / Outcast move here. Who receives slot <i>i</i> is the HYBRIDISATION classes-axis <span class="mono">reactions</span> row${g?"":html` — <span class="warn-text">that row does not exist yet (add it on the Hybridisation tab)</span>`}. Rows are authored on the <b>Reactions</b> tab → Class reactions. <${Prov} on=${RX_PROV.owner} /></p>
     ${Array.from({length:n},(_,i)=>{
       const id=slots[i]||""; const r=byId[id];
       const reach=g?slotReach(data.hybridisation,"classes","reactions",i):"";
@@ -3975,7 +3975,7 @@ function ClassReactionsGroup({c, data, commitEdit, selName, jumpTo}){
           ${(id&&!mine.some(m=>m.id===id))?html`<option value=${id}>${r?(r.name||id)+" (owned by "+(r.class||r.type||"?")+")":"⚠ "+id+" (missing)"}</option>`:null}
           ${mine.map(m=>html`<option key=${m.id} value=${m.id}>${m.name||m.id}</option>`)}
         </select>
-        ${r?html`<p class="note" style="margin:4px 0 0"><b>WHEN</b> ${r.trigger||"—"} · <b>THEN</b> ${r.effect||"—"}${(r.when&&r.when.event)?html` · <span class="mono">${r.when.event}</span>`:html` · <span class="warn-text">no structured WHEN yet</span>`}</p>`:null}
+        ${r?html`<p class="note" style="margin:4px 0 0"><b>Trigger · ${rxTimingLabel(r)}</b> ${r.trigger||"—"} · <b>Response</b> ${r.effect||"—"}${(r.when&&r.when.event)?html` · <span class="mono">${r.when.event}</span>`:html` · <span class="warn-text">no structured Trigger yet</span>`}</p>`:null}
       </${Field}>`;
     })}
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
@@ -5313,9 +5313,247 @@ function HybridisationTab({axes, commitEdit}){
    ════════════════════════════════════════════════════════════════════ */
 const RX_PROV = {when:false, then:false, limit:false, owner:false};   // shapes SETTLED by reactions.md §2–4 (2026-09-24)
 /* reactions.md §3.1 — the event enum */
+// BEGIN GENERATED REACTION TIMING RULES
+const RX_TIMING_RULES = [
+  {
+    "events": [
+      "pre_hit",
+      "stepped_adjacent",
+      "stepped_away",
+      "trap_triggered",
+      "cast_start"
+    ],
+    "label": "Instant"
+  },
+  {
+    "events": [
+      "always"
+    ],
+    "label": "Always"
+  },
+  {
+    "events": [
+      "turn_start"
+    ],
+    "label": "Start of turn"
+  },
+  {
+    "events": [
+      "turn_end",
+      "turn_skipped"
+    ],
+    "label": "End of turn"
+  },
+  {
+    "events": [
+      "round_start"
+    ],
+    "label": "Start of round"
+  },
+  {
+    "events": [
+      "round_end"
+    ],
+    "label": "End of round"
+  },
+  {
+    "events": [
+      "arrived"
+    ],
+    "label": "On arrival"
+  },
+  {
+    "events": [
+      "recent_use"
+    ],
+    "filter": {
+      "kind": "recovered"
+    },
+    "label": "Start of round"
+  },
+  {
+    "events": [
+      "recent_use"
+    ],
+    "filter": {
+      "kind": [
+        "used_fresh",
+        "card_weakened"
+      ]
+    },
+    "label": "After the card"
+  },
+  {
+    "events": [
+      "recent_use"
+    ],
+    "label": "After the card / Start of round"
+  },
+  {
+    "events": [
+      "move_finished"
+    ],
+    "filter": {
+      "kind": "walk"
+    },
+    "label": "After the move"
+  },
+  {
+    "events": [
+      "move_finished"
+    ],
+    "filter": {
+      "kind": [
+        "jump",
+        "leap",
+        "dash"
+      ]
+    },
+    "label": "After the card"
+  },
+  {
+    "events": [
+      "move_finished"
+    ],
+    "label": "After the move / After the card"
+  },
+  {
+    "events": [
+      "displaced"
+    ],
+    "filter": {
+      "kind": "shove"
+    },
+    "label": "After the move / After the card"
+  },
+  {
+    "events": [
+      "displaced"
+    ],
+    "filter": {
+      "kind": [
+        "push",
+        "pull",
+        "swap"
+      ]
+    },
+    "label": "After the card"
+  },
+  {
+    "events": [
+      "displaced"
+    ],
+    "label": "After the card / After the move"
+  },
+  {
+    "events": [
+      "effect_ended"
+    ],
+    "filter": {
+      "kind": "expired"
+    },
+    "label": "End of turn"
+  },
+  {
+    "events": [
+      "effect_ended"
+    ],
+    "filter": {
+      "kind": [
+        "cleansed",
+        "dispelled",
+        "broken"
+      ]
+    },
+    "label": "After the card"
+  },
+  {
+    "events": [
+      "effect_ended"
+    ],
+    "label": "After the card / End of turn"
+  },
+  {
+    "events": [
+      "swap"
+    ],
+    "filter": {
+      "kind": "arrival"
+    },
+    "label": "On arrival"
+  },
+  {
+    "events": [
+      "swap"
+    ],
+    "filter": {
+      "kind": [
+        "partner_swap",
+        "delay",
+        "swap"
+      ]
+    },
+    "label": "After the card"
+  },
+  {
+    "events": [
+      "swap"
+    ],
+    "label": "On arrival / After the card"
+  },
+  {
+    "events": [
+      "damaged"
+    ],
+    "filter": {
+      "source_kind": "hit"
+    },
+    "label": "After the card"
+  },
+  {
+    "events": [
+      "damaged",
+      "death"
+    ],
+    "label": "After the card / End of turn / Instant at traps"
+  },
+  {
+    "events": [
+      "effect_gained",
+      "healed"
+    ],
+    "label": "After the card / Instant at traps"
+  },
+  {
+    "events": [
+      "cast",
+      "hit",
+      "dodge",
+      "summoned",
+      "charge_full",
+      "zone_created",
+      "revived",
+      "phase",
+      "card_weakened"
+    ],
+    "label": "After the card"
+  }
+];
+// END GENERATED REACTION TIMING RULES
+/* Same first-match adapter as ReactionPresentation.timing_label; rules have ONE source. */
+function rxTimingLabel(row){
+  const when=row.when&&typeof row.when==="object"?row.when:{};
+  const filters=when.filter&&typeof when.filter==="object"?when.filter:{};
+  for(const rule of RX_TIMING_RULES){
+    if(!rule.events.includes(when.event||"")) continue;
+    if(Object.entries(rule.filter||{}).every(([key,expected])=>
+      Array.isArray(expected)?expected.includes(filters[key]):filters[key]===expected)) return rule.label;
+  }
+  return when.event?"Timing unavailable":"Not active yet";
+}
 const RX_EVENTS = [
   {v:"",              l:"— event (row inert until set) —"},
-  {v:"cast",          l:"cast — once per settled attack entry"},
+  {v:"cast",          l:"After Cast — after every hit of the card (cast)"},
   {v:"pre_hit",       l:"pre_hit — before the dodge roll (modify_hit only)"},
   {v:"hit",           l:"hit — a hit landed"},
   {v:"dodge",         l:"dodge — a hit was dodged"},
@@ -5360,7 +5598,7 @@ const RX_FILTER_KEYS = {
   target_hp_below_pct:"int", max_distance:"int", partner_hp_below_pct:"int", damage_min:"int",
   self_in_any_zone:"bool", self_adjacent_to_wall:"bool",
 };
-/* reactions.md §4 — THEN ops, recipients, basis */
+/* reactions.md §4 — Response ops, recipients, basis */
 const RX_OPS = [
   {v:"apply_effect",         l:"apply_effect (default)"},
   {v:"damage",               l:"damage — deterministic HP loss"},
@@ -5411,20 +5649,22 @@ const rxSig = r => JSON.stringify({w:(r&&r.when)||null, t:(r&&r.then)||null});
 /* per-row lint mirror (reactions.md §11 / RX-G): what the runtime will refuse or ignore */
 function rxLint(r, effectSet, allRows){
   const out=[]; const when=(r.when&&typeof r.when==="object")?r.when:{}; const then=Array.isArray(r.then)?r.then:[];
-  if(!when.event) out.push({k:"warn",t:"inert: no WHEN event"});
+  if(rxTimingLabel(r)!=="Instant" && /\b(this|that|triggering)\s+(attack|hit|card)\b/i.test(r.effect||""))
+    out.push({k:"warn",t:"Response wording may imply it changes the triggering card. This Trigger is not Instant; check the timing wording."});
+  if(!when.event) out.push({k:"warn",t:"inert: no Trigger event"});
   else if(!RX_EVENTS.some(e=>e.v===when.event)) out.push({k:"err",t:`unknown event “${when.event}”`});
-  if(!then.length) out.push({k:"warn",t:"inert: no THEN line"});
+  if(!then.length) out.push({k:"warn",t:"inert: no Response line"});
   if(r.stack_duration!=null && !(intOf(r.stack_duration,0)>=1)) out.push({k:"err",t:`stack_duration ${r.stack_duration}: must be ≥ 1 turn`});
   Object.keys(when.filter||{}).forEach(k=>{ if(!RX_FILTER_KEYS[k]) out.push({k:"err",t:`unknown filter key “${k}”`}); });
   ["actor","target"].forEach(k=>{ const v=(when.filter||{})[k]; if(v!=null && !RX_ROLE_VALUES.includes(v)) out.push({k:"err",t:`${k}: “${v}” is not a role`}); });
   then.forEach((t,i)=>{
     const op=t.op||"apply_effect";
-    if(!RX_OP_KEYS[op]) out.push({k:"err",t:`THEN ${i+1}: unknown op “${op}”`});
-    if(op==="modify_hit" && when.event!=="pre_hit") out.push({k:"err",t:`THEN ${i+1}: modify_hit is pre_hit only`});
-    if(op==="apply_effect"||op==="extend_effect"||op==="shorten_effect"){ if(!t.effect_id) out.push({k:"err",t:`THEN ${i+1}: pick an effect`}); else if(effectSet&&!effectSet.has(t.effect_id)) out.push({k:"err",t:`THEN ${i+1}: “${t.effect_id}” not in the effect catalog`}); }
-    if((op==="push"||op==="pull") && t.direction && !RX_DIRECTIONS[op].some(o=>o.v===t.direction)) out.push({k:"err",t:`THEN ${i+1}: a ${op} cannot go “${t.direction}”`});
-    if(t.recipient && !RX_RECIPIENTS.some(o=>o.v===t.recipient)) out.push({k:"err",t:`THEN ${i+1}: unknown recipient “${t.recipient}”`});
-    if(op==="transfer_effect" && t.pick==="event_effect" && when.event!=="effect_gained") out.push({k:"err",t:`THEN ${i+1}: pick event_effect needs an effect_gained WHEN`});
+    if(!RX_OP_KEYS[op]) out.push({k:"err",t:`Response ${i+1}: unknown op “${op}”`});
+    if(op==="modify_hit" && when.event!=="pre_hit") out.push({k:"err",t:`Response ${i+1}: modify_hit is pre_hit only`});
+    if(op==="apply_effect"||op==="extend_effect"||op==="shorten_effect"){ if(!t.effect_id) out.push({k:"err",t:`Response ${i+1}: pick an effect`}); else if(effectSet&&!effectSet.has(t.effect_id)) out.push({k:"err",t:`Response ${i+1}: “${t.effect_id}” not in the effect catalog`}); }
+    if((op==="push"||op==="pull") && t.direction && !RX_DIRECTIONS[op].some(o=>o.v===t.direction)) out.push({k:"err",t:`Response ${i+1}: a ${op} cannot go “${t.direction}”`});
+    if(t.recipient && !RX_RECIPIENTS.some(o=>o.v===t.recipient)) out.push({k:"err",t:`Response ${i+1}: unknown recipient “${t.recipient}”`});
+    if(op==="transfer_effect" && t.pick==="event_effect" && when.event!=="effect_gained") out.push({k:"err",t:`Response ${i+1}: pick event_effect needs an effect_gained Trigger`});
   });
   if(rxOwner(r)==="class" && when.event && then.length){
     const sig=rxSig(r); const dup=(allRows||[]).find(o=>o!==r && rxOwner(o)==="type" && rxSig(o)===sig);
@@ -5458,7 +5698,7 @@ function FilterEditor({obj, onChange}){
   </div>`;
 }
 
-/* one THEN line — inputs follow the op (reactions.md §4); absent op = apply_effect */
+/* one Response line — inputs follow the op (reactions.md §4); absent op = apply_effect */
 function RxThenLine({t, i, effectNames, upd, del}){
   const op=t.op||"apply_effect"; const keys=RX_OP_KEYS[op]||RX_OP_KEYS.apply_effect;
   const has=k=>keys.includes(k);
@@ -5478,11 +5718,11 @@ function RxThenLine({t, i, effectNames, upd, del}){
   const recips=RX_RECIPIENTS;
   return html`<div style="border-top:1px dashed var(--line);padding-top:6px;margin-top:6px">
     <div class="pb-line" style="grid-template-columns:1.2fr auto">
-      <label>THEN ${i+1} · op
+      <label>Response ${i+1} · op
         <select value=${op} onChange=${e=>upd(i,{op:e.target.value==="apply_effect"?undefined:e.target.value}, true)}>
           ${RX_OPS.map(o=>html`<option key=${o.v} value=${o.v}>${o.l}</option>`)}
         </select></label>
-      <button class="mini del" title="Remove this THEN line" onClick=${()=>del(i)}>×</button>
+      <button class="mini del" title="Remove this Response line" onClick=${()=>del(i)}>×</button>
     </div>
     <div class="pb-grid">
       ${has("effect_id")?effSel("effect_id","effect"):null}
@@ -5514,7 +5754,7 @@ function RxThenLine({t, i, effectNames, upd, del}){
   </div>`;
 }
 
-/* the structured WHEN / THEN / LIMIT block for one reaction row (reactions.md §2–4) */
+/* the structured Trigger / Response / LIMIT block for one reaction row (reactions.md §2–4) */
 function ReactionStructured({r, effectNames, patch}){
   const when=(r.when&&typeof r.when==="object")?r.when:{};
   const then=Array.isArray(r.then)?r.then:[];
@@ -5533,18 +5773,18 @@ function ReactionStructured({r, effectNames, patch}){
   return html`<div class="pb-box">
     <div class="pb-hd">Structured — what the ReactionResolver reads</div>
     <div class="pb-line" style="grid-template-columns:1fr">
-      <label>WHEN event
+      <label>Trigger event · ${rxTimingLabel(r)}
         <select value=${known.has(when.event||"")?(when.event||""):"__custom"} onChange=${e=>{ const v=e.target.value; if(v!=="__custom") setWhen({event:v}); }}>
           ${RX_EVENTS.map(e=>html`<option key=${e.v} value=${e.v}>${e.l}</option>`)}
           ${(when.event&&!known.has(when.event))?html`<option value="__custom">⚠ unknown: ${when.event}</option>`:null}
         </select></label>
     </div>
-    <div class="pb-note">WHEN filter — all keys ANDed (<span class="mono">actor</span> / <span class="mono">target</span> take a role: self · partner · pair · ally · enemy …).</div>
+    <div class="pb-note">Trigger filter — all keys ANDed (<span class="mono">actor</span> / <span class="mono">target</span> take a role: self · partner · pair · ally · enemy …).</div>
     <${FilterEditor} obj=${when.filter} onChange=${f=>setWhen({filter:f})} />
-    <div class="pb-note" style="margin-top:10px">THEN — one line per op; an absent op is apply_effect.</div>
+    <div class="pb-note" style="margin-top:10px">Response — one line per op; an absent op is apply_effect.</div>
     ${then.map((t,i)=>html`<${RxThenLine} key=${i} t=${t} i=${i} effectNames=${effectNames} upd=${updThen} del=${j=>setThen(then.filter((_,k)=>k!==j))} />`)}
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-      <button class="mini pb-btn" onClick=${()=>setThen([...then,{effect_id:"",magnitude:0,duration:1,recipient:"self"}])}>+ THEN line</button>
+      <button class="mini pb-btn" onClick=${()=>setThen([...then,{effect_id:"",magnitude:0,duration:1,recipient:"self"}])}>+ Response line</button>
       ${(!then.length && Array.isArray(r.effect_ids) && r.effect_ids.length)?html`<button class="mini pb-btn" title="Seed one apply_effect line per legacy effect_ids chip (magnitude 0 — fill in by hand)"
         onClick=${()=>setThen(r.effect_ids.map(id=>({effect_id:id,magnitude:0,duration:1,recipient:"self"})))}>seed from effect_ids</button>`:null}
     </div>
@@ -5586,9 +5826,9 @@ function ReactionCard({r, effectNames, effectSet, setField, patch, removeReactio
         <select value=${r.tier|0} onChange=${e=>setField(r.id,"tier",Number(e.target.value))}>
           ${(isClass?[1,2]:[1,2,3,4]).map(tier=>html`<option key=${tier} value=${tier}>${tier}</option>`)}
         </select></label></dd>
-      <dd><label><span class="dlbl">WHEN (prose)</span>
+      <dd><label><span class="dlbl">Trigger (prose) · ${rxTimingLabel(r)}</span>
         <textarea class="effect-ref-input" value=${r.trigger||""} onInput=${e=>setField(r.id,"trigger",e.target.value)}></textarea></label></dd>
-      <dd><label><span class="dlbl">THEN (prose)</span>
+      <dd><label><span class="dlbl">Response (prose)</span>
         <textarea class="effect-ref-input" value=${r.effect||""} onInput=${e=>setField(r.id,"effect",e.target.value)}></textarea></label></dd>
       <dd><span class="dlbl" title="Kept: the bio's reaction glyph source (BioKitGlyphs.reaction_glyph) — must be catalog spellings">effect_ids (bio glyphs)</span>
         ${selected.map(name=>html`<button type="button" class=${"chip"+(effectSet.has(name)?"":" bad")} key=${name}
@@ -5598,7 +5838,7 @@ function ReactionCard({r, effectNames, effectSet, setField, patch, removeReactio
           <option value="">+ Add effect</option>
           ${effectNames.filter(name=>!selected.includes(name)).map(name=>html`<option key=${name} value=${name}>${name}</option>`)}
         </select></dd>
-      ${r.trigger_event?html`<dd><span class="dlbl">trigger_event (legacy, superseded by WHEN event)</span> <span class="mono">${r.trigger_event}</span></dd>`:null}
+      ${r.trigger_event?html`<dd><span class="dlbl">trigger_event (legacy, superseded by Trigger event)</span> <span class="mono">${r.trigger_event}</span></dd>`:null}
       <dd><label><span class="dlbl">flag</span>
         <input type="text" value=${r.flag||""} onInput=${e=>setField(r.id,"flag",e.target.value)} /></label></dd>
     </dl>
@@ -5655,12 +5895,12 @@ function ReactionsTab({reactions, effects, classes, commitEdit}){
   return html`<div class="view"><div class="full-pane">
     <div class="group-title">Reactions <span class="badge">${all.length}</span></div>
     <p class="note">Remove only removes a reaction from the working copy. Saving never deletes reactions from Supabase; previously saved rows return on reload.
-      Prose WHEN / THEN is what players read; the dashed <b>Structured</b> box is what the Push B ReactionResolver will read. A row is untouched (and round-trips unchanged) until you edit its structured fields.</p>
+      Prose Trigger / Response is what players read; the dashed <b>Structured</b> box is what the Push B ReactionResolver will read. A row is untouched (and round-trips unchanged) until you edit its structured fields.</p>
     ${(()=>{ const missing=all.filter(r=>r.stack_duration==null).length; return html`<p class="note">⚖ RX-06: <span class="mono">stack_duration</span> lives on every reaction (default 10). ${missing
       ? html`${missing} of ${all.length} rows don't carry it yet (they read as 10). <button class="mini pb-btn" title="Writes stack_duration: 10 onto every reaction row that lacks it (working copy — Save to keep). Rows that already have a value are untouched."
           onClick=${()=>commitEdit(next=>{ (next.reactions||[]).forEach(r=>{ if(r&&r.stack_duration==null) r.stack_duration=10; }); },dy=>dy.reactions=true)}>write 10 on all ${missing}</button>`
       : "Every row carries it."}</p>`; })()}
-    <p class="note">${unstructured} of ${all.length} rows have no structured WHEN event yet (inert — the bio keeps NOT ACTIVE YET)${badIds?html` · <span class="warn-text">${badIds} effect_ids tag(s) don't match a catalog effect name (they are the bio's glyph source — fix the spelling)</span>`:""}.</p>
+    <p class="note">${unstructured} of ${all.length} rows have no structured Trigger event yet (inert — the bio keeps NOT ACTIVE YET)${badIds?html` · <span class="warn-text">${badIds} effect_ids tag(s) don't match a catalog effect name (they are the bio's glyph source — fix the spelling)</span>`:""}.</p>
     <div class="pb-sec-tabs">
       <button class=${"expand-toggle"+(view==="type"?" on":"")} onClick=${()=>setView("type")}>Type reactions (${typeRows.length})</button>
       <button class=${"expand-toggle"+(view==="class"?" on":"")} onClick=${()=>setView("class")}>Class reactions (${classRows.length}) <${Prov} on=${RX_PROV.owner} /></button>
