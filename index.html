@@ -5755,8 +5755,24 @@ function rxEffectGroundErrors(t,event,actions){
   }
   return out;
 }
+// REACTIONS edits catalog rows only. No owner_kind/row flag can grant the trusted
+// warzone-enemy capability; keep these choices out of the player dropdowns.
+function rxEncounterOnlyErrors(r){
+  const out=[];
+  if(r.owner_kind==="encounter") out.push("Encounter reactions must be authored on warzone enemies, not in REACTIONS");
+  if(r.when?.event==="phase") out.push("phase is encounter-enemy-only");
+  (Array.isArray(r.then)?r.then:[]).forEach((line,i)=>{
+    if(!line || typeof line!=="object") return;
+    if(["summon","announce"].includes(line.op)) out.push(`Response ${i+1}: ${line.op} is encounter-enemy-only`);
+    ["recipient","from","to"].forEach(k=>{
+      if(["all_allies","all_enemies"].includes(line[k])) out.push(`Response ${i+1}: ${line[k]} is encounter-enemy-only`);
+    });
+  });
+  return out;
+}
 function rxLint(r, effectSet, allRows, actions){
   const out=[]; const when=(r.when&&typeof r.when==="object")?r.when:{}; const then=Array.isArray(r.then)?r.then:[];
+  rxEncounterOnlyErrors(r).forEach(t=>out.push({k:"err",t}));
   rxStateErrors(r).forEach(t=>out.push({k:"err",t}));
   if(rxTimingLabel(r)!=="Instant" && /\b(this|that|triggering)\s+(attack|hit|card)\b/i.test(r.effect||""))
     out.push({k:"warn",t:"Response wording may imply it changes the triggering card. This Trigger is not Instant; check the timing wording."});
