@@ -2553,6 +2553,12 @@ function App(){
   const [saveDlg,setSaveDlg]=useState(false);
   const doSave=useCallback(async ()=>{
     if(dirtyCount===0){ toast("Nothing to save","No changes yet.","warn"); return; }
+    if(dirty.reactions){
+      const rows=data.reactions||[];
+      const effectSet=new Set((data.effects||[]).map(e=>e.name));
+      const errors=rows.flatMap(r=>rxLint(r,effectSet,rows).filter(e=>e.k==="err").map(e=>`${r.name||r.id}: ${e.t}`));
+      if(errors.length){ toast("Reactions need corrections",errors.join("\n"),"err",0); return; }
+    }
     let unnamedGlossaryCount=0;
     if(dirty.glossary){
       const terms=(data.glossary||[]).map(g=>String(g?.term||"").trim());
@@ -5597,7 +5603,38 @@ const RX_FILTER_KEYS = {
   /* Push F (2026-09-25): C-01 · C-02 · C-03 · C-05 · C-08 */
   target_hp_below_pct:"int", max_distance:"int", partner_hp_below_pct:"int", damage_min:"int",
   self_in_any_zone:"bool", self_adjacent_to_wall:"bool",
+  /* B3.1: state-only building blocks. C-L awaits card provenance on effect_gained. */
+  round_min:"positive int", round_max:"positive int", target_is_summon:"bool",
+  target_hp_above_pct:"percent", self_hp_above_pct:"percent", target_isolated:"bool",
+  self_hp_below_target:"bool", partner_acted_this_round:"bool", self_in_enemy_zone:"bool",
 };
+const RX_STATE_FILTER_HELP = {
+  round_min:"Round is at least this number (inclusive, starts at 1).",
+  round_max:"Round is at most this number (inclusive).",
+  target_is_summon:"Target is a summon of either side. A missing target never matches.",
+  target_hp_above_pct:"Target HP percentage is strictly above this value (0–100).",
+  self_hp_above_pct:"Your HP percentage is strictly above this value (0–100).",
+  target_isolated:"Target has no living allies adjacent; summons count as allies.",
+  self_hp_below_target:"Your HP percentage is strictly lower than the target’s.",
+  partner_acted_this_round:"Your living partner’s activation has started this round. No partner never matches.",
+  self_in_enemy_zone:"Your hex carries a zone owned by the enemy; traps and neutral zones do not count.",
+};
+function rxStateErrors(r){
+  const out=[], f=r.when?.filter||{}, limit=r.limit||{};
+  const positiveInt=v=>typeof v==="number" && Number.isFinite(v) && Number.isInteger(v) && v>=1;
+  Object.keys(RX_STATE_FILTER_HELP).forEach(k=>{
+    if(!Object.prototype.hasOwnProperty.call(f,k)) return;
+    const v=f[k], kind=RX_FILTER_KEYS[k];
+    if(kind==="bool" && typeof v!=="boolean") out.push(`${k} must be true or false`);
+    if(kind==="positive int" && !positiveInt(v)) out.push(`${k} must be a positive integer`);
+    if(kind==="percent" && !(typeof v==="number" && Number.isFinite(v) && v>=0 && v<=100)) out.push(`${k} must be a number from 0 to 100`);
+  });
+  if(positiveInt(f.round_min) && positiveInt(f.round_max) && f.round_min>f.round_max) out.push("round_min must not exceed round_max");
+  if(Object.prototype.hasOwnProperty.call(limit,"count") && !positiveInt(limit.count)) out.push("limit.count must be a positive integer (max times per period)");
+  if(Object.prototype.hasOwnProperty.call(limit,"max_times") || Object.prototype.hasOwnProperty.call(r,"max_times")) out.push("max_times is authored as limit.count, not a separate field");
+  if(limit.per!=null && !["none","cast","turn","round","match"].includes(limit.per)) out.push(`Unknown limit per “${limit.per}”`);
+  return out;
+}
 /* reactions.md §4 — Response ops, recipients, basis */
 const RX_OPS = [
   {v:"apply_effect",         l:"apply_effect (default)"},
@@ -5636,7 +5673,7 @@ const RX_WITHIN_RECIPIENTS = ["allies_within","enemies_within","lowest_hp_ally_w
 const RX_RECIPIENTS = ["self","partner","pair","trigger_source","trigger_target","adjacent_allies","adjacent_enemies",
   "allies_within","enemies_within","nearest_enemy","nearest_enemy_to_target","enemies_adjacent_to_target","streak_enemies",
   /* Push F: R-01 · R-02 · R-03 · R-05 */
-  "lowest_hp_ally_within","trigger_source_partner","farthest_enemy_within","other_pair"].map(v=>({v,l:v}));
+  "lowest_hp_ally_within","trigger_source_partner","farthest_enemy_within","other_pair","own_summons"].map(v=>({v,l:v==="own_summons"?"own_summons — all your living summons on the board":v}));
 const RX_BASIS = ["flat","pct_event_amount","pct_holder_max_hp","pct_recipient_max_hp",
   "holder_stat:attack","holder_stat:defense","holder_stat:special_attack","holder_stat:special_defense","holder_stat:speed"];
 const RX_LIMIT_PER = [{v:"",l:"(default) once per round · RX-01"},{v:"none",l:"none — every time"},{v:"cast",l:"per cast"},
@@ -5649,6 +5686,7 @@ const rxSig = r => JSON.stringify({w:(r&&r.when)||null, t:(r&&r.then)||null});
 /* per-row lint mirror (reactions.md §11 / RX-G): what the runtime will refuse or ignore */
 function rxLint(r, effectSet, allRows){
   const out=[]; const when=(r.when&&typeof r.when==="object")?r.when:{}; const then=Array.isArray(r.then)?r.then:[];
+  rxStateErrors(r).forEach(t=>out.push({k:"err",t}));
   if(rxTimingLabel(r)!=="Instant" && /\b(this|that|triggering)\s+(attack|hit|card)\b/i.test(r.effect||""))
     out.push({k:"warn",t:"Response wording may imply it changes the triggering card. This Trigger is not Instant; check the timing wording."});
   if(!when.event) out.push({k:"warn",t:"inert: no Trigger event"});
@@ -5690,8 +5728,13 @@ function FilterEditor({obj, onChange}){
       <input class="mono" type="text" list="rx-filter-keys" value=${k} placeholder="filter key" style=${known?"":"border-color:var(--rose)"}
         title=${known?("expects: "+RX_FILTER_KEYS[k]):"unknown filter key — the runtime lint rejects it"}
         onChange=${e=>{ const l=entries.slice(); l[i]=[e.target.value,v]; write(l); }} />
-      <input class="mono" type="text" list=${role?"rx-role-values":undefined} value=${show(v)} placeholder=${RX_FILTER_KEYS[k]||"value"}
-        onChange=${e=>{ const l=entries.slice(); l[i]=[k,coerce(k,e.target.value)]; write(l); }} />
+      ${RX_FILTER_KEYS[k]==="bool"?html`<select title=${RX_STATE_FILTER_HELP[k]||"true or false"} value=${typeof v==="boolean"?String(v):"__invalid"}
+        onChange=${e=>{ const l=entries.slice(); l[i]=[k,e.target.value==="true"]; write(l); }}>
+        ${typeof v!=="boolean"?html`<option value="__invalid">Choose true or false (current: ${show(v)})</option>`:null}
+        <option value="true">true</option><option value="false">false</option></select>`:
+      html`<input class="mono" type="text" list=${role?"rx-role-values":undefined} value=${show(v)} placeholder=${RX_FILTER_KEYS[k]||"value"}
+        title=${RX_STATE_FILTER_HELP[k]||RX_FILTER_KEYS[k]||"value"}
+        onChange=${e=>{ const l=entries.slice(); l[i]=[k,coerce(k,e.target.value)]; write(l); }} />`}
       <button class="mini del" title="Remove" onClick=${()=>write(entries.filter((_,j)=>j!==i))}>×</button>
     </div>`; })}
     <button class="mini pb-btn" onClick=${()=>{ const l=entries.slice(); let n="actor"; if(l.some(([k])=>k===n)) n="target"; let i=2; while(l.some(([k])=>k===n)) n="within"+(i++); l.push([n,n==="actor"||n==="target"?"self":""]); write(l); }}>+ filter</button>
@@ -5793,9 +5836,9 @@ function ReactionStructured({r, effectNames, patch}){
         <select value=${limit.per||""} onChange=${e=>setLimit({per:e.target.value})}>
           ${RX_LIMIT_PER.map(o=>html`<option key=${o.v} value=${o.v}>${o.l}</option>`)}
         </select></label>
-      <label>times
+      <label title="Maximum firings in the chosen period; uses limit.count. Absent = 1. The none period ignores this count.">max times
         <input class="mono" type="number" min="1" step="1" placeholder="1" value=${limit.count==null?"":limit.count}
-          onChange=${e=>setLimit({count:e.target.value===""?null:Math.max(1,intOf(e.target.value,1))})} /></label>
+          onChange=${e=>setLimit({count:e.target.value===""?null:Number(e.target.value)})} /></label>
       <label title="Skip if an effect this row granted is still on the recipient — what lets a ramp grow">while_active
         <input type="checkbox" checked=${!!limit.while_active} onChange=${e=>setLimit({while_active:e.target.checked})} /></label>
     </div>
