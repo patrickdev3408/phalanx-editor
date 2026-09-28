@@ -2556,7 +2556,7 @@ function App(){
     if(dirty.reactions){
       const rows=data.reactions||[];
       const effectSet=new Set((data.effects||[]).map(e=>e.name));
-      const errors=rows.flatMap(r=>rxLint(r,effectSet,rows).filter(e=>e.k==="err").map(e=>`${r.name||r.id}: ${e.t}`));
+      const errors=rows.flatMap(r=>rxLint(r,effectSet,rows,data.actions).filter(e=>e.k==="err").map(e=>`${r.name||r.id}: ${e.t}`));
       if(errors.length){ toast("Reactions need corrections",errors.join("\n"),"err",0); return; }
     }
     let unnamedGlossaryCount=0;
@@ -2765,7 +2765,7 @@ function App(){
         ${tab==="effects" && html`<${EffectsTab} effects=${data.effects} commitEdit=${commitEdit} />`}
         ${tab==="glossary" && html`<${GlossaryTab} glossary=${data.glossary} commitEdit=${commitEdit} />`}
         ${tab==="mutators" && html`<${MutatorsTab} mutators=${data.mutators} commitEdit=${commitEdit} />`}
-        ${tab==="reactions" && html`<${ReactionsTab} reactions=${data.reactions} effects=${data.effects} classes=${data.classes.classes} commitEdit=${commitEdit} />`}
+        ${tab==="reactions" && html`<${ReactionsTab} actions=${data.actions} reactions=${data.reactions} effects=${data.effects} classes=${data.classes.classes} commitEdit=${commitEdit} />`}
         ${tab==="hybridisation" && html`<${HybridisationTab} axes=${data.hybridisation||[]} commitEdit=${commitEdit} />`}
         ${tab==="matrix" && html`<${MatrixTab} types=${enums.types} matrix=${data.type_matrix} commitEdit=${commitEdit} />`}
         ${tab==="aoe" && html`<${AoeTab} patterns=${data.aoe_patterns} commitEdit=${commitEdit} />`}
@@ -5617,8 +5617,10 @@ const RX_FILTER_KEYS = {
   card_power_level_min:"nonnegative number",
   stopped_early:"bool", hexes_refused_min:"positive int", stopped_by:"wall|unit|edge",
   self_energy_left_min:"nonnegative int",
+  effect_stacks_min:"stack condition",
 };
 const RX_STATE_FILTER_HELP = {
+  effect_stacks_min:"Count live timed copies/stacks of a named effect on self or target; excludes inherents, stances and spent Shield grants. Inclusive minimum.",
   self_energy_left_min:"On your own turn_end only: at least N unspent energy, captured before end-of-turn ticks and after actual spend/refunds. Missing context never matches.",
   stopped_early:"Push/pull stopped at a wall, unit or board boundary. Opts into fully blocked attempts too. False means no board obstruction; missing context never matches.",
   hexes_refused_min:"At least N hexes refused by the obstruction (positive integer). Excludes Anchored Mass, hazard interruption and a pull reaching its normal stopping distance. Displaced only.",
@@ -5652,6 +5654,10 @@ function rxStateErrors(r){
   });
   if(Object.prototype.hasOwnProperty.call(f,"stopped_by") && !["wall","unit","edge"].includes(f.stopped_by)) out.push("stopped_by must be wall, unit or edge");
   if(Object.prototype.hasOwnProperty.call(f,"self_energy_left_min") && r.when?.event!=="turn_end") out.push("self_energy_left_min requires turn_end");
+  if(Object.prototype.hasOwnProperty.call(f,"effect_stacks_min")){
+    const v=f.effect_stacks_min;
+    if(!v || typeof v!=="object" || Array.isArray(v) || typeof v.effect_id!=="string" || !v.effect_id.trim() || !positiveInt(v.min) || !["self","target"].includes(v.subject??"target") || Object.keys(v).some(k=>!["effect_id","min","subject"].includes(k))) out.push("effect_stacks_min needs effect_id, a positive integer min, and subject self or target");
+  }
   if(positiveInt(f.round_min) && positiveInt(f.round_max) && f.round_min>f.round_max) out.push("round_min must not exceed round_max");
   if(Object.prototype.hasOwnProperty.call(limit,"count") && !positiveInt(limit.count)) out.push("limit.count must be a positive integer (max times per period)");
   if(Object.prototype.hasOwnProperty.call(limit,"max_times") || Object.prototype.hasOwnProperty.call(r,"max_times")) out.push("max_times is authored as limit.count, not a separate field");
@@ -5660,6 +5666,10 @@ function rxStateErrors(r){
 }
 /* reactions.md §4 — Response ops, recipients, basis */
 const RX_OPS = [
+  {v:"place_zone", l:"place_zone ? existing zone at captured recipient hex"},
+  {v:"place_trap", l:"place_trap ? existing trap at captured recipient hex"},
+  {v:"spread_effect", l:"spread_effect ? copy named effect from Trigger target"},
+  {v:"convert_effect", l:"convert_effect ? replace named recipient effects"},
   {v:"apply_effect",         l:"apply_effect (default)"},
   {v:"damage",               l:"damage — deterministic HP loss"},
   {v:"heal",                 l:"heal"},
@@ -5681,9 +5691,12 @@ const RX_OPS = [
   {v:"extend_effect",        l:"extend_effect — +N turns on an effect already on the recipient"},
   {v:"shorten_effect",       l:"shorten_effect — −N turns on an effect already on the recipient (0 ends it)"},
 ];
-const RX_OP_KEYS = {   // which inputs each op shows (reactions.md §4)
-  apply_effect:["effect_id","magnitude","duration","recipient","basis","stack","grace","delay","from_seat"],
-  damage:["magnitude","basis","recipient"], heal:["magnitude","basis","recipient"],
+const RX_OP_KEYS = {
+  place_zone:["action_id","recipient"], place_trap:["action_id","recipient"],
+  spread_effect:["effect_id","recipient","stack"],
+  convert_effect:["effect_id","to_effect_id","magnitude","duration","recipient","stack"],   // which inputs each op shows (reactions.md §4)
+  apply_effect:["effect_id","magnitude","duration","recipient","basis","event_amount","stack","grace","delay","from_seat"],
+  damage:["magnitude","basis","event_amount","recipient"], heal:["magnitude","basis","event_amount","recipient"],
   gain_charge:["magnitude"], strip:["count","which","recipient"],
   gain_energy:["magnitude","recipient"], drain_energy:["magnitude","recipient"],
   transfer_effect:["effect_ids","from","to","pick"], copy_event_effect:["recipient"],
@@ -5713,7 +5726,36 @@ const rxSig = r => JSON.stringify({w:(r&&r.when)||null, t:(r&&r.then)||null});
 // Q9 mirrors ReactionCatalog. Effect landings can themselves damage or move a unit.
 const RX_CAST_START_OPS = ["apply_effect","strip","heal","gain_charge","recover_card","weaken_card"];
 const RX_CAST_START_UNSAFE_EFFECTS = ["Push","Pull","Summon","Burn","Poison","Bleed","Rupture"];
-function rxLint(r, effectSet, allRows){
+function rxGroundAction(a,op){
+  return !!a && Number(a.trap_tick??(a.ground_trap?1:2))===(op==="place_zone"?1:0) && !a.place_wall && !a.place_tripwire && !a.place_hazard_edge && [a.effect1,a.effect2].some(e=>e&&typeof e.effect_type==="string"&&e.effect_type!==""&&e.effect_type.toLowerCase()!=="none");
+}
+function rxEffectGroundErrors(t,event,actions){
+  const out=[], op=t.op||"apply_effect", ground=["place_zone","place_trap"].includes(op), named=["spread_effect","convert_effect"].includes(op);
+  const finite=v=>typeof v==="number"&&Number.isFinite(v)&&v>=0;
+  if(Object.prototype.hasOwnProperty.call(t,"scale_from_event")) out.push("scale_from_event uses basis pct_event_amount with optional event_amount");
+  if(Object.prototype.hasOwnProperty.call(t,"event_amount")){
+    if(t.basis!=="pct_event_amount"||!["damage","heal","overheal"].includes(t.event_amount)) out.push("event_amount requires pct_event_amount and damage, heal or overheal");
+    if((t.event_amount==="damage"&&!["hit","damaged"].includes(event))||(["heal","overheal"].includes(t.event_amount)&&event!=="healed")) out.push("event_amount does not match the Trigger payload");
+  }
+  if(t.basis==="pct_event_amount"){
+    if(!["damage","heal"].includes(op)&&!(op==="apply_effect"&&t.effect_id==="Shield")) out.push("pct_event_amount supports damage, heal or apply_effect Shield only");
+    if(!finite(t.magnitude)) out.push("pct_event_amount needs a finite nonnegative percentage");
+    if(["always","pre_hit","cast_start"].includes(event)) out.push("pct_event_amount needs a queued amount-bearing Trigger");
+  }
+  if(ground||named){
+    if(["always","pre_hit","cast_start"].includes(event)) out.push(`${op} needs a queued Trigger (not Start of Cast)`);
+    if((t.basis??"flat")!=="flat"||Object.prototype.hasOwnProperty.call(t,"from_seat")||Object.prototype.hasOwnProperty.call(t,"delay")) out.push(`${op} does not support scaling, from_seat or delay`);
+  }
+  if(ground && (typeof t.action_id!=="string"||!t.action_id.trim()||(actions&&!rxGroundAction(actions.find(a=>a.id===t.action_id),op)))) out.push(`${op} requires action_id of an existing matching hex trap/zone with effects`);
+  if(named && (typeof t.effect_id!=="string"||!t.effect_id.trim())) out.push(`${op} requires a named effect_id`);
+  if(op==="convert_effect"){
+    if(typeof t.to_effect_id!=="string"||!t.to_effect_id.trim()||t.to_effect_id===t.effect_id) out.push("convert_effect requires a different to_effect_id");
+    if(!finite(t.magnitude)) out.push("convert_effect requires a finite nonnegative magnitude");
+    if(!Number.isInteger(t.duration)||t.duration<1) out.push("convert_effect requires a positive integer duration");
+  }
+  return out;
+}
+function rxLint(r, effectSet, allRows, actions){
   const out=[]; const when=(r.when&&typeof r.when==="object")?r.when:{}; const then=Array.isArray(r.then)?r.then:[];
   rxStateErrors(r).forEach(t=>out.push({k:"err",t}));
   if(rxTimingLabel(r)!=="Instant" && /\b(this|that|triggering)\s+(attack|hit|card)\b/i.test(r.effect||""))
@@ -5724,8 +5766,10 @@ function rxLint(r, effectSet, allRows){
   if(r.stack_duration!=null && !(intOf(r.stack_duration,0)>=1)) out.push({k:"err",t:`stack_duration ${r.stack_duration}: must be ≥ 1 turn`});
   Object.keys(when.filter||{}).forEach(k=>{ if(!RX_FILTER_KEYS[k]) out.push({k:"err",t:`unknown filter key “${k}”`}); });
   ["actor","target"].forEach(k=>{ const v=(when.filter||{})[k]; if(v!=null && !RX_ROLE_VALUES.includes(v)) out.push({k:"err",t:`${k}: “${v}” is not a role`}); });
+  if(when.filter?.effect_stacks_min?.effect_id && effectSet && !effectSet.has(when.filter.effect_stacks_min.effect_id)) out.push({k:"err",t:"stack condition effect is not in the effect catalog"});
   then.forEach((t,i)=>{
     const op=t.op||"apply_effect";
+    rxEffectGroundErrors(t,when.event,actions).forEach(msg=>out.push({k:"err",t:`Response ${i+1}: ${msg}`}));
     ["recipient","from","to"].forEach(k=>{
       if(t[k]==="unit_blocking_displacement" && when.event!=="displaced") out.push({k:"err",t:`Response ${i+1}: unit_blocking_displacement requires displaced`});
     });
@@ -5740,7 +5784,8 @@ function rxLint(r, effectSet, allRows){
       if((t.basis!=null && t.basis!=="flat") || Object.prototype.hasOwnProperty.call(t,"from_seat")) out.push({k:"err",t:`Response ${i+1}: energy uses a flat magnitude, without from_seat`});
       if(["always","pre_hit"].includes(when.event)) out.push({k:"err",t:`Response ${i+1}: energy needs a queued Trigger`});
     }
-    if(op==="apply_effect"||op==="extend_effect"||op==="shorten_effect"){ if(!t.effect_id) out.push({k:"err",t:`Response ${i+1}: pick an effect`}); else if(effectSet&&!effectSet.has(t.effect_id)) out.push({k:"err",t:`Response ${i+1}: “${t.effect_id}” not in the effect catalog`}); }
+    if(["apply_effect","extend_effect","shorten_effect","spread_effect","convert_effect"].includes(op)){ if(!t.effect_id) out.push({k:"err",t:`Response ${i+1}: pick an effect`}); else if(effectSet&&!effectSet.has(t.effect_id)) out.push({k:"err",t:`Response ${i+1}: “${t.effect_id}” not in the effect catalog`}); }
+    if(op==="convert_effect" && effectSet && !effectSet.has(t.to_effect_id)) out.push({k:"err",t:`Response ${i+1}: replacement is not in the effect catalog`});
     if((op==="push"||op==="pull") && t.direction && !RX_DIRECTIONS[op].some(o=>o.v===t.direction)) out.push({k:"err",t:`Response ${i+1}: a ${op} cannot go “${t.direction}”`});
     if(t.recipient && !RX_RECIPIENTS.some(o=>o.v===t.recipient)) out.push({k:"err",t:`Response ${i+1}: unknown recipient “${t.recipient}”`});
     if(op==="transfer_effect" && t.pick==="event_effect" && when.event!=="effect_gained") out.push({k:"err",t:`Response ${i+1}: pick event_effect needs an effect_gained Trigger`});
@@ -5769,7 +5814,15 @@ function FilterEditor({obj, onChange}){
       <input class="mono" type="text" list="rx-filter-keys" value=${k} placeholder="filter key" style=${known?"":"border-color:var(--rose)"}
         title=${known?("expects: "+RX_FILTER_KEYS[k]):"unknown filter key — the runtime lint rejects it"}
         onChange=${e=>{ const l=entries.slice(); l[i]=[e.target.value,v]; write(l); }} />
-      ${RX_FILTER_KEYS[k]==="bool"?html`<select title=${RX_STATE_FILTER_HELP[k]||"true or false"} value=${typeof v==="boolean"?String(v):"__invalid"}
+      ${k==="effect_stacks_min"?html`<div title=${RX_STATE_FILTER_HELP[k]}>
+        ${(!v||typeof v!=="object"||Array.isArray(v))?html`<p class="warn-text">Invalid stack condition: ${show(v)}</p>`:null}
+        <input aria-label="Stack effect" placeholder="effect name (e.g. Poison)" value=${v?.effect_id??""} onChange=${e=>{const l=entries.slice();l[i]=[k,{...(typeof v==="object"?v:{}),effect_id:e.target.value}];write(l);}} />
+        <select aria-label="Stack subject" value=${v?.subject??"target"} onChange=${e=>{const l=entries.slice();l[i]=[k,{...(typeof v==="object"?v:{}),subject:e.target.value}];write(l);}}>
+          <option value="target">Trigger target</option><option value="self">Holder</option>
+          ${v?.subject&&!['self','target'].includes(v.subject)?html`<option value=${v.subject}>Invalid: ${v.subject}</option>`:null}
+        </select>
+        <input aria-label="Minimum stacks" type="number" min="1" step="1" placeholder="minimum stacks" value=${v?.min??""} onChange=${e=>{const l=entries.slice();l[i]=[k,{...(typeof v==="object"?v:{}),min:e.target.value===""?"":Number(e.target.value)}];write(l);}} />
+      </div>`:RX_FILTER_KEYS[k]==="bool"?html`<select title=${RX_STATE_FILTER_HELP[k]||"true or false"} value=${typeof v==="boolean"?String(v):"__invalid"}
         onChange=${e=>{ const l=entries.slice(); l[i]=[k,e.target.value==="true"]; write(l); }}>
         ${typeof v!=="boolean"?html`<option value="__invalid">Choose true or false (current: ${show(v)})</option>`:null}
         <option value="true">true</option><option value="false">false</option></select>`:
@@ -5787,7 +5840,7 @@ function FilterEditor({obj, onChange}){
 }
 
 /* one Response line — inputs follow the op (reactions.md §4); absent op = apply_effect */
-function RxThenLine({t, i, effectNames, event, upd, del}){
+function RxThenLine({t, i, effectNames, actions, event, upd, del}){
   const op=t.op||"apply_effect"; const keys=RX_OP_KEYS[op]||RX_OP_KEYS.apply_effect;
   const safeOnly=event==="cast_start";
   const opOptions=safeOnly?RX_OPS.filter(o=>RX_CAST_START_OPS.includes(o.v)):RX_OPS;
@@ -5808,6 +5861,9 @@ function RxThenLine({t, i, effectNames, event, upd, del}){
     </select></label>`;
   const recips=RX_RECIPIENTS;
   return html`<div style="border-top:1px dashed var(--line);padding-top:6px;margin-top:6px">
+    ${["place_zone","place_trap"].includes(op)?html`<p>Places the chosen action's existing payload on one hex per recipient, captured at the Trigger (including the death hex). Reuses lifetime and team filters; does not cast the card or spend energy. An occupied trap can fire immediately.</p>`:null}
+    ${op==="spread_effect"?html`<p>Copies all live timed copies of the named effect from the Trigger target, preserving remaining turns, stacks and ramp progress. Skips the source, inherents, stances and spent Shields. Normal landing rules still apply.</p>`:null}
+    ${op==="convert_effect"?html`<p>Applies one replacement, then removes all live timed copies of the named effect. A refused replacement keeps the originals. Inherents, stances and spent Shields are excluded.</p>`:null}
     ${["gain_energy","drain_energy"].includes(op)?html`<p>Offsets add together and apply on the recipient's next activation, including a skipped turn. A nonzero offset clamps that turn's final budget to 0–5, including boss, mutator and refund bonuses. Nothing changes this turn.</p>`:null}
     <div class="pb-line" style="grid-template-columns:1.2fr auto">
       <label>Response ${i+1} · op
@@ -5818,12 +5874,15 @@ function RxThenLine({t, i, effectNames, event, upd, del}){
       <button class="mini del" title="Remove this Response line" onClick=${()=>del(i)}>×</button>
     </div>
     <div class="pb-grid">
-      ${has("effect_id")?effSel("effect_id","effect"):null}
+      ${has("action_id")?sel("action_id","Existing hazard action",[{v:"",l:"Choose a matching trap/zone"},...(actions||[]).filter(a=>rxGroundAction(a,op)).map(a=>({v:a.id,l:a.name||a.id}))],""):null}
+      ${has("effect_id")?effSel("effect_id",op==="convert_effect"?"effect to remove":"effect"):null}
+      ${has("to_effect_id")?effSel("to_effect_id","replacement effect"):null}
       ${has("magnitude")?numIn("magnitude",["gain_energy","drain_energy"].includes(op)?"energy next turn (positive integer)":"magnitude",["gain_energy","drain_energy"].includes(op)?"1":undefined):null}
       ${has("duration")?numIn("duration","duration (turns)","1"):null}
       ${has("recipient")?sel("recipient","recipient",recips,"self"):null}
       ${(has("recipient")&&RX_WITHIN_RECIPIENTS.includes(t.recipient))?numIn("within","within (default 2)","1"):null}
       ${has("direction")?sel("direction","direction",RX_DIRECTIONS[op]||[],(RX_DIRECTIONS[op]||[{v:""}])[0].v):null}
+      ${(has("event_amount")&&t.basis==="pct_event_amount")?sel("event_amount","Scale from event",[{v:"",l:"Existing automatic amount (amount / hp_removed / magnitude)"},{v:"damage",l:"Actual HP lost (hit includes redirected shares)"},{v:"heal",l:"HP actually restored"},{v:"overheal",l:"Excess healing after suppression, before Shield banking"}],""):null}
       ${has("basis")?sel("basis","basis",RX_BASIS.map(v=>({v,l:v})),"flat"):null}
       ${has("stack")?sel("stack","stack",[{v:"refresh",l:"refresh (default)"},{v:"add",l:"add — new stack per firing"}],"refresh"):null}
       ${has("count")?numIn("count","count","1"):null}
@@ -5848,7 +5907,7 @@ function RxThenLine({t, i, effectNames, event, upd, del}){
 }
 
 /* the structured Trigger / Response / LIMIT block for one reaction row (reactions.md §2–4) */
-function ReactionStructured({r, effectNames, patch}){
+function ReactionStructured({r, effectNames, actions, patch}){
   const when=(r.when&&typeof r.when==="object")?r.when:{};
   const then=Array.isArray(r.then)?r.then:[];
   const limit=(r.limit&&typeof r.limit==="object")?r.limit:{};
@@ -5875,7 +5934,7 @@ function ReactionStructured({r, effectNames, patch}){
     <div class="pb-note">Trigger filter — all keys ANDed (<span class="mono">actor</span> / <span class="mono">target</span> take a role: self · partner · pair · ally · enemy …).</div>
     <${FilterEditor} obj=${when.filter} onChange=${f=>setWhen({filter:f})} />
     <div class="pb-note" style="margin-top:10px">Response — one line per op; an absent op is apply_effect.</div>
-    ${then.map((t,i)=>html`<${RxThenLine} key=${i} t=${t} i=${i} effectNames=${effectNames} event=${when.event} upd=${updThen} del=${j=>setThen(then.filter((_,k)=>k!==j))} />`)}
+    ${then.map((t,i)=>html`<${RxThenLine} key=${i} t=${t} i=${i} effectNames=${effectNames} actions=${actions} event=${when.event} upd=${updThen} del=${j=>setThen(then.filter((_,k)=>k!==j))} />`)}
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
       <button class="mini pb-btn" onClick=${()=>setThen([...then,{effect_id:"",magnitude:0,duration:1,recipient:"self"}])}>+ Response line</button>
       ${(!then.length && Array.isArray(r.effect_ids) && r.effect_ids.length)?html`<button class="mini pb-btn" title="Seed one apply_effect line per legacy effect_ids chip (magnitude 0 — fill in by hand)"
@@ -5906,10 +5965,10 @@ function ReactionStructured({r, effectNames, patch}){
   </div>`;
 }
 
-function ReactionCard({r, effectNames, effectSet, setField, patch, removeReaction, ownerLabel, allRows}){
+function ReactionCard({r, effectNames, effectSet, actions, setField, patch, removeReaction, ownerLabel, allRows}){
   const selected=Array.isArray(r.effect_ids)?r.effect_ids:[];
   const isClass=rxOwner(r)==="class";
-  const lint=rxLint(r, effectSet, allRows);
+  const lint=rxLint(r, effectSet, allRows, actions);
   return html`<div class="ref-card tight">
     <h3>${r.name||"Unnamed reaction"}</h3><span class="cat">${ownerLabel}</span>
     <dl>
@@ -5935,7 +5994,7 @@ function ReactionCard({r, effectNames, effectSet, setField, patch, removeReactio
       <dd><label><span class="dlbl">flag</span>
         <input type="text" value=${r.flag||""} onInput=${e=>setField(r.id,"flag",e.target.value)} /></label></dd>
     </dl>
-    <${ReactionStructured} r=${r} effectNames=${effectNames} patch=${p=>patch(r.id,p)} />
+    <${ReactionStructured} r=${r} actions=${actions} effectNames=${effectNames} patch=${p=>patch(r.id,p)} />
     ${lint.length?html`<div style="margin-top:6px"><${LintChips} issues=${lint} /></div>`:null}
     <button type="button" class="mini pb-btn" style="margin-top:8px" onClick=${()=>removeReaction(r.id)}>Remove reaction</button>
   </div>`;
@@ -5953,7 +6012,7 @@ function newReactionRow(existing, owner, name){
   return row;
 }
 
-function ReactionsTab({reactions, effects, classes, commitEdit}){
+function ReactionsTab({reactions, effects, classes, actions, commitEdit}){
   const [view,setViewRaw]=useState(()=>{ try{ return localStorage.getItem("phalanx_rx_view")||"type"; }catch(e){ return "type"; } });
   const setView=v=>{ setViewRaw(v); try{ localStorage.setItem("phalanx_rx_view",v); }catch(e){} };
   const [q,setQ]=useState("");
@@ -6006,7 +6065,7 @@ function ReactionsTab({reactions, effects, classes, commitEdit}){
       return html`<section key=${g.key}>
         <div class="group-title">${g.label} <span class="badge">${g.rows.length}</span></div>
         <button type="button" class="mini pb-btn" onClick=${()=>addReaction(view,g.key)}>+ New ${view} reaction</button>
-        <div class="ref-grid tight" style="margin-top:8px">${rows.map(r=>html`<${ReactionCard} key=${r.id} r=${r}
+        <div class="ref-grid tight" style="margin-top:8px">${rows.map(r=>html`<${ReactionCard} key=${r.id} r=${r} actions=${actions}
           effectNames=${effectNames} effectSet=${effectSet} setField=${setField} patch=${patch} removeReaction=${removeReaction}
           ownerLabel=${view==="class"?("class · "+g.label):g.label} allRows=${all} />`)}</div>
       </section>`;
