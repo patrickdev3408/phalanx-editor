@@ -5560,6 +5560,7 @@ function rxTimingLabel(row){
 const RX_EVENTS = [
   {v:"",              l:"— event (row inert until set) —"},
   {v:"cast",          l:"After Cast — after every hit of the card (cast)"},
+  {v:"cast_start",    l:"Start of Cast — Instant, before the first hit (safe Responses only)"},
   {v:"pre_hit",       l:"pre_hit — before the dodge roll (modify_hit only)"},
   {v:"hit",           l:"hit — a hit landed"},
   {v:"dodge",         l:"dodge — a hit was dodged"},
@@ -5607,8 +5608,10 @@ const RX_FILTER_KEYS = {
   round_min:"positive int", round_max:"positive int", target_is_summon:"bool",
   target_hp_above_pct:"percent", self_hp_above_pct:"percent", target_isolated:"bool",
   self_hp_below_target:"bool", partner_acted_this_round:"bool", self_in_enemy_zone:"bool",
+  card_power_level_min:"nonnegative number",
 };
 const RX_STATE_FILTER_HELP = {
+  card_power_level_min:"Effective card Power Level is at least this value, including recent-use weakening; excludes stats and charge bonus. Start of Cast / After Cast / hit / pre_hit only.",
   round_min:"Round is at least this number (inclusive, starts at 1).",
   round_max:"Round is at most this number (inclusive).",
   target_is_summon:"Target is a summon of either side. A missing target never matches.",
@@ -5628,7 +5631,9 @@ function rxStateErrors(r){
     if(kind==="bool" && typeof v!=="boolean") out.push(`${k} must be true or false`);
     if(kind==="positive int" && !positiveInt(v)) out.push(`${k} must be a positive integer`);
     if(kind==="percent" && !(typeof v==="number" && Number.isFinite(v) && v>=0 && v<=100)) out.push(`${k} must be a number from 0 to 100`);
+    if(kind==="nonnegative number" && !(typeof v==="number" && Number.isFinite(v) && v>=0)) out.push(`${k} must be a finite number >= 0`);
   });
+  if(Object.prototype.hasOwnProperty.call(f,"card_power_level_min") && !["cast_start","cast","hit","pre_hit"].includes(r.when?.event)) out.push("card_power_level_min requires cast_start, cast, hit or pre_hit");
   if(positiveInt(f.round_min) && positiveInt(f.round_max) && f.round_min>f.round_max) out.push("round_min must not exceed round_max");
   if(Object.prototype.hasOwnProperty.call(limit,"count") && !positiveInt(limit.count)) out.push("limit.count must be a positive integer (max times per period)");
   if(Object.prototype.hasOwnProperty.call(limit,"max_times") || Object.prototype.hasOwnProperty.call(r,"max_times")) out.push("max_times is authored as limit.count, not a separate field");
@@ -5684,6 +5689,9 @@ const Prov = ({on, why}) => on ? html`<span class="prov" title=${why||"Waits on 
 const rxSig = r => JSON.stringify({w:(r&&r.when)||null, t:(r&&r.then)||null});
 
 /* per-row lint mirror (reactions.md §11 / RX-G): what the runtime will refuse or ignore */
+// Q9 mirrors ReactionCatalog. Effect landings can themselves damage or move a unit.
+const RX_CAST_START_OPS = ["apply_effect","strip","heal","gain_charge","recover_card","weaken_card"];
+const RX_CAST_START_UNSAFE_EFFECTS = ["Push","Pull","Summon","Burn","Poison","Bleed","Rupture"];
 function rxLint(r, effectSet, allRows){
   const out=[]; const when=(r.when&&typeof r.when==="object")?r.when:{}; const then=Array.isArray(r.then)?r.then:[];
   rxStateErrors(r).forEach(t=>out.push({k:"err",t}));
@@ -5697,6 +5705,10 @@ function rxLint(r, effectSet, allRows){
   ["actor","target"].forEach(k=>{ const v=(when.filter||{})[k]; if(v!=null && !RX_ROLE_VALUES.includes(v)) out.push({k:"err",t:`${k}: “${v}” is not a role`}); });
   then.forEach((t,i)=>{
     const op=t.op||"apply_effect";
+    if(when.event==="cast_start"){
+      if(!RX_CAST_START_OPS.includes(op)) out.push({k:"err",t:`Response ${i+1}: ${op} is not safe at Start of Cast (Q9)`});
+      else if(op==="apply_effect" && RX_CAST_START_UNSAFE_EFFECTS.includes(t.effect_id)) out.push({k:"err",t:`Response ${i+1}: effect ${t.effect_id} is unsafe at Start of Cast (Q9)`});
+    }
     if(!RX_OP_KEYS[op]) out.push({k:"err",t:`Response ${i+1}: unknown op “${op}”`});
     if(op==="modify_hit" && when.event!=="pre_hit") out.push({k:"err",t:`Response ${i+1}: modify_hit is pre_hit only`});
     if(op==="apply_effect"||op==="extend_effect"||op==="shorten_effect"){ if(!t.effect_id) out.push({k:"err",t:`Response ${i+1}: pick an effect`}); else if(effectSet&&!effectSet.has(t.effect_id)) out.push({k:"err",t:`Response ${i+1}: “${t.effect_id}” not in the effect catalog`}); }
@@ -5742,8 +5754,11 @@ function FilterEditor({obj, onChange}){
 }
 
 /* one Response line — inputs follow the op (reactions.md §4); absent op = apply_effect */
-function RxThenLine({t, i, effectNames, upd, del}){
+function RxThenLine({t, i, effectNames, event, upd, del}){
   const op=t.op||"apply_effect"; const keys=RX_OP_KEYS[op]||RX_OP_KEYS.apply_effect;
+  const safeOnly=event==="cast_start";
+  const opOptions=safeOnly?RX_OPS.filter(o=>RX_CAST_START_OPS.includes(o.v)):RX_OPS;
+  const effectOptions=safeOnly&&op==="apply_effect"?effectNames.filter(n=>!RX_CAST_START_UNSAFE_EFFECTS.includes(n)):effectNames;
   const has=k=>keys.includes(k);
   const numIn=(k,label,step)=>html`<label>${label}
     <input class="mono" type="number" step=${step||"any"} value=${t[k]==null?"":t[k]} onChange=${e=>upd(i,{[k]:e.target.value===""?undefined:num(e.target.value,0)})} /></label>`;
@@ -5755,15 +5770,16 @@ function RxThenLine({t, i, effectNames, upd, del}){
   const effSel=(k,label)=>html`<label>${label}
     <select value=${t[k]||""} onChange=${e=>upd(i,{[k]:e.target.value})}>
       <option value="">— effect —</option>
-      ${(t[k]&&!effectNames.includes(t[k]))?html`<option value=${t[k]}>⚠ ${t[k]} (not in catalog)</option>`:null}
-      ${effectNames.map(n=>html`<option key=${n} value=${n}>${n}</option>`)}
+      ${(t[k]&&!effectOptions.includes(t[k]))?html`<option value=${t[k]}>⚠ ${t[k]} (unavailable for this Trigger)</option>`:null}
+      ${effectOptions.map(n=>html`<option key=${n} value=${n}>${n}</option>`)}
     </select></label>`;
   const recips=RX_RECIPIENTS;
   return html`<div style="border-top:1px dashed var(--line);padding-top:6px;margin-top:6px">
     <div class="pb-line" style="grid-template-columns:1.2fr auto">
       <label>Response ${i+1} · op
         <select value=${op} onChange=${e=>upd(i,{op:e.target.value==="apply_effect"?undefined:e.target.value}, true)}>
-          ${RX_OPS.map(o=>html`<option key=${o.v} value=${o.v}>${o.l}</option>`)}
+          ${!opOptions.some(o=>o.v===op)?html`<option value=${op}>⚠ ${op} (unavailable for this Trigger)</option>`:null}
+          ${opOptions.map(o=>html`<option key=${o.v} value=${o.v}>${o.l}</option>`)}
         </select></label>
       <button class="mini del" title="Remove this Response line" onClick=${()=>del(i)}>×</button>
     </div>
@@ -5825,7 +5841,7 @@ function ReactionStructured({r, effectNames, patch}){
     <div class="pb-note">Trigger filter — all keys ANDed (<span class="mono">actor</span> / <span class="mono">target</span> take a role: self · partner · pair · ally · enemy …).</div>
     <${FilterEditor} obj=${when.filter} onChange=${f=>setWhen({filter:f})} />
     <div class="pb-note" style="margin-top:10px">Response — one line per op; an absent op is apply_effect.</div>
-    ${then.map((t,i)=>html`<${RxThenLine} key=${i} t=${t} i=${i} effectNames=${effectNames} upd=${updThen} del=${j=>setThen(then.filter((_,k)=>k!==j))} />`)}
+    ${then.map((t,i)=>html`<${RxThenLine} key=${i} t=${t} i=${i} effectNames=${effectNames} event=${when.event} upd=${updThen} del=${j=>setThen(then.filter((_,k)=>k!==j))} />`)}
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
       <button class="mini pb-btn" onClick=${()=>setThen([...then,{effect_id:"",magnitude:0,duration:1,recipient:"self"}])}>+ Response line</button>
       ${(!then.length && Array.isArray(r.effect_ids) && r.effect_ids.length)?html`<button class="mini pb-btn" title="Seed one apply_effect line per legacy effect_ids chip (magnitude 0 — fill in by hand)"
