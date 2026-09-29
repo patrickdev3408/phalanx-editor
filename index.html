@@ -1523,7 +1523,7 @@ function RecentUseField({action, set, autoOpen}){
       placeholder=${"= "+inh+(std?" (standard atk)":" (inherited)")} btnTitle="Recent-use window: the card is weakened for this many rounds after use (core ~1–14, mastery long). Unset = inherits the retired cooldown." displayFn=${v=>(+Number(v)).toString()}
       onInput=${v=>set("recent_use_window", Math.min(64,Math.max(1,intOf(v,inh))))} />
     <div class="pb-note" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:0">
-      ${own?html`<button class="mini pb-btn" title="Delete recent_use_window so the card inherits its (retired) cooldown again" onClick=${()=>set("recent_use_window",undefined)}>↺ inherit</button>`:null}
+      ${own?html`<button class="mini pb-btn" title="Delete recent_use_window so the action inherits its (retired) cooldown again" onClick=${()=>set("recent_use_window",undefined)}>↺ inherit</button>`:null}
       <span title="cooldown_rounds is RETIRED (no cooldowns) — read only; the Push B loader uses it only as the fallback window">CD retired: ${intOf(action.cooldown_rounds,0)}</span>
       ${std?html`<span title="⚖ RU-05: a standard attack's window is 3 rounds (never lower)">· standard attack → ${RU_STD_WINDOW}</span>`:null}
     </div>
@@ -2729,7 +2729,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build (local)</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-29 4bd30618a</span></span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -5387,13 +5387,13 @@ const RX_TIMING_RULES = [
         "card_weakened"
       ]
     },
-    "label": "After the card"
+    "label": "After the action"
   },
   {
     "events": [
       "recent_use"
     ],
-    "label": "After the card / Start of round"
+    "label": "After the action / Start of round"
   },
   {
     "events": [
@@ -5415,13 +5415,13 @@ const RX_TIMING_RULES = [
         "dash"
       ]
     },
-    "label": "After the card"
+    "label": "After the action"
   },
   {
     "events": [
       "move_finished"
     ],
-    "label": "After the move / After the card"
+    "label": "After the move / After the action"
   },
   {
     "events": [
@@ -5430,7 +5430,7 @@ const RX_TIMING_RULES = [
     "filter": {
       "kind": "shove"
     },
-    "label": "After the move / After the card"
+    "label": "After the move / After the action"
   },
   {
     "events": [
@@ -5443,13 +5443,13 @@ const RX_TIMING_RULES = [
         "swap"
       ]
     },
-    "label": "After the card"
+    "label": "After the action"
   },
   {
     "events": [
       "displaced"
     ],
-    "label": "After the card / After the move"
+    "label": "After the action / After the move"
   },
   {
     "events": [
@@ -5471,13 +5471,13 @@ const RX_TIMING_RULES = [
         "broken"
       ]
     },
-    "label": "After the card"
+    "label": "After the action"
   },
   {
     "events": [
       "effect_ended"
     ],
-    "label": "After the card / End of turn"
+    "label": "After the action / End of turn"
   },
   {
     "events": [
@@ -5499,13 +5499,13 @@ const RX_TIMING_RULES = [
         "swap"
       ]
     },
-    "label": "After the card"
+    "label": "After the action"
   },
   {
     "events": [
       "swap"
     ],
-    "label": "On arrival / After the card"
+    "label": "On arrival / After the action"
   },
   {
     "events": [
@@ -5514,21 +5514,21 @@ const RX_TIMING_RULES = [
     "filter": {
       "source_kind": "hit"
     },
-    "label": "After the card"
+    "label": "After the action"
   },
   {
     "events": [
       "damaged",
       "death"
     ],
-    "label": "After the card / End of turn / Instant at traps"
+    "label": "After the action / End of turn / Instant at traps"
   },
   {
     "events": [
       "effect_gained",
       "healed"
     ],
-    "label": "After the card / Instant at traps"
+    "label": "After the action / Instant at traps"
   },
   {
     "events": [
@@ -5542,7 +5542,7 @@ const RX_TIMING_RULES = [
       "phase",
       "card_weakened"
     ],
-    "label": "After the card"
+    "label": "After the action"
   }
 ];
 // END GENERATED REACTION TIMING RULES
@@ -5877,7 +5877,7 @@ function RxThenLine({t, i, effectNames, actions, event, upd, del}){
     </select></label>`;
   const recips=RX_RECIPIENTS;
   return html`<div style="border-top:1px dashed var(--line);padding-top:6px;margin-top:6px">
-    ${["place_zone","place_trap"].includes(op)?html`<p>Places the chosen action's existing payload on one hex per recipient, captured at the Trigger (including the death hex). Reuses lifetime and team filters; does not cast the card or spend energy. An occupied trap can fire immediately.</p>`:null}
+    ${["place_zone","place_trap"].includes(op)?html`<p>Places the chosen action's existing payload on one hex per recipient, captured at the Trigger (including the death hex). Reuses lifetime and team filters; does not cast the action or spend energy. An occupied trap can fire immediately.</p>`:null}
     ${op==="spread_effect"?html`<p>Copies all live timed copies of the named effect from the Trigger target, preserving remaining turns, stacks and ramp progress. Skips the source, inherents, stances and spent Shields. Normal landing rules still apply.</p>`:null}
     ${op==="convert_effect"?html`<p>Applies one replacement, then removes all live timed copies of the named effect. A refused replacement keeps the originals. Inherents, stances and spent Shields are excluded.</p>`:null}
     ${["gain_energy","drain_energy"].includes(op)?html`<p>Offsets add together and apply on the recipient's next activation, including a skipped turn. A nonzero offset clamps that turn's final budget to 0–5, including boss, mutator and refund bonuses. Nothing changes this turn.</p>`:null}
