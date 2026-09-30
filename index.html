@@ -1604,6 +1604,20 @@ function fuzzy(q, s){
 }
 /* R3.4 — build a plain-text hover description for an effect from the catalog
    ({name, magnitude_meaning, duration_meaning, notes}). Used as a `title` tooltip. */
+/* 2026-09-30 (Pat D): the player sentence under each inherent slot, so the Types / Classes
+   tabs read without a trip to the Effects tab. {m} = this slot's magnitude, {d} = its duration
+   (a permanent slot drops "for {d} turns"). Falls back to player_short, then nothing. */
+function inherentPlayerLine(eff, slot){
+  if(!eff) return "";
+  let t=String(eff.player_text||eff.player_short||"");
+  if(!t) return "";
+  const m=(slot&&slot.magnitude!=null)?String(slot.magnitude):"";
+  const d=(slot&&slot.duration!=null)?String(slot.duration):"";
+  t=t.split("{m}").join(m).split("{pl}").join("");
+  if(!d) t=t.replace(/ for \{d\} turns?/g,"");
+  return t.split("{d}").join(d).replace(/  +/g," ");
+}
+
 function effectDescText(eff){
   if(!eff) return "";
   const bits=[];
@@ -2729,7 +2743,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-29 4bd30618a</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-09-30 649f55b1d</span></span>
       </div>
       <div class="spacer"></div>
       <button class="btn ghost cmdk-btn" title="Ctrl-K command palette" onClick=${()=>setCmdk(true)}>⌘ <span class="hk">Ctrl K</span></button>
@@ -4007,6 +4021,7 @@ function InherentEditor({list, effectRows, knownEffects, effectByName, onChange}
           value=${e.duration==null?"":e.duration}
           onInput=${ev=>upd(i,{duration: ev.target.value===""?null:intOf(ev.target.value,0)})} /></${Field}>
       <button class="rep-del" onClick=${()=>onChange(rows.filter((_,j)=>j!==i))}>×</button>
+      ${(()=>{ const t=inherentPlayerLine((effectByName||{})[e.effect_id], e); return t?html`<p class="note" style="grid-column:1/-1;margin:0 0 4px">${t}</p>`:null; })()}
     </div>`)}
     <button class="add-row" onClick=${()=>onChange([...rows,{effect_id:"",magnitude:0,duration:null}])}>+ Add inherent effect</button>
   </div>`;
@@ -4723,6 +4738,8 @@ function TypesTab({data,enums,charById,actionById,usageIdx,summonOptions,commitE
                   ${(data.reactions||[]).filter(r=>r&&r.id&&r.type===t.type_name).map(r=>html`
                     <option key=${r.id} value=${r.id}>${r.name||r.id}</option>`)}
                 </select>
+                ${(()=>{ const id=Array.isArray(t.reactions)?(t.reactions[i]||""):""; const r=id?(data.reactions||[]).find(x=>x&&x.id===id):null;
+                  return r?html`<p class="note" style="margin:4px 0 0"><b>Trigger · ${rxTimingLabel(r)}</b> ${r.trigger||"—"} · <b>Response</b> ${r.effect||"—"}</p>`:null; })()}
               </${Field}>`)}
           </${Group}>
           <${Group} title=${`Type reflex (${counts.reflex}) + cooldown ladder`}>
