@@ -2743,7 +2743,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-10-03 ef76c38f7</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-10-04 fed9b946b</span></span>
       </div>
       <div class="spacer"></div>
       <a class="btn ghost" href="spread.html" target="_blank" rel="noopener" title="Synergy Spread: how class-action Synergy lines spread across types, classes and playstyles (live from Supabase)">Synergy Spread ↗</a>
@@ -5638,6 +5638,8 @@ const RX_FILTER_KEYS = {
   stopped_early:"bool", hexes_refused_min:"positive int", stopped_by:"wall|unit|edge",
   self_energy_left_min:"nonnegative int",
   effect_stacks_min:"stack condition",
+  /* Pat D 2026-10-03 (defining reactions) */
+  actor_within:"int", target_has_harmful:"bool",
 };
 const RX_STATE_FILTER_HELP = {
   effect_stacks_min:"Count live timed copies/stacks of a named effect on self or target; excludes inherents, stances and spent Shield grants. Inclusive minimum.",
@@ -5681,7 +5683,9 @@ function rxStateErrors(r){
   if(positiveInt(f.round_min) && positiveInt(f.round_max) && f.round_min>f.round_max) out.push("round_min must not exceed round_max");
   if(Object.prototype.hasOwnProperty.call(limit,"count") && !positiveInt(limit.count)) out.push("limit.count must be a positive integer (max times per period)");
   if(Object.prototype.hasOwnProperty.call(limit,"max_times") || Object.prototype.hasOwnProperty.call(r,"max_times")) out.push("max_times is authored as limit.count, not a separate field");
-  if(limit.per!=null && !["none","cast","turn","round","match"].includes(limit.per)) out.push(`Unknown limit per “${limit.per}”`);
+  if(limit.per!=null && !["none","cast","turn","round","match","cooldown"].includes(limit.per)) out.push(`Unknown limit per “${limit.per}”`);
+  if(limit.per==="cooldown" && !positiveInt(limit.rounds)) out.push("limit per cooldown needs rounds: a positive integer");
+  if(r.pure!=null && (typeof r.pure!=="object" || Array.isArray(r.pure))) out.push("pure must be an object with when / then / limit");
   return out;
 }
 /* reactions.md §4 — Response ops, recipients, basis */
@@ -5736,7 +5740,7 @@ const RX_RECIPIENTS = ["self","partner","pair","trigger_source","trigger_target"
 const RX_BASIS = ["flat","pct_event_amount","pct_holder_max_hp","pct_recipient_max_hp",
   "holder_stat:attack","holder_stat:defense","holder_stat:special_attack","holder_stat:special_defense","holder_stat:speed"];
 const RX_LIMIT_PER = [{v:"",l:"(default) once per round · RX-01"},{v:"none",l:"none — every time"},{v:"cast",l:"per cast"},
-  {v:"turn",l:"per turn"},{v:"round",l:"per round"},{v:"match",l:"per match"}];
+  {v:"turn",l:"per turn"},{v:"round",l:"per round"},{v:"match",l:"per match"},{v:"cooldown",l:"cooldown — once every N rounds"}];
 const RX_TYPE_ORDER = ["Human","Horde","Arcane","Doom","Celestial","Tech","Elderfolk","Beast","Earth","Sea","Sky"];
 const rxOwner = r => (r&&r.owner_kind==="class") ? "class" : "type";
 const Prov = ({on, why}) => on ? html`<span class="prov" title=${why||"Waits on a Pat D ruling — may change before the runtime reads it."}>provisional</span>` : null;
@@ -5783,7 +5787,7 @@ function rxEncounterOnlyErrors(r){
   if(r.when?.event==="phase") out.push("phase is encounter-enemy-only");
   (Array.isArray(r.then)?r.then:[]).forEach((line,i)=>{
     if(!line || typeof line!=="object") return;
-    if(["summon","announce"].includes(line.op)) out.push(`Response ${i+1}: ${line.op} is encounter-enemy-only`);
+    if((line.op==="announce") || (line.op==="summon" && rxOwner(r)!=="class")) out.push(`Response ${i+1}: ${line.op} is encounter-enemy-only${line.op==="summon"?" (class rows may summon)":""}`);
     ["recipient","from","to"].forEach(k=>{
       if(["all_allies","all_enemies"].includes(line[k])) out.push(`Response ${i+1}: ${line[k]} is encounter-enemy-only`);
     });
@@ -5984,6 +5988,9 @@ function ReactionStructured({r, effectNames, actions, patch}){
       <label title="Maximum firings in the chosen period; uses limit.count. Absent = 1. The none period ignores this count.">max times
         <input class="mono" type="number" min="1" step="1" placeholder="1" value=${limit.count==null?"":limit.count}
           onChange=${e=>setLimit({count:e.target.value===""?null:Number(e.target.value)})} /></label>
+      ${limit.per==="cooldown"?html`<label title="Fired in round R ⇒ can fire again from round R + rounds">cooldown rounds
+        <input class="mono" type="number" min="1" step="1" value=${limit.rounds==null?"":limit.rounds}
+          onChange=${e=>setLimit({rounds:e.target.value===""?null:Number(e.target.value)})} /></label>`:null}
       <label title="Skip if an effect this row granted is still on the recipient — what lets a ramp grow">while_active
         <input type="checkbox" checked=${!!limit.while_active} onChange=${e=>setLimit({while_active:e.target.checked})} /></label>
     </div>
@@ -5998,6 +6005,30 @@ function ReactionStructured({r, effectNames, actions, patch}){
         <input type="checkbox" checked=${announce} onChange=${e=>patch({announce:(e.target.checked===announceDefault)?null:e.target.checked})} /></label>
       <span class="pb-note" style="align-self:center">${r.announce==null?"(default)":"(set explicitly — untick/tick back to the default to clear)"}</span>
     </div>
+    <${RxPureEditor} r=${r} patch=${patch} />
+  </div>`;
+}
+
+/* ⚖ Pat D 2026-10-03: every type / class reaction has a PURE version — used when the holder is pure on
+   that axis. `pure` replaces when / then / limit (only the keys it has); `pure_effect` replaces the
+   player sentence. Edited as JSON so any part of the row can differ. */
+function RxPureEditor({r, patch}){
+  const [txt,setTxt]=useState(r.pure?JSON.stringify(r.pure,null,1):"");
+  const [err,setErr]=useState("");
+  useEffect(()=>{ setTxt(r.pure?JSON.stringify(r.pure,null,1):""); setErr(""); },[r.id]);
+  const commit=()=>{
+    if(!txt.trim()){ patch({pure:null}); setErr(""); return; }
+    try{ const v=JSON.parse(txt); if(!v||typeof v!=="object"||Array.isArray(v)) throw new Error("must be an object");
+      const bad=Object.keys(v).filter(k=>!["when","then","limit"].includes(k)); if(bad.length) throw new Error("only when / then / limit: "+bad.join(", "));
+      patch({pure:v}); setErr(""); }catch(e){ setErr(String(e.message||e)); }
+  };
+  return html`<div style="margin-top:12px;border-top:1px dashed var(--line,#444);padding-top:8px">
+    <div class="pb-hd">Pure version — used when the holder is PURE on this axis</div>
+    <label>Pure player sentence (replaces the Response text when pure)
+      <input value=${r.pure_effect||""} onChange=${e=>patch({pure_effect:e.target.value||null})} /></label>
+    <label style="display:block;margin-top:6px">Pure override (JSON: any of when / then / limit; empty = same as hybrid)
+      <textarea class="mono" rows="6" style="width:100%" value=${txt} onInput=${e=>setTxt(e.target.value)} onBlur=${commit}></textarea></label>
+    ${err?html`<div class="pb-note" style="color:#e27a6a">⚠ ${err} — not saved</div>`:null}
   </div>`;
 }
 
