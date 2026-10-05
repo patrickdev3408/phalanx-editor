@@ -2743,7 +2743,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-10-04 fed9b946b</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-10-05 8e546b2ee</span></span>
       </div>
       <div class="spacer"></div>
       <a class="btn ghost" href="spread.html" target="_blank" rel="noopener" title="Synergy Spread: how class-action Synergy lines spread across types, classes and playstyles (live from Supabase)">Synergy Spread ↗</a>
@@ -5201,7 +5201,7 @@ function GlossaryTab({glossary, commitEdit}){
 
   return html`<div class="view"><div class="full-pane">
     <datalist id="glossary-category-options">
-      ${["type","stat","keyword","playstyle","effect"].map(v=>html`<option value=${v}></option>`)}
+      ${["type","stat","keyword","playstyle","effect","system"].map(v=>html`<option value=${v}></option>`)}
     </datalist>
     <div class="group-title effects-main-title">Glossary <span class="hint" style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">grouped by category · ${glossary.length} entries</span>
       <span class="effects-title-actions"><button type="button" class="effects-title-action" onClick=${addEntry}>+ New entry</button></span>
@@ -5620,7 +5620,7 @@ const RX_FILTER_KEYS = {
   self_hp_below_pct:"int", self_hp_full:"bool",
   self_adjacent_allies_min:"int", self_adjacent_allies_max:"int", self_outnumbered:"bool", self_moved_this_turn:"bool",
   self_has_any:"list", partner_adjacent:"bool",
-  target_has_effect:"text", target_harmful_count_min:"int", target_not_acted_this_round:"bool",
+  target_has_effect:"text|list", target_harmful_count_min:"int", target_not_acted_this_round:"bool",
   pair_hit_same_target_this_round:"bool", partner_adjacent_to_target:"bool", self_adjacent_to_target:"bool",
   match_first_kill:"bool", distinct_actions_hit_this_round:"int", streak_rounds_no_enemy_adjacent:"int",
   rounds_since_partner_adjacent_min:"int", streak_turns_enemy_adjacent:"int", streak_turns_adjacent_enemy_unmoved:"int",
@@ -5736,7 +5736,7 @@ const RX_WITHIN_RECIPIENTS = ["allies_within","enemies_within","lowest_hp_ally_w
 const RX_RECIPIENTS = ["self","partner","pair","trigger_source","trigger_target","adjacent_allies","adjacent_enemies",
   "allies_within","enemies_within","nearest_enemy","nearest_enemy_to_target","enemies_adjacent_to_target","streak_enemies",
   /* Push F: R-01 · R-02 · R-03 · R-05 */
-  "lowest_hp_ally_within","trigger_source_partner","farthest_enemy_within","other_pair","own_summons","unit_blocking_displacement"].map(v=>({v,l:v==="own_summons"?"own_summons — all your living summons on the board":v==="unit_blocking_displacement"?"unit_blocking_displacement — living blocker of a push/pull, including zero movement":v}));
+  "lowest_hp_ally_within","trigger_source_partner","farthest_enemy_within","other_pair","own_summons","unit_blocking_displacement","nearest_enemies"].map(v=>({v,l:v==="nearest_enemies"?"nearest_enemies — the [skip, skip+count] nearest enemies (set skip / count on the line; count defaults to 2)":v==="own_summons"?"own_summons — all your living summons on the board":v==="unit_blocking_displacement"?"unit_blocking_displacement — living blocker of a push/pull, including zero movement":v}));
 const RX_BASIS = ["flat","pct_event_amount","pct_holder_max_hp","pct_recipient_max_hp",
   "holder_stat:attack","holder_stat:defense","holder_stat:special_attack","holder_stat:special_defense","holder_stat:speed"];
 const RX_LIMIT_PER = [{v:"",l:"(default) once per round · RX-01"},{v:"none",l:"none — every time"},{v:"cast",l:"per cast"},
@@ -5921,6 +5921,8 @@ function RxThenLine({t, i, effectNames, actions, event, upd, del}){
       ${has("duration")?numIn("duration","duration (turns)","1"):null}
       ${has("recipient")?sel("recipient","recipient",recips,"self"):null}
       ${(has("recipient")&&RX_WITHIN_RECIPIENTS.includes(t.recipient))?numIn("within","within (default 2)","1"):null}
+      ${(has("recipient")&&t.recipient==="nearest_enemies")?numIn("skip","skip the N nearest (default 0)","1"):null}
+      ${(has("recipient")&&t.recipient==="nearest_enemies")?numIn("count","how many (default 2)","1"):null}
       ${has("direction")?sel("direction","direction",RX_DIRECTIONS[op]||[],(RX_DIRECTIONS[op]||[{v:""}])[0].v):null}
       ${(has("event_amount")&&t.basis==="pct_event_amount")?sel("event_amount","Scale from event",[{v:"",l:"Existing automatic amount (amount / hp_removed / magnitude)"},{v:"damage",l:"Actual HP lost (hit includes redirected shares)"},{v:"heal",l:"HP actually restored"},{v:"overheal",l:"Excess healing after suppression, before Shield banking"}],""):null}
       ${has("basis")?sel("basis","basis",RX_BASIS.map(v=>({v,l:v})),"flat"):null}
@@ -6004,6 +6006,12 @@ function ReactionStructured({r, effectNames, actions, patch}){
       <label title="Presentation only: a board caption when it fires. Default true, false for 'always'.">announce
         <input type="checkbox" checked=${announce} onChange=${e=>patch({announce:(e.target.checked===announceDefault)?null:e.target.checked})} /></label>
       <span class="pb-note" style="align-self:center">${r.announce==null?"(default)":"(set explicitly — untick/tick back to the default to clear)"}</span>
+    </div>
+    <div class="pb-line" style="grid-template-columns:auto 1fr;margin-top:4px">
+      <label title="Wizard-style chains: drop ALL of this row's own stacks when its holder ends a turn without casting">reset stacks
+        <select value=${r.reset_on||""} onChange=${e=>patch({reset_on:e.target.value||null})}>
+          <option value="">never (default)</option><option value="turn_without_cast">when a turn passes without a cast</option>
+        </select></label>
     </div>
     <${RxPureEditor} r=${r} patch=${patch} />
   </div>`;
