@@ -2743,7 +2743,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-10-05 8e546b2ee</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build (local)</span></span>
       </div>
       <div class="spacer"></div>
       <a class="btn ghost" href="spread.html" target="_blank" rel="noopener" title="Synergy Spread: how class-action Synergy lines spread across types, classes and playstyles (live from Supabase)">Synergy Spread ↗</a>
@@ -5596,6 +5596,11 @@ const RX_EVENTS = [
   {v:"round_end",     l:"round_end"},
   {v:"swap",          l:"swap — pair traffic (swap / delay / arrival)"},
   {v:"always",        l:"always — standing passive, re-armed each turn (legacy-rule migration)"},
+  /* 2026-10-13 — class charge (owner_kind "charge" rows; any row may use these events) */
+  {v:"summon_left",      l:"summon_left — an owned summon left the board (kind expired / killed / killed_by_enemy / dissolved)"},
+  {v:"dot_ticked",       l:"dot_ticked — a Burn / Poison / Bleed ticked (actor = who applied it)"},
+  {v:"lifesteal",        l:"lifesteal — Lifesteal healed the actor"},
+  {v:"effects_consumed", l:"effects_consumed — an action ended the target's DoTs early (count = kinds)"},
   /* Push F (2026-09-25) — reactions.md §18 */
   {v:"stepped_adjacent", l:"stepped_adjacent — a unit arrives next to another (actor = mover, target = the neighbour; walk step / landing)"},
   {v:"stepped_away", l:"stepped_away — leaves a neighbour (actor = mover, target = neighbour); Instant at the committed step / landing"},
@@ -5608,11 +5613,21 @@ const RX_EVENTS = [
   {v:"turn_skipped",     l:"turn_skipped — actor ends without spending energy (kind stunned / passed / delayed / no_energy)"},
   {v:"summoned",         l:"summoned — a summon joined the board (actor = summoner, target = summon)"},
   {v:"trap_triggered",   l:"trap_triggered — the actor's trap / zone / tripwire fired on the target"},
+  /* ⚖ Pat D 2026-10-12 (inherents rewrite): PASSIVE seams — inherent seat rows only (modify_heal) */
+  {v:"heal_out",         l:"heal_out — PASSIVE (seat: inherent only): a heal this unit gives (modify_heal)"},
+  {v:"heal_in",          l:"heal_in — PASSIVE (seat: inherent only): any heal this unit receives (modify_heal)"},
 ];
 /* reactions.md §3.2 — filter vocabulary. An unknown key is a lint ERROR in the runtime. */
 const RX_ROLE_VALUES = ["self","partner","pair","ally","ally_not_partner","enemy","any","own_summon"];
 const RX_FILTER_KEYS = {
   actor:"role", target:"role",
+  /* 2026-10-13 — class charge shared keys */
+  fresh:"bool", self_stance:"text|list", first_cast_of_action:"bool", act_alternates:"bool", actor_in_aura:"bool",
+  hp_removed_min:"int", ally_hp_below_pct_within:"json", target_hp_before_below_pct:"int",
+  self_adjacent_enemies_max:"int", self_allies_within_max:"json", actor_in_own_zone:"bool",
+  target_has_own_effect:"text|list", friendly_fire:"bool", self_hit_enemy_this_round:"bool",
+  self_units_hit_this_round_max:"int", own_effect:"bool", lifesteal:"bool", shield_own:"bool",
+  own_summons_max:"int", self_enemy_hit_since_last_turn:"bool",
   within:"int", min_distance:"int", within_at_start:"int",
   effect_id:"text|list", harmful:"bool",
   damage_type:"normal|special|hybrid", damaging:"bool", pattern:"list",
@@ -5640,6 +5655,8 @@ const RX_FILTER_KEYS = {
   effect_stacks_min:"stack condition",
   /* Pat D 2026-10-03 (defining reactions) */
   actor_within:"int", target_has_harmful:"bool",
+  /* Pat D 2026-10-12 (inherents rewrite): Berserker Pain Feeds + a general "target has a buff" */
+  self_has_harmful:"bool", target_has_buff:"bool",
 };
 const RX_STATE_FILTER_HELP = {
   effect_stacks_min:"Count live timed copies/stacks of a named effect on self or target; excludes inherents, stances and spent Shield grants. Inclusive minimum.",
@@ -5695,6 +5712,8 @@ const RX_OPS = [
   {v:"spread_effect", l:"spread_effect ? copy named effect from Trigger target"},
   {v:"convert_effect", l:"convert_effect ? replace named recipient effects"},
   {v:"apply_effect",         l:"apply_effect (default)"},
+  {v:"lose_charge",          l:"lose_charge — class charge rule: drain the class pool (magnitude, per)"},
+  {v:"empty_charge",         l:"empty_charge — class charge rule: empty the class pool"},
   {v:"damage",               l:"damage — deterministic HP loss"},
   {v:"heal",                 l:"heal"},
   {v:"gain_charge",          l:"gain_charge"},
@@ -5714,17 +5733,20 @@ const RX_OPS = [
   {v:"weaken_card",          l:"weaken_card — the recipient's last-used card counts as used again (N rounds newer)"},
   {v:"extend_effect",        l:"extend_effect — +N turns on an effect already on the recipient"},
   {v:"shorten_effect",       l:"shorten_effect — −N turns on an effect already on the recipient (0 ends it)"},
+  /* ⚖ 2026-10-12: passive inherents only (heal_out / heal_in) */
+  {v:"modify_heal",          l:"modify_heal — heal_pct on a heal (PASSIVE seat rows: heal_out / heal_in)"},
 ];
 const RX_OP_KEYS = {
   place_zone:["action_id","recipient"], place_trap:["action_id","recipient"],
   spread_effect:["effect_id","recipient","stack"],
   convert_effect:["effect_id","to_effect_id","magnitude","duration","recipient","stack"],   // which inputs each op shows (reactions.md §4)
   apply_effect:["effect_id","magnitude","duration","recipient","basis","event_amount","stack","grace","delay","from_seat"],
-  damage:["magnitude","basis","event_amount","recipient"], heal:["magnitude","basis","event_amount","recipient"],
+  damage:["magnitude","basis","event_amount","recipient"], heal:["magnitude","basis","event_amount","recipient","include_self"],
   gain_charge:["magnitude"], strip:["count","which","recipient"],
   gain_energy:["magnitude","recipient"], drain_energy:["magnitude","recipient"],
   transfer_effect:["effect_ids","from","to","pick"], copy_event_effect:["recipient"],
-  next_hit_undodgeable:["vs"], modify_hit:["dmg_pct","crit_add","dodge_add","undodgeable"],
+  next_hit_undodgeable:["vs"], modify_hit:["dmg_pct","crit_add","dodge_add","undodgeable","from_seat"],
+  modify_heal:["heal_pct","from_seat"],
   step_toward:["magnitude","toward","from_seat"],
   push:["magnitude","direction","recipient","from_seat"], pull:["magnitude","direction","recipient","from_seat"],
   swap_with_partner:[], recover_card:["magnitude","recipient","from_seat"], weaken_card:["magnitude","recipient","from_seat"],
@@ -5742,7 +5764,7 @@ const RX_BASIS = ["flat","pct_event_amount","pct_holder_max_hp","pct_recipient_m
 const RX_LIMIT_PER = [{v:"",l:"(default) once per round · RX-01"},{v:"none",l:"none — every time"},{v:"cast",l:"per cast"},
   {v:"turn",l:"per turn"},{v:"round",l:"per round"},{v:"match",l:"per match"},{v:"cooldown",l:"cooldown — once every N rounds"}];
 const RX_TYPE_ORDER = ["Human","Horde","Arcane","Doom","Celestial","Tech","Elderfolk","Beast","Earth","Sea","Sky"];
-const rxOwner = r => (r&&r.owner_kind==="class") ? "class" : "type";
+const rxOwner = r => (r&&r.owner_kind==="class") ? "class" : (r&&r.owner_kind==="charge") ? "charge" : "type";  /* 2026-10-13: class charge rules */
 const Prov = ({on, why}) => on ? html`<span class="prov" title=${why||"Waits on a Pat D ruling — may change before the runtime reads it."}>provisional</span>` : null;
 const rxSig = r => JSON.stringify({w:(r&&r.when)||null, t:(r&&r.then)||null});
 
@@ -5937,6 +5959,8 @@ function RxThenLine({t, i, effectNames, actions, event, upd, del}){
       ${has("pick")?sel("pick","pick",[{v:"all",l:"all"},{v:"rng_one",l:"rng_one"},{v:"event_effect",l:"event_effect — exactly the effect that just landed (effect_gained rows only; Push I)"}],"all"):null}
       ${has("vs")?sel("vs","vs",[{v:"trigger_target",l:"trigger_target"}],"trigger_target"):null}
       ${has("dmg_pct")?numIn("dmg_pct","dmg %"):null}
+      ${has("heal_pct")?numIn("heal_pct","heal %"):null}
+      ${has("include_self")?html`<label title="2026-10-12 (Dawnstrike): lowest_hp_ally_within may pick the holder itself.">incl. self<input type="checkbox" checked=${!!t.include_self} onChange=${e=>upd(i,{include_self:e.target.checked||undefined})} /></label>`:null}
       ${has("crit_add")?numIn("crit_add","crit +"):null}
       ${has("dodge_add")?numIn("dodge_add","dodge +"):null}
       ${has("undodgeable")?html`<label>undodgeable<input type="checkbox" checked=${!!t.undodgeable} onChange=${e=>upd(i,{undodgeable:e.target.checked||undefined})} /></label>`:null}
@@ -6113,11 +6137,14 @@ function ReactionsTab({reactions, effects, classes, actions, commitEdit}){
   const match=r=>!q||[r.name,r.id,r.trigger,r.effect,r.class,r.type].some(v=>String(v||"").toLowerCase().includes(q.toLowerCase()));
   const typeRows=all.filter(r=>rxOwner(r)==="type");
   const classRows=all.filter(r=>rxOwner(r)==="class");
+  const chargeRows=all.filter(r=>rxOwner(r)==="charge");
   const classNames=(classes||[]).filter(c=>c&&c.class_name&&c.class_name!=="Minion").map(c=>c.class_name);
   const unstructured=all.filter(r=>!(r.when&&r.when.event)).length;
   const badIds=all.reduce((n,r)=>n+(Array.isArray(r.effect_ids)?r.effect_ids.filter(x=>!effectSet.has(x)).length:0),0);
   const groups = view==="type"
     ? RX_TYPE_ORDER.map(t=>({key:t, label:t, rows:typeRows.filter(r=>r.type===t)}))
+    : view==="charge"
+    ? classNames.map(c=>({key:c, label:c, rows:chargeRows.filter(r=>r.class===c)}))
     : classNames.map(c=>({key:c, label:c, rows:classRows.filter(r=>r.class===c)}));
   return html`<div class="view"><div class="full-pane">
     <div class="group-title">Reactions <span class="badge">${all.length}</span></div>
@@ -6131,8 +6158,10 @@ function ReactionsTab({reactions, effects, classes, actions, commitEdit}){
     <div class="pb-sec-tabs">
       <button class=${"expand-toggle"+(view==="type"?" on":"")} onClick=${()=>setView("type")}>Type reactions (${typeRows.length})</button>
       <button class=${"expand-toggle"+(view==="class"?" on":"")} onClick=${()=>setView("class")}>Class reactions (${classRows.length}) <${Prov} on=${RX_PROV.owner} /></button>
+      <button class=${"expand-toggle"+(view==="charge"?" on":"")} onClick=${()=>setView("charge")}>Class charge rules (${chargeRows.length})</button>
       <input class="search" style="max-width:260px;margin-left:auto" placeholder="Filter reactions…" value=${q} onInput=${e=>setQ(e.target.value)} />
     </div>
+    ${view==="charge"?html`<p class="note">Class charge rules (⚖ 2026-10-13): each class's silent rules that fill its charge pool — ops <span class="mono">gain_charge</span> / <span class="mono">lose_charge</span> / <span class="mono">empty_charge</span>, never announced or limited like reactions. Stored with <span class="mono">owner_kind: "charge"</span> + <span class="mono">class</span>; the class lists them in <span class="mono">charge_rules</span> (with <span class="mono">charge_pool</span> / <span class="mono">charge_live</span>). Only that class's masteries spend the pool.</p>`:null}
     ${view==="class"?html`<p class="note">Class reactions (⚖ 2026-09-24: a pure class carries 2; the ramps Focus / Fervor / Attune and Catalysis / Outcast move here). Rows are stored in the same <span class="mono">reactions</span> table with <span class="mono">owner_kind: "class"</span> + <span class="mono">class</span>; assign them to a class's two slots on the <b>Classes</b> tab.</p>`:null}
     ${groups.map(g=>{
       const rows=g.rows.filter(match).sort((a,b)=>(a.tier|0)-(b.tier|0));
@@ -6142,7 +6171,7 @@ function ReactionsTab({reactions, effects, classes, actions, commitEdit}){
         <button type="button" class="mini pb-btn" onClick=${()=>addReaction(view,g.key)}>+ New ${view} reaction</button>
         <div class="ref-grid tight" style="margin-top:8px">${rows.map(r=>html`<${ReactionCard} key=${r.id} r=${r} actions=${actions}
           effectNames=${effectNames} effectSet=${effectSet} setField=${setField} patch=${patch} removeReaction=${removeReaction}
-          ownerLabel=${view==="class"?("class · "+g.label):g.label} allRows=${all} />`)}</div>
+          ownerLabel=${view==="class"?("class · "+g.label):view==="charge"?("charge · "+g.label):g.label} allRows=${all} />`)}</div>
       </section>`;
     })}
   </div></div>`;
