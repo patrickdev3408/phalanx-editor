@@ -2743,7 +2743,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-10-13 b5b8f9bf3</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-10-18 86e857dab</span></span>
       </div>
       <div class="spacer"></div>
       <a class="btn ghost" href="spread.html" target="_blank" rel="noopener" title="Synergy Spread: how class-action Synergy lines spread across types, classes and playstyles (live from Supabase)">Synergy Spread ↗</a>
@@ -3203,6 +3203,15 @@ function pePreview(a, row){
   else if(t.kind==="power"){ const d=intOf(t.delta,0); body="PL "+(d>=0?"+":"")+d; }
   return head+" · "+body;
 }
+
+// ⚖ Pat D 2026-10-18: one synergy per action — the table cell names it: "TYPE Beast · PARTNER · SPEED+ 10 · 1T".
+function peCellParts(a, row){
+  const w=(row&&row.when)||{};
+  const full=pePreview(a,row); const cut=full.indexOf(" · ");
+  const kind=w.kind==="partner"?"ANY":w.kind==="none"?"SOLO":String(w.kind||"?").toUpperCase();
+  return {kind, value:w.value||"", body:cut>=0?full.slice(cut+3):full};
+}
+const PE_KIND_COLOR={TYPE:"#7cc4ff",CLASS:"#f2c752",PLAYSTYLE:"#c49bff",ANY:"#9aa4b2",SOLO:"#9aa4b2"};
 
 function PartnerEffectRow({a, row, i, n, knownEffects, effectRows, effectByName, onChange, onMove, onDel}){
   const w=row.when||{}, t=row.then||{};
@@ -4329,10 +4338,11 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
       cell:(c)=>{ const t=c.act?effectCellText(c.act[fk]):"";
         const hint=[effectHintText(c.act&&c.act[fk],effectByName), c.act?"Click to edit":""].filter(Boolean).join("\n");
         return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed(fk)} title=${hint}>${t||"—"}</td>`; }})),
-    {vk:"partner_fx",th:"⚭",center:true,title:"Partner effects — lines that light when the partner qualifies (click to edit)",
+    {vk:"partner_fx",th:"Synergy",title:"The action's synergy — what the partner needs (type / class / playstyle) and what it adds (click to edit)",
       cell:(c)=>{ const pe=c.act&&Array.isArray(c.act.partner_effects)?c.act.partner_effects:[]; const bad=c.act?pe.filter(r=>peLint(c.act,r,null).length).length:0;
-        return html`<td class=${c.act?"cell-edit":""} style=${"text-align:center;font-size:12px"+(bad?";color:var(--rose)":"")} onClick=${c.ed("partner_fx")}
-          title=${pe.map(r=>pePreview(c.act,r)).join(" | ")||"none — click to add"}>${c.act?(pe.length?("⚭ "+pe.length+(bad?" ⚠":"")):"—"):""}</td>`; }},
+        return html`<td class=${c.act?"cell-edit":""} style=${"font-size:12px;white-space:nowrap;min-width:220px"+(bad?";color:var(--rose)":"")} onClick=${c.ed("partner_fx")}
+          title=${pe.map(r=>pePreview(c.act,r)).join(" | ")||"none — click to add"}>${!c.act?"":(!pe.length?"—":pe.map((r,ri)=>{ const q=peCellParts(c.act,r);
+            return html`<div style=${ri?"margin-top:2px":""}><b style=${"font-size:10px;letter-spacing:.04em;color:"+(PE_KIND_COLOR[q.kind]||"inherit")}>${q.kind}</b> <b>${q.value}</b> <span style="opacity:.85">· ${q.body}</span>${pe.length>1&&ri===0?html` <span style="color:var(--rose)" title="ONE synergy per action (2026-10-18)">⚠ ${pe.length}</span>`:""}${bad?" ⚠":""}</div>`; }))}</td>`; }},
     {vk:"summon",th:"Summon",title:"Summon character / consume-summon",
       cell:(c)=>{ let t="—"; if(c.act){ if(c.act.summon_character_id){ const ch=charById[String(c.act.summon_character_id)]; t=ch?(ch.name||String(ch.id)):String(c.act.summon_character_id); if(c.act.consume_summon) t+=" ⊗"; } else if(c.act.consume_summon){ t="⊗ consume"; } } return html`<td class=${"a-fx"+(c.act?" cell-edit":"")} onClick=${c.ed("summon")} title=${t}>${t}</td>`; }},
     {vk:"trap_tick",th:"Trap",center:true,title:"Trap tick — Trap / Zone / None",
@@ -5629,6 +5639,7 @@ const RX_FILTER_KEYS = {
   self_units_hit_this_round_max:"int", own_effect:"bool", lifesteal:"bool", shield_own:"bool",
   own_summons_max:"int", self_enemy_hit_since_last_turn:"bool",
   target_buffs_max:"int", self_charge_max:"int", self_charge_min:"int", ends_beside_obstacle:"bool", act_alternates_turns:"bool",
+  once_per_target_round:"bool", stripper_self:"bool",
   within:"int", min_distance:"int", within_at_start:"int",
   effect_id:"text|list", harmful:"bool",
   damage_type:"normal|special|hybrid", damaging:"bool", pattern:"list",
