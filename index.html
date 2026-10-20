@@ -2743,7 +2743,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-10-18 86e857dab</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-10-19 8dc87e773</span></span>
       </div>
       <div class="spacer"></div>
       <a class="btn ghost" href="spread.html" target="_blank" rel="noopener" title="Synergy Spread: how class-action Synergy lines spread across types, classes and playstyles (live from Supabase)">Synergy Spread ↗</a>
@@ -3914,10 +3914,6 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
             <${Field} label="Muster description" hint="player-facing muster wall blurb">
               <textarea rows="2" placeholder="Describe the class's turn-to-turn identity…"
                 value=${c.muster_description||""} onInput=${e=>edit(cc=>cc.muster_description=e.target.value)}></textarea>
-            </${Field}>
-            <${Field} label="Muster playbook" hint="how the class plays on the muster wall">
-              <textarea rows="3" placeholder="Explain how this class plays in two or three sentences…"
-                value=${c.muster_playbook||""} onInput=${e=>edit(cc=>cc.muster_playbook=e.target.value)}></textarea>
             </${Field}>
             <${Field} label="Muster edge" hint="what distinguishes this class within its playstyle">
               <textarea rows="2" placeholder="Explain what sets this class apart in one or two sentences…"
