@@ -1251,19 +1251,19 @@ const ACTION_CATS = ["","anchor","standard","core","mastery","reflex"];
    violation in red. Keep the banned set in sync with the engine's rule. */
 const REFLEX_SLOT = "reflex_action";
 const REFLEX_BANNED_PATTERNS = new Set(["Jump","Lunging Strike","Dash Attack","Teleport Strike",
-  "Leaping Smash","Spinning Leap","Swap","Wall","Edge Wall","Barrage"]);
+  "Spinning Leap","Transpose","Wall","Edge Wall","Barrage"]);
 const isReflexId = (id)=>/^reflex_/.test(String(id||""));
 /* what the reflex picker offers: the reflex_ namespace, plus any free + always-on
    row (so an existing 0/0 action can be adopted without renaming it first). */
 const isReflexShaped = (a)=>!!a && (isReflexId(a.id) || (num(a.energy_cost,0)===0 && num(a.cooldown_rounds,0)===0));
-function reflexIssues(act, wrapper){
+function reflexIssues(act, wrapper, patterns){
   const out=[];
   if(!act) return out;
   if(num(act.energy_cost,0)!==0) out.push(`energy ${act.energy_cost} — a reflex must cost 0`);
   if(num(act.cooldown_rounds,0)!==0) out.push(`cooldown ${act.cooldown_rounds} — a reflex must be 0`);
   if(wrapper && typeof wrapper==="object" && num(wrapper.cooldown_rounds,0)!==0)
     out.push(`slot cooldown ${wrapper.cooldown_rounds} — a reflex must be 0`);
-  if(REFLEX_BANNED_PATTERNS.has(act.aoe_pattern)) out.push(`pattern ${act.aoe_pattern} is banned for reflexes`);
+  if(reflexBannedPatternsGraded(patterns).has(act.aoe_pattern)) out.push(`pattern ${act.aoe_pattern} is banned for reflexes`);
   if(act.summon_character_id) out.push("a reflex may not summon");
   if(!isReflexId(act.id)) out.push(`id "${act.id}" should start with reflex_`);
   return out;
@@ -1377,28 +1377,85 @@ const EFFECT_GROUPS = [
    deleted from the Supabase aoe_patterns table. Keep it in sync on every
    retirement, or the editor will happily author an action the engine cannot
    resolve. */
-const AOE_ROW_DEFS = [
+const AOE_FLAT_FALLBACK = [
   {label:"Strikes",            names:["Strike","Twin Strike"]},
   {label:"Lines",              names:["Line","Opposing Lines","Tri-Line"]},
   {label:"Rings / Area",       names:["Ring","Area"]},
-  {label:"Projectiles / Wave", names:["Projectile","Piercing Projectile","Boomerang","Wave"]},
+  {label:"Projectiles / Wave", names:["Projectile","Boomerang","Wave"]},
   {label:"Multi",              names:["Barrage","Volley","Chain"]},
-  {label:"Movement",           names:["Jump","Swap"]},
+  {label:"Movement",           names:["Jump","Transpose"]},
   {label:"Movement strikes",   names:["Lunging Strike","Dash Attack","Teleport Strike"]},
-  {label:"Leaps",              names:["Leaping Smash","Spinning Leap"]},
-  {label:"Wide",               names:["Cone","Wall"]},
+  {label:"Leaps",              names:["Spinning Leap"]},
+  {label:"Wide",               names:["Cone","Wall","Edge Wall"]},
 ];
-const AOE_ROWS = AOE_ROW_DEFS.map(r=>r.names);
-const AOE_PATTERN_SET = new Set(AOE_ROW_DEFS.flatMap(r=>r.names));
 
-/* Size-must-be-1 patterns + line family (1 or 3 only).
-   Piercing Projectile moved from the line family to size-one 2026-09-04: since
-   R4 (2026-08-30) RANGE governs how many bodies it pierces and size is INERT -
-   the catalog row says "author 1" and data_lint warns on >1, so offering 3 here
-   would author a value the engine ignores. */
-const SIZE_ONE_PATTERNS = new Set(["Twin Strike","Lunging Strike","Dash Attack","Teleport Strike","Spinning Leap","Swap","Piercing Projectile"]);
+/* Flat defaults; catalog allowed_size / allowed_range take precedence. */
+const SIZE_ONE_PATTERNS = new Set(["Twin Strike","Lunging Strike","Dash Attack","Teleport Strike","Spinning Leap","Transpose"]);
 const LINE_13_PATTERNS = new Set(["Line","Opposing Lines","Boomerang","Projectile"]);
 const CONE_SIZES = [5,7,9];                  // 2026-06-18 (user): cone = size 5/7/9, range 1
+
+/* Published catalog drives both editors and the reference tab on every render. */
+function aoeCatalogGraded(patterns){
+  const retired=new Set(["Piercing Projectile","Leaping Smash","Swap"]);
+  if(Array.isArray(patterns) && patterns.length){
+    return patterns.filter(p=>p && p.name && !retired.has(p.name));
+  }
+  // Reuse the existing flat fallback; never copy the graded names or ratio tables.
+  const names=AOE_FLAT_FALLBACK.flatMap(r=>r.names)
+    .filter(n=>!retired.has(n));
+  if(!names.includes("Edge Wall")) names.push("Edge Wall");
+  return names.map(name=>({name}));
+}
+function aoeRowDefsGraded(patterns){
+  const groups=new Map();
+  for(const row of aoeCatalogGraded(patterns)){
+    const label=row.graded?"Graded":(row.category||"Flat");
+    if(!groups.has(label)) groups.set(label,[]);
+    groups.get(label).push(row.name);
+  }
+  return [...groups].map(([label,names])=>({label,names}));
+}
+function aoeSizeOptionsGraded(pattern,patterns){
+  const row=aoeCatalogGraded(patterns).find(p=>p.name===pattern);
+  if(!row) return [];
+  if(Array.isArray(row.allowed_size)) return [...row.allowed_size];
+  if(pattern==="Transpose") return [1];
+  return aoeSizeOptions(pattern);
+}
+function aoeRangeOptionsGraded(pattern,size,patterns){
+  const row=aoeCatalogGraded(patterns).find(p=>p.name===pattern);
+  if(!row) return [];
+  if(Array.isArray(row.allowed_range)) return [...row.allowed_range];
+  if(row.allowed_range==="= size") return [Number(size)];
+  if(row.allowed_range==="= size+1") return [Number(size)+1];
+  return aoeRangeOptions(pattern);
+}
+function reflexBannedPatternsGraded(patterns){
+  const names=new Set([...REFLEX_BANNED_PATTERNS]
+    .filter(n=>!["Piercing Projectile","Leaping Smash","Swap"].includes(n)));
+  names.add("Transpose");
+  for(const row of aoeCatalogGraded(patterns)){
+    if(["walk","hop","swap"].includes(row.move_kind)) names.add(row.name);
+  }
+  return names;
+}
+function aoeRatioTableValidGraded(values){
+  return values.length>0 && values.every(v=>Number.isInteger(v) && v>=1 && v<=100)
+    && Math.max(...values)===100;
+}
+function aoePatternPatchGraded(action,field,value,patterns){
+  const patch={[field]:value};
+  const pattern=field==="aoe_pattern"?value:action.aoe_pattern;
+  let sizes=aoeSizeOptionsGraded(pattern,patterns);
+  if(Number(action.trap_tick??2)!==2 && pattern==="Area") sizes=sizes.filter(s=>s<=2);
+  let size=Number(field==="aoe_size"?value:action.aoe_size);
+  if(sizes.length && !sizes.includes(size)) size=sizes[0];
+  if(field==="aoe_size" || size!==Number(action.aoe_size)) patch.aoe_size=size;
+  const ranges=aoeRangeOptionsGraded(pattern,size,patterns);
+  const reach=Number(field==="aoe_range"?value:action.aoe_range);
+  if(ranges.length && !ranges.includes(reach)) patch.aoe_range=ranges[0];
+  return patch;
+}
 
 function aoeSizeOptions(pattern){
   if(pattern==="Cone") return CONE_SIZES;
@@ -1520,7 +1577,7 @@ function RecentUseField({action, set, autoOpen}){
   return html`<div>
     <${MatrixDropdown} numeric=${true} noClear=${true} popClass="modmtx" autoOpen=${!!autoOpen}
       value=${own?String(action.recent_use_window):""} rows=${WINDOW_ROWS} knownSet=${WINDOW_SET}
-      placeholder=${"= "+inh+(std?" (standard atk)":" (inherited)")} btnTitle="Recent-use window: the card is weakened for this many rounds after use (core ~1–14, mastery long). Unset = inherits the retired cooldown." displayFn=${v=>(+Number(v)).toString()}
+      placeholder=${"= "+inh+(std?" (standard atk)":" (inherited)")} btnTitle="Recent-use window: the card is weakened for this many rounds after use (core ~1–14). Class masteries: a CHEAP one (effective charge cost ≤2) gets a 2–3 round window (cost 0–1 → 3, 2 → 2); every other mastery is 0 = exempt, charge is its only throttle. Unset = inherits the retired cooldown (never for a mastery)." displayFn=${v=>(+Number(v)).toString()}
       onInput=${v=>set("recent_use_window", Math.min(64,Math.max(1,intOf(v,inh))))} />
     <div class="pb-note" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:0">
       ${own?html`<button class="mini pb-btn" title="Delete recent_use_window so the action inherits its (retired) cooldown again" onClick=${()=>set("recent_use_window",undefined)}>↺ inherit</button>`:null}
@@ -1583,7 +1640,7 @@ function buildEnums(data){
   return {
     types: typesArr.map(t=>t.type_name).filter(Boolean).sort(),
     classes: classesArr.map(c=>c.class_name).filter(Boolean).sort(),
-    aoe_patterns: (data.aoe_patterns||[]).map(p=>p.name).filter(Boolean),
+    aoe_patterns: aoeCatalogGraded(data.aoe_patterns).map(p=>p.name),
     effects: (data.effects||[]).map(e=>e.name).filter(Boolean),
     action_ids: (data.actions||[]).map(a=>a.id).filter(Boolean).sort(),
   };
@@ -2743,7 +2800,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-10-19 8dc87e773</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-10-26 3e1ccb0eb</span></span>
       </div>
       <div class="spacer"></div>
       <a class="btn ghost" href="spread.html" target="_blank" rel="noopener" title="Synergy Spread: how class-action Synergy lines spread across types, classes and playstyles (live from Supabase)">Synergy Spread ↗</a>
@@ -2922,7 +2979,7 @@ function slotMeta(act){
 
 function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEffects, summonOptions, charById, tm, caster,
                    onPick, onClear, onActionChange, onFork, usageCount, defaultOpen, effectByName,
-                   actionOptions, shapeIssues}){
+                   actionOptions, shapeIssues, patterns}){
   const [open,setOpen]=useState(!!defaultOpen);
   const vis=useFieldVis();                                              // R5 — gate head thumb / usage
   const [adding,setAdding]=useState(false);
@@ -2990,7 +3047,7 @@ function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEf
         `}
         ${filled?html`<button class="btn danger" onClick=${onClear}>Clear slot</button>`:null}
       </div>
-      ${act?html`<div class="dense-action"><${ActionEditorInlineAdapter} action=${act} effectRows=${effectRows} knownEffects=${knownEffects}
+      ${act?html`<div class="dense-action"><${ActionEditorInlineAdapter} patterns=${patterns} action=${act} effectRows=${effectRows} knownEffects=${knownEffects}
         summonOptions=${summonOptions} charById=${charById} tm=${tm} effectByName=${effectByName} showName=${true} onChange=${onActionChange} /></div>`:
         (cur?html`<p class="note warn-text">This slot references "${cur}" but no such action exists. Pick another, or create it.</p>`:null)}
     </div>`:null}
@@ -3001,7 +3058,7 @@ function defenderSampleTypes(){ return [{type:"",pct:1}]; } // neutral by defaul
 /* shared action body editor (used in Actions tab + inline in slot cards).
    R6 — showName: card/table hosts pass true to get an editable NAME title
    row (the Actions tab keeps its own Identity Name field, so it doesn't). */
-function ActionEditorInline({action, effectRows, knownEffects, summonOptions, charById, tm, onChangeField, effectByName, showName, showAll}){
+function ActionEditorInline({action, patterns, onChangePattern, effectRows, knownEffects, summonOptions, charById, tm, onChangeField, effectByName, showName, showAll}){
   // mutate-in-place style: caller provides onChangeField(key,value)
   const visRaw=useFieldVis();                                 // R5 — per-field visibility
   const vis=showAll?{has:()=>true}:visRaw;
@@ -3021,30 +3078,12 @@ function ActionEditorInline({action, effectRows, knownEffects, summonOptions, ch
     </div>`:null}
     ${showDaoeGroup?html`<${Group} title="Damage & AoE">
       ${showDaoeFields?html`<div class="daoe-grid">
-        ${vis.has("aoe_pattern")?html`<${Field} label="AoE pattern">
-          <${MatrixDropdown} value=${action.aoe_pattern} rows=${AOE_ROW_DEFS}
-            placeholder="— pattern —" knownSet=${AOE_PATTERN_SET}
-            onInput=${v=>{
-              // clamp size + range to the new pattern's allowed sets
-              const opts=aoeSizeOptions(v), ropts=aoeRangeOptions(v);
-              onChangeField("aoe_pattern",v);
-              if(!opts.includes(Number(action.aoe_size))) onChangeField("aoe_size",opts[0]);
-              if(!ropts.includes(Number(action.aoe_range))) onChangeField("aoe_range",ropts[0]);
-            }} />
-        </${Field}>`:null}
+        ${vis.has("aoe_pattern") || vis.has("aoe_size") || vis.has("aoe_range") ? html`<${AoePatternFieldsGraded}
+          action=${action} patterns=${patterns} vis=${vis}
+          onPatch=${patch=>onChangePattern(patch)} />`:null}
         ${vis.has("damage_modifier")?html`<${Field} label="Power level" hint="damage = PL + attack − defence · 0 = support">
           <${NumInput} int=${true} step=${1} min=${0} max=${99} value=${plOf(action)}
             onInput=${v=>{ const p=Math.max(0,Math.round(num(v,0))); set("power_level",p); set("damage_modifier",p/10); }} />
-        </${Field}>`:null}
-        ${vis.has("aoe_size")?html`<${Field} label="AoE size">
-          <${NumSelect} value=${action.aoe_size}
-            options=${intOf(action.trap_tick,2)!==2 && action.aoe_pattern==="Area"
-              ? aoeSizeOptions(action.aoe_pattern).filter(s=>s<=2)
-              : aoeSizeOptions(action.aoe_pattern)}
-            onInput=${v=>set("aoe_size",v)} />
-        </${Field}>`:null}
-        ${vis.has("aoe_range")?html`<${Field} label="AoE range" hint="0–7">
-          <${NumSelect} value=${action.aoe_range} options=${aoeRangeOptions(action.aoe_pattern)} onInput=${v=>set("aoe_range",v)} />
         </${Field}>`:null}
         ${vis.has("damage_type")?html`<${Field} label="Damage type">
           <${Select} value=${action.damage_type} options=${DAMAGE_TYPES} onInput=${v=>set("damage_type",intOf(v,0))} />
@@ -3311,7 +3350,7 @@ function PartnerEffectsEditor({action, onChangeField, knownEffects, effectRows, 
 function ActionEditorInlineAdapter(props){
   const {action, onChange}=props;
   const onChangeField=(k,v)=>{ const next={...action,[k]:v}; onChange(next); };
-  return html`<${ActionEditorInline} ...${props} onChangeField=${onChangeField} />`;
+  return html`<${ActionEditorInline} ...${props} onChangeField=${onChangeField} onChangePattern=${patch=>props.onChange({...props.action,...patch})} />`;
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -3756,11 +3795,11 @@ function SlotCardBound({slot, owner, ownerKind, data, actionById, enums, effectR
   const defCat = isReflex?"reflex":"";
   const reflexOpts = useMemo(()=>{
     if(!isReflex) return null;
-    const ids=(data.actions||[]).filter(isReflexShaped).map(a=>a.id);
+    const ids=(data.actions||[]).filter(a=>isReflexShaped(a) && !reflexBannedPatternsGraded(data.aoe_patterns).has(a.aoe_pattern)).map(a=>a.id);
     if(curSlug && ids.indexOf(curSlug)<0) ids.unshift(curSlug);   // never hide what the slot already holds
     return ids;                                                    // SlotCard prepends the empty option
-  },[isReflex,data.actions,curSlug]);
-  const reflexBad = isReflex?reflexIssues(actionById[curSlug], value):[];
+  },[isReflex,data.actions,data.aoe_patterns,curSlug]);
+  const reflexBad = isReflex?reflexIssues(actionById[curSlug], value, data.aoe_patterns):[];
 
   const setWrapper=(wrapper)=>commitEdit(next=>{
     const o = ownerKind==="char" ? next.characters.find(x=>String(x.id)===String(selId)) : null;
@@ -3809,7 +3848,7 @@ function SlotCardBound({slot, owner, ownerKind, data, actionById, enums, effectR
     }, dy=>dy.actions.add(String(aid)));
   };
 
-  return html`<${SlotCard} slotLabel=${isReflex?"Reflex · RETIRED (kept for re-authoring as reactions)":slot} value=${value} actionById=${actionById}
+  return html`<${SlotCard} patterns=${data.aoe_patterns} slotLabel=${isReflex?"Reflex · RETIRED (kept for re-authoring as reactions)":slot} value=${value} actionById=${actionById}
     allActions=${data.actions} effectRows=${effectRows} knownEffects=${knownEffects}
     summonOptions=${summonOptions} charById=${charById} tm=${tm} caster=${caster}
     usageCount=${uses} onFork=${onFork} effectByName=${effectByName} defaultOpen=${true}
@@ -4174,7 +4213,7 @@ function ClassSlotCard({slug, index, total, levelBadge, actionById, data, effect
         ${onFork?html`<button class="fork-btn" title="Create a copy of this action with a new slug and point this slot at it"
           onClick=${onFork}>⑂ Duplicate to new action</button>`:null}
       </div>`:null}
-      ${act?html`<div class="dense-action"><${ActionEditorInlineAdapter} action=${act} effectRows=${effectRows} knownEffects=${knownEffects}
+      ${act?html`<div class="dense-action"><${ActionEditorInlineAdapter} patterns=${data.aoe_patterns} action=${act} effectRows=${effectRows} knownEffects=${knownEffects}
         summonOptions=${summonOptions||[{value:"",label:"— none —"}]} charById=${charById} tm=${data.type_matrix} effectByName=${effectByName} showName=${true} onChange=${onActionChange} /></div>`
         :html`<p class="note warn-text">Action "${slug}" not found in the library.</p>`}
     </div>`:null}
@@ -4220,16 +4259,9 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
       <input type="text" value=${act.name==null?"":act.name} placeholder=${act.id}
         onInput=${e=>commit("name",e.target.value)} onKeyDown=${e=>{ if(e.key==="Enter") closeEdit(); }} />
       <span class="note" style="margin-top:5px">key: <span class="mono">${act.id}</span></span></div>`;
-    if(f==="aoe_pattern") return html`<div class="cp-field"><label>AoE pattern</label>
-      <${MatrixDropdown} autoOpen=${true} value=${act.aoe_pattern} rows=${AOE_ROW_DEFS} placeholder="— pattern —" knownSet=${AOE_PATTERN_SET}
-        onInput=${v=>{ const opts=aoeSizeOptions(v),ropts=aoeRangeOptions(v); const patch={aoe_pattern:v};
-          if(!opts.includes(Number(act.aoe_size))) patch.aoe_size=opts[0];
-          if(!ropts.includes(Number(act.aoe_range))) patch.aoe_range=ropts[0];
-          onActionChange({...act,...patch}); }} />
-      <div class="grid cols-2" style="margin-top:9px;gap:8px">
-        <div class="cp-field"><label>Size</label><${NumSelect} value=${act.aoe_size} options=${aoeSizeOptions(act.aoe_pattern)} onInput=${v=>commit("aoe_size",v)} /></div>
-        <div class="cp-field"><label>Range</label><${NumSelect} value=${act.aoe_range} options=${aoeRangeOptions(act.aoe_pattern)} onInput=${v=>commit("aoe_range",v)} /></div>
-      </div></div>`;
+    if(f==="aoe_pattern") return html`<${AoePatternFieldsGraded}
+      action=${act} patterns=${data.aoe_patterns} autoOpen=${true}
+      onPatch=${patch=>onActionChange({...act,...patch})} />`;
     if(f==="dmg") return html`<div class="cp-field"><label>Power level <span class="hint">damage = PL + attack − defence · 0 = support</span></label>
       <${NumInput} int=${true} step=${1} min=${0} max=${99} value=${plOf(act)}
         onInput=${v=>{ const p=Math.max(0,Math.round(num(v,0))); onActionChange({...act, power_level:p, damage_modifier:p/10}); }} />
@@ -4395,7 +4427,7 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
                 ${onFork?html`<button class="fork-btn" title="Create a copy of this action with a new slug and point this slot at it"
                   onClick=${()=>onFork(i)}>⑂ Duplicate to new action</button>`:null}
               </div>`:null}
-              <div class="dense-action"><${ActionEditorInlineAdapter} action=${act} effectRows=${effectRows} knownEffects=${knownEffects}
+              <div class="dense-action"><${ActionEditorInlineAdapter} patterns=${data.aoe_patterns} action=${act} effectRows=${effectRows} knownEffects=${knownEffects}
                 summonOptions=${summonOptions||[{value:"",label:"— none —"}]} charById=${charById} tm=${data.type_matrix}
                 effectByName=${effectByName} showName=${true} onChange=${onActionChange} /></div>`
               :(slug?html`<p class="note warn-text">Action "${slug}" not found in the library. Pick another below, or create it.</p>`
@@ -4548,9 +4580,9 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
             </div>
           </${Group}>
 
-          <${ActionEditorInline} action=${a} effectRows=${effectRows} knownEffects=${knownEffects}
+          <${ActionEditorInline} patterns=${data.aoe_patterns} action=${a} effectRows=${effectRows} knownEffects=${knownEffects}
             summonOptions=${summonOptions} charById=${charById} tm=${data.type_matrix} effectByName=${effectByName}
-            onChangeField=${(k,v)=>setField(k,v)} showAll=${true} />
+            onChangeField=${(k,v)=>setField(k,v)} onChangePattern=${patch=>commitEdit(next=>{const row=next.actions.find(x=>x.id===a.id); if(row) Object.assign(row,patch);},dy=>dy.actions.add(String(a.id)))} showAll=${true} />
 
           <${Group} title="Balance lab" >
             <${BalanceLab} action=${a} enums=${enums} types=${data.types} tm=${data.type_matrix} charById=${charById} />
@@ -4943,7 +4975,7 @@ function TypeSlotCard({type, bind, data, actionById, effectRows, knownEffects, e
         `}
         ${slug?html`<button class="btn danger" onClick=${()=>setSlug("")}>Clear</button>`:null}
       </div>
-      ${act?html`<div class="dense-action"><${ActionEditorInlineAdapter} action=${act} effectRows=${effectRows} knownEffects=${knownEffects}
+      ${act?html`<div class="dense-action"><${ActionEditorInlineAdapter} patterns=${data.aoe_patterns} action=${act} effectRows=${effectRows} knownEffects=${knownEffects}
         summonOptions=${summonOptions||[{value:"",label:"— none —"}]} charById=${charById} tm=${data.type_matrix} effectByName=${effectByName} showName=${true} onChange=${onActionChange} /></div>`
         :(slug?html`<p class="note warn-text">This type references "${slug}" but no such action exists. Pick another, or create it.</p>`:null)}
     </div>`:null}
@@ -6264,66 +6296,106 @@ function MatrixTab({types, matrix, commitEdit}){
 /* ════════════════════════════════════════════════════════════════════
    AOE PATTERNS TAB (reference; exported PNG matrix; exclude even lines)
    ════════════════════════════════════════════════════════════════════ */
-function AoeTab({patterns, commitEdit}){
-  const byName=useMemo(()=>{ const m={}; (patterns||[]).forEach(p=>{ if(p&&p.name) m[p.name]=p; }); return m; },[patterns]);
-  // Edit a pattern field in place → marks aoe_patterns dirty → Save to Supabase upserts it.
-  const setPatField=(name,field,val)=>commitEdit(next=>{
-    const p=(next.aoe_patterns||[]).find(x=>x&&x.name===name); if(p) p[field]=val;
-  }, dy=>dy.aoe_patterns=true);
-  const [openPat,setOpenPat]=useState(null);
-  // ordered list from the matrix rows; only patterns that actually exist
-  const ordered=AOE_ROWS.flat().filter(n=>byName[n]);
-  const extras=(patterns||[]).map(p=>p.name).filter(n=>!AOE_ROWS.flat().includes(n));
-
-  const detail=(name)=>{
-    const p=byName[name]; if(!p) return null;
-    const sizes=aoeSizeOptions(name);          // already excludes even line sizes
-    const ranges=AOE_RANGE_OPTIONS;
-    return html`<div style="border:1px solid var(--line-2);border-radius:10px;background:var(--bg-2);padding:16px 18px;margin:8px 0 16px">
-      <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:8px">
-        <h3 style="margin:0;font-size:16px">${p.name}</h3>
-        <span class="cat" style="font-family:var(--mono);font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:.8px">${p.category||"pattern"}</span>
-        <span class="note" style="margin:0">persistence: <span class="mono">${p.persistence||"?"}</span></span>
-      </div>
-      <dl style="margin:0 0 12px;display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:11.5px">
-        ${p.size_meaning?html`<dt style="color:var(--ink-3);font-family:var(--mono);font-size:10px;text-transform:uppercase">size</dt><dd style="margin:0;color:var(--ink-2)">${p.size_meaning}</dd>`:null}
-        ${p.range_meaning?html`<dt style="color:var(--ink-3);font-family:var(--mono);font-size:10px;text-transform:uppercase">range</dt><dd style="margin:0;color:var(--ink-2)">${p.range_meaning}</dd>`:null}
-        <dt style="color:var(--ink-3);font-family:var(--mono);font-size:10px;text-transform:uppercase">notes</dt><dd style="margin:0;color:var(--ink-2)"><textarea class="aoe-notes" style="width:100%;box-sizing:border-box;background:var(--bg-2);color:var(--ink-2);border:1px solid var(--line-2);border-radius:6px;font:inherit;font-size:11.5px;padding:3px 6px" rows="2" placeholder="in-game hover / glossary text…" value=${p.notes||""} onInput=${ev=>setPatField(p.name,"notes",ev.target.value)}></textarea></dd>
-      </dl>
-      <div class="note" style="margin-bottom:6px">Exported card images (~half size) — size (rows) × range (cols). Placeholder shown until the Godot PNG export exists.</div>
-      <div style="overflow:auto">
-        <div class="aoe-mtx half" style=${"grid-template-columns:repeat("+(ranges.length+1)+",minmax(34px,72px))"}>
-          <div></div>
-          ${ranges.map(r=>html`<div class="aoe-cell lbl" style="border:none;background:none;padding:2px">r${r}</div>`)}
-          ${sizes.map(s=>html`
-            <div class="aoe-cell lbl" style="border:none;background:none;display:flex;align-items:center;justify-content:center">s${s}</div>
-            ${ranges.map(r=>html`<div class="aoe-cell">
-              <${AoeThumb} pattern=${name} size=${s} range=${r} big=${true} />
-            </div>`)}
-          `)}
-        </div>
-      </div>
-    </div>`;
+/* Shared dropdowns for BOTH action editors. patterns is the CURRENT
+   data.aoe_patterns, including edits/undo/reloads, never a cached name list. */
+function AoePatternFieldsGraded({action,patterns,onPatch,vis={has:()=>true},autoOpen=false}){
+  const rows=aoeRowDefsGraded(patterns);
+  const knownSet=new Set(rows.flatMap(r=>r.names));
+  let sizes=aoeSizeOptionsGraded(action.aoe_pattern,patterns);
+  if(Number(action.trap_tick??2)!==2 && action.aoe_pattern==="Area") sizes=sizes.filter(s=>s<=2);
+  const change=(field,value)=>onPatch(aoePatternPatchGraded(action,field,value,patterns));
+  return html`<div style="display:contents">
+    ${vis.has("aoe_pattern")?html`<${Field} label="AoE pattern">
+      <${MatrixDropdown} autoOpen=${autoOpen} value=${action.aoe_pattern} rows=${rows}
+        knownSet=${knownSet} onInput=${v=>change("aoe_pattern",v)} />
+    </${Field}>`:null}
+    ${vis.has("aoe_size")?html`<${Field} label="AoE size">
+      <${NumSelect} value=${action.aoe_size} options=${sizes}
+        onInput=${v=>change("aoe_size",Number(v))} />
+    </${Field}>`:null}
+    ${vis.has("aoe_range")?html`<${Field} label="AoE range">
+      <${NumSelect} value=${action.aoe_range}
+        options=${aoeRangeOptionsGraded(action.aoe_pattern,action.aoe_size,patterns)}
+        onInput=${v=>change("aoe_range",Number(v))} />
+    </${Field}>`:null}
+  </div>`;
+}
+function AoeRatioTableGraded({pattern,onInput}){
+  const tables=Object.entries(pattern.ratios||{});
+  const roles=Object.entries(pattern.role_ratios||{});
+  const change=(event,field,key,index)=>{
+    const raw=event.target.value.trim();
+    const value=raw===""?NaN:Number(raw);
+    const next=field==="ratios"
+      ?Object.fromEntries(Object.entries(pattern.ratios).map(([k,vs])=>[k,[...vs]]))
+      :{...pattern.role_ratios};
+    if(field==="ratios") next[key][index]=value; else next[key]=value;
+    const values=field==="ratios"?next[key]:Object.values(next);
+    if(!aoeRatioTableValidGraded(values)){
+      event.target.setCustomValidity("Use integer percents from 1 to 100; each table must retain a maximum of 100.");
+      event.target.reportValidity();
+      return;
+    }
+    event.target.setCustomValidity("");
+    onInput(field,next);
   };
-
+  return html`<table>
+    <caption>Ratio percents · strongest tier 100</caption>
+    <thead><tr><th scope="col">Size / role</th><th scope="col">Tiers in order</th></tr></thead>
+    <tbody>
+      ${tables.map(([size,values])=>html`<tr key=${size}><th scope="row">Size ${size}</th><td>
+        ${values.map((value,index)=>html`<input type="number" min="1" max="100" step="1"
+          aria-label=${pattern.name+" size "+size+" tier "+(index+1)} value=${value}
+          onInput=${e=>e.target.setCustomValidity("")}
+          onChange=${e=>change(e,"ratios",size,index)} />`)}
+      </td></tr>`)}
+      ${roles.map(([role,value])=>html`<tr key=${role}><th scope="row">${role.replaceAll("_"," ")}</th>
+        <td><input type="number" min="1" max="100" step="1"
+          aria-label=${pattern.name+" "+role} value=${value}
+          onInput=${e=>e.target.setCustomValidity("")}
+          onChange=${e=>change(e,"role_ratios",role,0)} /></td></tr>`)}
+    </tbody>
+  </table>`;
+}
+function AoeTab({patterns,commitEdit}){
+  const [openPat,setOpenPat]=useState(null);
+  const catalog=aoeCatalogGraded(patterns);
+  const groups=aoeRowDefsGraded(patterns);
+  const selected=catalog.find(p=>p.name===openPat);
+  const setField=(field,value)=>commitEdit(next=>{
+    const row=(next.aoe_patterns||[]).find(p=>p.name===openPat);
+    if(row) row[field]=value;
+  },dirty=>{dirty.aoe_patterns=true;});
   return html`<div class="view"><div class="full-pane">
-    <div class="group-title">AoE pattern reference <span class="hint" style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">read-only · Godot-exported PNGs</span></div>
-    <p class="note" style="margin-bottom:12px">${ordered.length} patterns. Click a pattern to expand its description + the exported card-image matrix. Even-sized line widths are excluded (invalid).</p>
-    ${AOE_ROWS.map((row,ri)=>{
-      const present=row.filter(n=>byName[n]);
-      if(!present.length) return null;
-      return html`<div style="margin-bottom:8px" key=${ri}>
-        <div class="filter-row">
-          ${present.map(n=>html`<button class=${"pill"+(openPat===n?" on":"")} onClick=${()=>setOpenPat(p=>p===n?null:n)}>${n}</button>`)}
-        </div>
-        ${present.includes(openPat)?detail(openPat):null}
-      </div>`;
-    })}
-    ${extras.length?html`<div style="margin-top:14px">
-      <div class="group-title">Other patterns in data</div>
-      <div class="filter-row">${extras.map(n=>html`<button class=${"pill"+(openPat===n?" on":"")} onClick=${()=>setOpenPat(p=>p===n?null:n)}>${n}</button>`)}</div>
-      ${extras.includes(openPat)?detail(openPat):null}
-    </div>`:null}
+    <h2>AoE pattern reference</h2>
+    <p class="note">${catalog.length} patterns from the published catalog.</p>
+    ${groups.map(group=>html`<section key=${group.label}>
+      <h3>${group.label}</h3><div class="filter-row">
+      ${group.names.map(name=>html`<button class=${"pill"+(openPat===name?" on":"")}
+        onClick=${()=>setOpenPat(openPat===name?null:name)}>${name}</button>`)}
+      </div></section>`)}
+    ${selected?html`<section>
+      <h3>${selected.name}</h3>
+      <dl><dt>Built on</dt><dd>${selected.built_on||"—"}</dd>
+        <dt>Grade rule</dt><dd>${selected.grade_rule||"Flat"}</dd>
+        <dt>Size</dt><dd>${selected.size_meaning||"—"}</dd>
+        <dt>Range</dt><dd>${selected.range_meaning||"—"}</dd>
+        ${selected.name==="Edge Wall"?html`<dt>Persistence</dt><dd>Until the wall expires</dd>`:null}
+      </dl>
+      <label>Notes <textarea class="aoe-notes" value=${selected.notes||""}
+        onInput=${e=>setField("notes",e.target.value)} /></label>
+      ${selected.graded?html`<${AoeRatioTableGraded} pattern=${selected} onInput=${setField} />`:null}
+      <table><caption>Exported card images · legal size/range pairs</caption>
+        <thead><tr><th scope="col">Size</th><th scope="col">Range / image</th></tr></thead>
+        <tbody>${aoeSizeOptionsGraded(selected.name,patterns).map(size=>html`<tr key=${size}>
+          <th scope="row">${size}</th><td>
+            ${aoeRangeOptionsGraded(selected.name,size,patterns).map(reach=>html`<figure>
+              <figcaption>Range ${reach}</figcaption>
+              <${AoeThumb} pattern=${selected.name} size=${size} range=${reach} big=${true} />
+            </figure>`)}
+          </td></tr>`)}</tbody>
+      </table>
+    </section>`:null}
   </div></div>`;
 }
 
