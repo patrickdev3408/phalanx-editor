@@ -1268,12 +1268,73 @@ function reflexIssues(act, wrapper, patterns){
   if(!isReflexId(act.id)) out.push(`id "${act.id}" should start with reflex_`);
   return out;
 }
-const charSlotLabel = (slot)=> slot==="standard_attack" ? "Standard"
+const charSlotLabel = (slot)=> slot==="standard_attack" ? "Unique core"
   : slot===REFLEX_SLOT ? "Reflex · RETIRED"
   : slot.replace(/^unique_action_/,"Unique ");
 const DAMAGE_TYPES = [{value:0,label:"Normal"},{value:1,label:"Special"},{value:2,label:"Hybrid"}];
 // trap_tick: 0=Trigger(Trap), 1=Zone, 2=No(None default) — confirmed via ActionData.gd
 const TRAP_TICKS = [{value:2,label:"None"},{value:0,label:"Trap"},{value:1,label:"Zone"}];
+
+/* ═══ CLASS CHARGE (⚖ 2026-10-13, windows 2026-10-19) — mirrors data_lint.gd's charge block ═══
+   Charge is EARNED only by a class's charge rules and SPENT only by that class's MASTERY actions
+   (the ids in classes[].mastery_class_actions). The owner / pool / live maps are synced from the
+   working copy at every App render (like PE_VOCAB), so lint and the windows follow live edits.
+   Keys and enums are copied from scripts/combat/ClassCharge.gd + scripts/resources/ActionData.gd. */
+const CHARGE_VOCAB = {owner:{}, pool:{}, live:{}, coreSlots:6};
+function syncChargeVocab(data){
+  if(!data) return;
+  const owner={}, pool={}, live={};
+  ((data.classes&&data.classes.classes)||[]).forEach(c=>{
+    if(!c||!c.class_name) return;
+    pool[c.class_name]=intOf(c.charge_pool,0); live[c.class_name]=String(c.charge_live||"");
+    (Array.isArray(c.mastery_class_actions)?c.mastery_class_actions:[]).forEach(id=>{ if(id) owner[String(id)]=c.class_name; });
+  });
+  CHARGE_VOCAB.owner=owner; CHARGE_VOCAB.pool=pool; CHARGE_VOCAB.live=live;
+  CHARGE_VOCAB.coreSlots=hybSlotCounts(data.hybridisation,"classes").core;
+}
+const masteryOwner = a => a ? (CHARGE_VOCAB.owner[String(a.id)]||"") : "";
+/* ClassCharge.COND_KEYS, by value shape */
+const CHARGE_COND_INT = ["target_hp_below_pct","target_hp_above_pct","self_hp_below_pct","ally_hp_below_pct",
+  "target_harmful_count_min","ally_within","no_ally_within","moved_hexes_min","enemies_hindered_min"];
+const CHARGE_COND_BOOL = ["target_has_buff","self_in_stance","from_totem"];
+const CHARGE_COND_LIST = ["target_has_effect","target_lacks_effect"];
+const CHARGE_COND_KEYS = [...CHARGE_COND_INT, ...CHARGE_COND_BOOL, ...CHARGE_COND_LIST, "discount"];
+const CHARGE_DISCOUNT_IFS = ["target_is_last_attacker","own_chorus_this_round"];   // ClassCharge.DISCOUNT_IFS
+const CHARGE_LIVE_OPTS = [{value:"",label:"(banked pool)"},{value:"missing_hp",label:"missing_hp — read off the board (Berserker)"},{value:"totems",label:"totems — lives in standing totems (Shaman)"}];
+const FAMILIAR_FORMS = ["storm","stone","bog","ascendant"];
+const FAMILIAR_CARDS = ["call","feed","sacrifice",...FAMILIAR_FORMS];        // ActionData.FAMILIAR_*
+const MACHINE_CARDS = ["repair","overcharge","fortress"];                    // ActionData.MACHINE_CARDS
+const RAISED_COPY_ID = "raised_copy";
+const isEdgeAction = a => !!a && (!!a.place_wall || !!a.place_tripwire || !!a.place_hazard_edge);
+/* data_lint._mastery_effective_cost — keep the two in step. 99 = exempt (never weakened). */
+function masteryEffectiveCost(a, owner){
+  if(!a) return 0;
+  const dissolve=intOf(a.dissolve_summons,0);
+  if(dissolve<0) return 99;
+  if(FAMILIAR_FORMS.includes(String(a.familiar_card||""))) return 99;
+  if(dissolve>0) return dissolve;
+  if((CHARGE_VOCAB.live[owner]||"")==="missing_hp") return 0;
+  const cost=intOf(a.charge_cost,0);
+  if(a.charge_spend) return Math.max(cost, intOf(a.charge_min,0));
+  return cost;
+}
+/* ⚖ 2026-10-19: the recent-use window a mastery must carry (0 = exempt, charge is its only throttle). */
+function masteryWindowRule(a){
+  const owner=masteryOwner(a); if(!owner) return null;
+  const eff=masteryEffectiveCost(a,owner);
+  return {owner, eff, window: eff>=3 ? 0 : (eff<=1 ? 3 : 2)};
+}
+/* plain-English charge condition, for chips and hovers */
+function chargeCondText(cond){
+  if(!cond||typeof cond!=="object") return "";
+  return Object.keys(cond).map(k=>{
+    const v=cond[k];
+    if(k==="discount") return `costs ${v&&v.cost} if ${v&&v.if}`;
+    if(Array.isArray(v)) return `${k}: ${v.join("/")}`;
+    if(v===true) return k;
+    return `${k} ${v}`;
+  }).join(" · ");
+}
 
 /* ──────────────────────────────────────────────────────────────────
    R5 (2026-07-02) — MULTI-MOVE CARD GRID: per-field visibility store.
@@ -1288,6 +1349,7 @@ const FIELD_KEYS = [
   {k:"damage_modifier",label:"Power level"},
   {k:"energy_cost",  label:"Energy"},
   {k:"recent_use_window",label:"Recent use"},
+  {k:"charge",       label:"Charge"},
   {k:"aoe_pattern",  label:"Pattern"},
   {k:"aoe_size",     label:"Size"},
   {k:"aoe_range",    label:"Range"},
@@ -1307,7 +1369,7 @@ const FIELD_KEYS = [
 ];
 // Default visible set = the 2026-07-02 recipe (extras summon/balance/usage stay off).
 const FIELD_VIS_DEFAULT = ["name","aoe_thumb","damage_type","damage_modifier",
-  "energy_cost","recent_use_window","trap_tick","unlock_round","aoe_pattern","aoe_size","aoe_range","effect1","effect2","partner_fx"];
+  "energy_cost","recent_use_window","charge","trap_tick","unlock_round","aoe_pattern","aoe_size","aoe_range","effect1","effect2","partner_fx"];
 const FIELD_VIS_LS_KEY = "phalanx_editor_field_vis_v2";
 const PUSHB_NEW_FIELDS = ["partner_fx","recent_use_window"];
 const _fieldVisListeners = new Set();
@@ -1316,6 +1378,8 @@ function _loadFieldVis(){
     const st=new Set(a);
     /* Push B (2026-09-24): a saved field set predates the new fields — switch them on ONCE so they are discoverable */
     if(!st.has("__pushB1")){ PUSHB_NEW_FIELDS.forEach(k=>st.add(k)); st.add("__pushB1"); }
+    /* 2026-11 field sync: the class-charge column is new — switch it on once */
+    if(!st.has("__charge1")){ st.add("charge"); st.add("__charge1"); }
     return st; } } }catch(e){}
   return new Set(FIELD_VIS_DEFAULT);
 }
@@ -1360,7 +1424,7 @@ const EFFECT_GROUPS = [
   {label:"Damage over time", names:["Burn","Poison","Bleed"]},
   {label:"Control / disrupt", names:["Stun","Root","Anti Heal","Silence","Blind","Curse","Mark","Push","Pull"]},
   {label:"Utility / triggers", names:["Dispel","Buff Block","Death Ward","Time Bomb","Mirage","Dispel Steal","Rupture"]},
-  {label:"Class identities", names:["Legion","Resonance","Undead Contagion","Dying Blessing","Grudge","Soul Reservoir","Braced","Markstalker","Riposte","WeaponEnchant","Vindication","OverhealShield","Outcast","Penance","Sure Strike"]},
+  {label:"Class identities", names:["Legion","Resonance","Undead Contagion","Dying Blessing","Grudge","Soul Reservoir","Braced","Markstalker","Riposte","WeaponEnchant","Vindication","OverhealShield","Outcast","Penance","Sure Strike","Blessing","Chorus Burst","Extra Move","Formation"]},
   {label:"Summon", names:["Summon"]},
   {label:"Type inherents (category Inherent - primary-only passives, never on an action; add / rename / delete them in this tab)", get names(){ return INHERENT_NAMES.slice(); }},
 ];
@@ -1571,18 +1635,23 @@ const isStdAttack = a => !!a && STD_ATTACK_IDS.has(String(a.id));
 /* the default window when none is authored: the retired cooldown (seeded 1:1), floored at 3 for a
    standard attack (RU-05); minimum 1 */
 const winDefault = a => { const cd=Math.max(1,intOf(a&&a.cooldown_rounds,0)); return isStdAttack(a)?Math.max(RU_STD_WINDOW,cd):cd; };
-const winOf = a => hasOwnWindow(a) ? Math.max(1,intOf(a.recent_use_window,1)) : winDefault(a);
+/* ⚖ 2026-10-12/19: a class MASTERY may author window 0 = exempt (never weakened; charge is its throttle) */
+const winOf = a => hasOwnWindow(a) ? ((intOf(a.recent_use_window,1)===0 && masteryOwner(a)) ? 0 : Math.max(1,intOf(a.recent_use_window,1))) : winDefault(a);
+const WINDOW_ROWS_MASTERY = [{label:"exempt", names:["0"]}].concat(WINDOW_ROWS);
+const WINDOW_SET_MASTERY = new Set(WINDOW_ROWS_MASTERY.flatMap(r=>r.names));
 function RecentUseField({action, set, autoOpen}){
   const own=hasOwnWindow(action), inh=winDefault(action), std=isStdAttack(action);
+  const rule=masteryWindowRule(action);
   return html`<div>
     <${MatrixDropdown} numeric=${true} noClear=${true} popClass="modmtx" autoOpen=${!!autoOpen}
-      value=${own?String(action.recent_use_window):""} rows=${WINDOW_ROWS} knownSet=${WINDOW_SET}
+      value=${own?String(action.recent_use_window):""} rows=${rule?WINDOW_ROWS_MASTERY:WINDOW_ROWS} knownSet=${rule?WINDOW_SET_MASTERY:WINDOW_SET}
       placeholder=${"= "+inh+(std?" (standard atk)":" (inherited)")} btnTitle="Recent-use window: the card is weakened for this many rounds after use (core ~1–14). Class masteries: a CHEAP one (effective charge cost ≤2) gets a 2–3 round window (cost 0–1 → 3, 2 → 2); every other mastery is 0 = exempt, charge is its only throttle. Unset = inherits the retired cooldown (never for a mastery)." displayFn=${v=>(+Number(v)).toString()}
-      onInput=${v=>set("recent_use_window", Math.min(64,Math.max(1,intOf(v,inh))))} />
+      onInput=${v=>set("recent_use_window", Math.min(64,Math.max(rule?0:1,intOf(v,inh))))} />
     <div class="pb-note" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:0">
       ${own?html`<button class="mini pb-btn" title="Delete recent_use_window so the action inherits its (retired) cooldown again" onClick=${()=>set("recent_use_window",undefined)}>↺ inherit</button>`:null}
       <span title="cooldown_rounds is RETIRED (no cooldowns) — read only; the Push B loader uses it only as the fallback window">CD retired: ${intOf(action.cooldown_rounds,0)}</span>
       ${std?html`<span title="⚖ RU-05: a standard attack's window is 3 rounds (never lower)">· standard attack → ${RU_STD_WINDOW}</span>`:null}
+      ${rule?html`<span title="⚖ 2026-10-19: effective charge cost 0–1 → 3 · 2 → 2 · 3+ → 0 (exempt)" style=${(own&&intOf(action.recent_use_window,-1)===rule.window)?"":"color:var(--rose)"}>· mastery (${rule.owner}) → ${rule.window===0?"0 exempt":rule.window}</span>`:null}
     </div>
   </div>`;
 }
@@ -1730,7 +1799,8 @@ const MECH_NUM_KEYS=[["scale_isolation","isolation ×"],["scale_missing_hp","mis
   ["unlock_round","unlock round"]];
 const MECH_BOOL_KEYS=[["charge_spend","charge spend"],["overheal_to_shield","overheal→shield"],
   ["mass_swap_enemies","mass swap"],["blink_ally","blink ally"],
-  ["corpse_raise","corpse raise"],["consume_summon","consume summon"]];
+  ["corpse_raise","corpse raise"],["consume_summon","consume summon"],
+  ["blessing","blessing"],["chorus","chorus"],["all_allies","all allies"]];
 function actionMechBits(a){
   if(!a) return [];
   const bits=[];
@@ -1738,6 +1808,7 @@ function actionMechBits(a){
   for(const [k,label] of MECH_BOOL_KEYS) if(a[k]) bits.push(label);
   if(a.stance_id) bits.push("stance: "+a.stance_id);
   if(a.enchant_rider&&a.enchant_rider.effect_type) bits.push("enchant: "+a.enchant_rider.effect_type);
+  if(a.first_attack_effect) bits.push("first attack: "+a.first_attack_effect);
   if(a.self_effect1&&a.self_effect1.effect_type) bits.push("self fx: "+a.self_effect1.effect_type);
   if(a.self_effect2&&a.self_effect2.effect_type) bits.push("self fx 2: "+a.self_effect2.effect_type);
   return bits;
@@ -1766,11 +1837,13 @@ const ADV_FIELDS=[
   {k:"bonus_vs_rooted",label:"Bonus vs Rooted",kind:"numsel",float:true,options:[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.6,0.75,1.0],hint:"Warden Captive Quarry: ×bonus vs a Rooted target (0.5 = +50%)"},
   {k:"scale_per_own_debuff",label:"Per-own-debuff dmg ×",kind:"numsel",float:true,options:[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5],hint:"Inquisitor Sentence Stack: damage ×(1 + this × harmful-effects-on-target-from-caster)"},
   {k:"detonate_distinct_bonus_pct",label:"Rupture distinct bonus %",kind:"numsel",options:[0,10,15,20,25,30,40,50,75,100],hint:"Rogue Rupture: the burst is ×(1 + pct/100 × (distinct DoT types − 1)). Data key stays detonate_distinct_bonus_pct (the pre-2026-09-03 name)."},
-  {k:"charge_gain",label:"Charge gain",kind:"numsel",options:[0,1,2,3,4,5],hint:"S1 Charge: charges banked on the caster when this action is cast"},
-  {k:"charge_min",label:"Charge min",kind:"numsel",options:[0,1,2,3,4,5],hint:"S1 Charge: action LOCKED until the caster holds ≥ N charges (finisher gate). Ceiling is Constants.CHARGE_MAX = 5 — a higher gate can never be reached, so the action would never be castable."},
-  {k:"charge_damage_per_point",label:"Charge dmg / point",kind:"numsel",float:true,options:[0,0.05,0.1,0.15,0.2,0.25,0.3,0.5,0.75,1.0],hint:"S1 Charge: extra damage_modifier per charge consumed"},
-  {k:"charge_heal_per_point",label:"Charge heal / point",kind:"numsel",float:true,options:[0,2,4,6,8,10,12,15,20,25],hint:"FLAT HP restored per charge spent — ×5 at a full pool, against a 50–108 HP roster. Works on its own: no Heal effect required."},
-  {k:"charge_spend",label:"Charge spend",kind:"bool",hint:"S1 Charge: cast consumes ALL of the caster's charges"},
+  {k:"charge_cost",charge:true,label:"Charge cost",kind:"numsel",options:[0,1,2,3,4,5,6,7,8],hint:"⚖ 2026-10-13 class charge — MASTERY only: charge this cast spends from the OWNING class's pool (the class that lists it under mastery actions). Can never exceed that class's charge_pool. Effective cost ≥3 ⇒ recent-use window 0 (exempt); 2 ⇒ window 2; 0–1 ⇒ window 3."},
+  {k:"charge_cond",charge:true,label:"Charge conditions",kind:"cond",hint:"MASTERY only: cast conditions (checked at planning and at resolution; a cast that no longer meets them fizzles and spends nothing) and the optional cost discount. Keys = ClassCharge.COND_KEYS."},
+  {k:"charge_gain",label:"Charge gain",kind:"numsel",retired:true,options:[0,1,2,3,4,5],hint:"RETIRED 2026-10-13 — charge is earned only by the class's charge rules (Reactions tab → Class charge rules). data_lint errors on any value > 0; set 0."},
+  {k:"charge_min",charge:true,label:"Charge min",kind:"numsel",options:[0,1,2,3,4,5,6,7,8],hint:"MASTERY only: castable only while the owning class's pool holds ≥ N (a finisher gate, usually with Charge spend). Can never exceed the class's charge_pool."},
+  {k:"charge_damage_per_point",label:"Charge dmg / point",kind:"numsel",float:true,options:[0,0.05,0.1,0.15,0.2,0.25,0.3,0.5,0.75,1.0],hint:"MASTERY only: +this × 10 PL per charge SPENT (needs Charge spend, or it silently pays zero)"},
+  {k:"charge_heal_per_point",label:"Charge heal / point",kind:"numsel",float:true,options:[0,2,4,6,8,10,12,15,20,25],hint:"MASTERY only (needs Charge spend): FLAT HP restored per charge spent — ×5 at a full pool, against a 50–108 HP roster. Works on its own: no Heal effect required."},
+  {k:"charge_spend",charge:true,label:"Charge spend",kind:"bool",hint:"MASTERY only: the cast spends the class's WHOLE pool (per-point payouts scale with what was spent)"},
   {k:"overheal_to_shield",label:"Overheal → Shield",kind:"bool",hint:"Cleric: healing beyond max HP banks as Shield"},
   {k:"overheal_shield_pct",label:"Overheal → Shield %",kind:"numsel",float:true,options:[25,50,75,100],dflt:100,hint:"% of the overflow banked when Overheal → Shield is on (100 = all)"},
   {k:"bonus_vs_marked",label:"Bonus vs Marked",kind:"numsel",float:true,options:[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5],hint:"Falcon Quarry: ×(1 + this) vs a target that has Mark"},
@@ -1783,9 +1856,36 @@ const ADV_FIELDS=[
   {k:"zone_effect2_team",legacy:"zone_team2",label:"Zone effect 2 team",kind:"select",options:[{value:-1,label:"Inherit (-1)"},{value:0,label:"All (0)"},{value:1,label:"Allies (1)"},{value:2,label:"Enemies (2)"}],dflt:-1,hint:"Optional effect2 override: Inherit uses Zone team. Banner use-case: set effect1 to Allies and effect2 to Enemies so one zone buffs friends and debuffs foes."},
   {k:"bonus_in_own_zone",label:"Bonus in own zone",kind:"numsel",float:true,options:[0,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.75,1.0],hint:"Templar Sanctity: ×(1 + this) damage when the caster stands in a zone it owns"},
   {k:"pulse_own_zones",label:"Pulse own zones",kind:"bool",hint:"Shaman Totemic Resonance: on cast, re-fire every zone the caster owns to everyone standing in them"},
-  {k:"conduit_cast",label:"Conduit cast",kind:"bool",hint:"Summoner Conduit: the AoE originates from the caster's nearest own summon's hex instead of the caster's"},
+  {k:"conduit_cast",label:"Conduit cast",kind:"bool",hint:"Conjurer Conduit: the AoE originates from the caster's nearest own summon's hex instead of the caster's"},
   {k:"energy_refund",label:"Energy refund",kind:"numsel",options:[0,1,2,3,4,5],hint:"Warlock Life Tap: energy returned this turn on cast (net = refund − energy_cost); capped at the turn budget"},
   {k:"dot_max_stacks",label:"DoT max stacks",kind:"numsel",options:[0,2,3,4,5],hint:"Mage Kindling: this action's Burn/Poison/Bleed stacks up to N applications on a target (0 = legacy single application)"},
+  /* 2026-11 field sync — every live ActionData field the loader (GameManager._parse_action) reads. */
+  {k:"blink_range",label:"Blink range",kind:"numsel",options:[0,1,2,3,4,5,6],hint:"Sage aimed blink: hexes the blinked unit may land from the aim (0 = beside the caster)"},
+  {k:"requires_stance",label:"Requires stance",kind:"text",hint:"Form-gated card: only castable while the caster is in this stance_id (e.g. wolf)"},
+  {k:"undodgeable",label:"Undodgeable",kind:"bool",hint:"This card's hits cannot be dodged (Druid Cat-form Avatar)"},
+  {k:"form_variants",label:"Form variants",kind:"json",hint:"Druid: per-FORM overrides keyed by stance_id (bear / wolf / serpent / treant / cat). Each value may override aoe_pattern, aoe_size, aoe_range, power_level, damage_type, effect1/2, self_effect1/2, trap_tick, zone_duration_turns, zone_team, undodgeable, plus text (the player sentence for that form)."},
+  {k:"place_wall",label:"Place wall",kind:"bool",hint:"Edge card: places a WALL on hex edges (blocks crossing for BOTH teams, so zone_team must be 0). Use pattern Edge Wall, trap tick None, PL 0."},
+  {k:"place_tripwire",label:"Place tripwire",kind:"bool",hint:"Edge card: a tripwire fires its effects on whoever crosses (zone_team = who triggers it). Use pattern Edge Wall."},
+  {k:"place_hazard_edge",label:"Place hazard edge",kind:"bool",hint:"Edge card: a hazard edge applies its effects on crossing. Use pattern Edge Wall."},
+  {k:"edge_duration_rounds",label:"Edge lifetime",kind:"numsel",options:[0,1,2,3,4,5,6,8,10],hint:"Rounds a placed wall / tripwire / hazard edge stands (0 = default)"},
+  {k:"edge_touch_effects",label:"Edge touch effects",kind:"bool",hint:"⚖ Pat D 2026-11-01: a wall / hazard-edge card lands effect1/effect2 ONCE when it goes up, on every unit beside a placed seam (buffs on the caster's team, harmful on enemies). A wall with effects but without this never applies them."},
+  {k:"dissolve_summons",label:"Dissolve summons",kind:"select",options:[{value:0,label:"0 — none"},{value:1,label:"1"},{value:2,label:"2"},{value:3,label:"3"},{value:-1,label:"-1 — every own summon"}],dflt:0,hint:"Conjurer masteries: dissolve this many of the caster's OWN summons as a cost (the player picks which; AI = lowest HP). Not re-centred (unlike Consume summon). Fewer than N: fizzles, spending nothing. A familiar sacrifice is exactly 1."},
+  {k:"totem_keep",label:"Totem keep",kind:"bool",hint:"Shaman Twin-Spirit II: the totem that pays is AWAKENED (charge to 0, zone keeps standing), not broken"},
+  {k:"swap_enemy_pair",label:"Swap enemy pair",kind:"bool",hint:"Trickster Grand Switcheroo: the two enemies nearest the aim (within aoe_size) trade places"},
+  {k:"raise_all",label:"Raise all corpses",kind:"bool",hint:"⚖ Necromancer 2026-11-04: raise EVERY corpse on the board at any distance (needs Summon = Raised copy)"},
+  {k:"raise_hp_pct",label:"Raised HP share",kind:"numsel",float:true,options:[0,0.25,0.3,0.35,0.4,0.5,0.6,0.75,1.0],hint:"Raised-copy cards only: share (0-1) of the dead unit's HP. 0 = the RaisedCopy default (35%)."},
+  {k:"raise_stat_pct",label:"Raised stat share",kind:"numsel",float:true,options:[0,0.25,0.4,0.5,0.6,0.75,1.0],hint:"Raised-copy cards only: share (0-1) of the dead unit's other stats. 0 = the RaisedCopy default (60%)."},
+  {k:"corpse_fuel",label:"Corpse fuel",kind:"bool",hint:"With Consume summon: a corpse in range serves as the fuel too (Corpse Explosion)"},
+  {k:"familiar_card",label:"Familiar card",kind:"strsel",options:FAMILIAR_CARDS,hint:"⚖ Conjurer 2026-11-04 (Bound Elemental): call = brings it (needs a Summon character) · storm / stone / bog / ascendant = sets its form · feed = heals + buffs it · sacrifice = spends it (dissolve summons 1). Every value but call needs a living familiar."},
+  {k:"familiar_look",label:"Familiar look",kind:"text",hint:"Familiar CALL only: a character id whose art the familiar wears as its base look (Malik's Seal)"},
+  {k:"machine_card",label:"Machine card",kind:"strsel",options:MACHINE_CARDS,hint:"⚖ Engineer 2026-11-04: repair = one machine in reach (the only machine card that aims) · overcharge / fortress = all the caster's machines (aoe_range 0). Effect slots land on the machine; calls nothing."},
+  {k:"machine_rounds",label:"Machine rounds +",kind:"numsel",options:[0,1,2,3,4,5,6],hint:"Rounds a machine card adds to the machine (needs a machine card)"},
+  {k:"blessing",label:"Blessing",kind:"bool",hint:"⚖ Spiritcaller 2026-11-05: effect1 stays on each ally it hits as a lasting Blessing (effect1 duration 0, no summon, not a Chorus)"},
+  {k:"chorus",label:"Chorus",kind:"bool",hint:"Spiritcaller: every blessed ally takes the slots and its Blessing is spent (self-cast shape, aoe_range 0)"},
+  {k:"all_allies",label:"All allies",kind:"bool",hint:"Reaches every ally anywhere (self-cast shape, aoe_range 0)"},
+  {k:"revive_ally",label:"Revive ally",kind:"bool",hint:"⚖ Cleric 2026-11-06 (Second Dawn III): the most recently fallen ally returns to the reserves (Revive.gd)"},
+  {k:"step_back",label:"Step",kind:"bool",hint:"⚖ Pat D 2026-11-06 (melee): after this card the next single hex walked this turn is free (no energy, not one of the 3 moves). Once a turn. Rogue / Assassin / Shadowdancer range-1 attack cards."},
+  {k:"first_attack_effect",label:"First-attack effect",kind:"text",hint:"⚖ Forward Orders 2026-11-04: names one of this card's effect slots (its effect_type); that effect is spent by the carrier's first attack"},
 ];
 const ADV_BY_KEY=(()=>{ const m={}; ADV_FIELDS.forEach(f=>m[f.k]=f); return m; })();
 function advValue(action,f){
@@ -1798,9 +1898,12 @@ function isAdvSet(action,f){
   if(!action) return false;
   const v=advValue(action,f);
   if(f.kind==="bool") return !!v;
-  if(f.kind==="text") return v!=null && String(v)!=="";
+  if(f.kind==="text"||f.kind==="strsel") return v!=null && String(v)!=="";
+  if(f.kind==="json"||f.kind==="cond") return !!v && typeof v==="object" && Object.keys(v).length>0;
   return num(v, f.dflt||0) !== (f.dflt||0);   // numsel: differs from its default
 }
+/* the value a field resets to (✕ remove) */
+const advDefault = f => (f.kind==="bool")?false:(f.kind==="text"||f.kind==="strsel")?"":(f.kind==="json"||f.kind==="cond")?undefined:(f.dflt||0);
 /* the editable control for one advanced field — mirrors the original wall's
    controls exactly (same options / float / defaults), same set() binding. */
 function advControl(action,f,setField){
@@ -1808,6 +1911,15 @@ function advControl(action,f,setField){
     return html`<input type="checkbox" checked=${!!action[f.k]} onChange=${e=>setField(f.k,e.target.checked)} />`;
   if(f.kind==="text")
     return html`<input type="text" value=${action[f.k]==null?"":action[f.k]} onInput=${e=>setField(f.k,e.target.value)} />`;
+  if(f.kind==="strsel"){
+    const cur=action[f.k]==null?"":String(action[f.k]);
+    const opts=[{value:"",label:"— none —"}].concat((cur&&!f.options.includes(cur))?[{value:cur,label:"⚠ "+cur}]:[]).concat(f.options.map(o=>({value:o,label:o})));
+    return html`<${Select} value=${cur} options=${opts} onInput=${v=>setField(f.k,v)} />`;
+  }
+  if(f.kind==="json")
+    return html`<${JsonField} value=${action[f.k]} ownerKey=${action.id+"|"+f.k} onCommit=${v=>setField(f.k,v)} />`;
+  if(f.kind==="cond")
+    return html`<${ChargeCondEditor} value=${action[f.k]} onChange=${v=>setField(f.k,v)} />`;
   if(f.kind==="select")
     return html`<${Select} value=${advValue(action,f)==null?(f.dflt||0):advValue(action,f)} options=${f.options} onInput=${v=>setField(f.k,intOf(v,f.dflt||0))} />`;
   const dflt=f.dflt||0;
@@ -1816,15 +1928,106 @@ function advControl(action,f,setField){
 }
 /* compact chip label for a SET advanced field (table Advanced cell) */
 function advChipLabel(action,f){
-  if(f.kind==="bool") return f.label;
-  if(f.kind==="text") return f.label.replace(/ id$/,"")+": "+action[f.k];
-  if(f.kind==="select"){ const cur=num(advValue(action,f),f.dflt||0); const o=(f.options||[]).find(x=>String(x.value)===String(cur)); return f.label+": "+(o?o.label:cur); }
-  return f.label+" "+(+num(action[f.k], f.dflt||0));
+  const tag=f.retired?" (RETIRED)":"";
+  if(f.kind==="bool") return f.label+tag;
+  if(f.kind==="text"||f.kind==="strsel") return f.label.replace(/ id$/,"")+": "+action[f.k]+tag;
+  if(f.kind==="json") return f.label+" ("+Object.keys(action[f.k]||{}).join(", ")+")";
+  if(f.kind==="cond") return "if "+chargeCondText(action[f.k]);
+  if(f.kind==="select"){ const cur=num(advValue(action,f),f.dflt||0); const o=(f.options||[]).find(x=>String(x.value)===String(cur)); return f.label+": "+(o?o.label:cur)+tag; }
+  return f.label+" "+(+num(action[f.k], f.dflt||0))+tag;
 }
 /* keys currently worth showing for an action = set OR explicitly revealed */
 function advShownFor(action, revealedList){
   const rvl=revealedList||[];
-  return ADV_FIELDS.filter(f=> isAdvSet(action,f) || rvl.indexOf(f.k)>=0);
+  return ADV_FIELDS.filter(f=> !f.charge && (isAdvSet(action,f) || rvl.indexOf(f.k)>=0));
+}
+/* fields the "+ add" pickers offer: not shown yet, not retired */
+const advAddable = shown => ADV_FIELDS.filter(f=> shown.indexOf(f)<0 && !f.retired && !f.charge);
+
+/* the charge cell / chip: "◆3", "◆≥2 all", "◆3 if…" */
+function chargeCellText(a){
+  if(!a) return "";
+  const cost=intOf(a.charge_cost,0), mn=intOf(a.charge_min,0);
+  const bits=[];
+  if(cost) bits.push("◆"+cost);
+  if(mn) bits.push("≥"+mn);
+  if(a.charge_spend) bits.push("all");
+  if(a.charge_cond&&typeof a.charge_cond==="object"&&Object.keys(a.charge_cond).length) bits.push("if…");
+  return bits.join(" ");
+}
+/* ⚖ 2026-10-13 class charge — the mastery's charge block (Actions tab, cards, table popover). */
+function ChargeFields({action, set}){
+  const rule=masteryWindowRule(action);
+  const owner=rule?rule.owner:"";
+  const pool=owner?(CHARGE_VOCAB.pool[owner]||0):0;
+  const ctl=k=>advControl(action, ADV_BY_KEY[k], set);
+  const win=hasOwnWindow(action)?intOf(action.recent_use_window,0):null;
+  const fields=["charge_cost","charge_min","charge_spend"].map(k=>ADV_BY_KEY[k]);
+  return html`<div>
+    <p class="note" style="margin-top:-2px;margin-bottom:8px">${owner
+      ? html`Mastery of <b>${owner}</b> · pool <b>${pool}</b>${CHARGE_VOCAB.live[owner]?html` · live <span class="mono">${CHARGE_VOCAB.live[owner]}</span>`:""}. Charge is earned only by ${owner}'s charge rules (Reactions tab) and spent only by its masteries.`
+      : html`<span class="warn-text">Not a class mastery</span> — only ids listed in a class's <b>Mastery class actions</b> spend charge. data_lint errors on any charge field here.`}</p>
+    <div class="daoe-grid">
+      ${fields.map(f=>html`<${Field} key=${f.k} label=${f.label} hint=${f.hint}>${ctl(f.k)}</${Field}>`)}
+    </div>
+    <${Field} label="Charge conditions" hint=${ADV_BY_KEY.charge_cond.hint}>${ctl("charge_cond")}</${Field}>
+    ${rule?html`<p class="pb-note" style="margin-top:6px">Effective cost <b>${rule.eff>=99?"exempt":rule.eff}</b> → ⚖ 2026-10-19 window <b>${rule.window}</b>${rule.window===0?" (exempt — charge is its only throttle)":""}; this card: <b>${win==null?"unset":win}</b>
+      ${win!==rule.window?html` <button class="mini pb-btn" onClick=${()=>set("recent_use_window",rule.window)}>set window ${rule.window}</button>`:html` ✓`}</p>`:null}
+  </div>`;
+}
+
+/* JSON object editor (form_variants): edits a text copy, commits on blur when it parses.
+   Empty text deletes the key. */
+function JsonField({value, ownerKey, onCommit}){
+  const fmt=v=>(v&&typeof v==="object"&&Object.keys(v).length)?JSON.stringify(v,null,2):"";
+  const [txt,setTxt]=useState(fmt(value));
+  const [err,setErr]=useState("");
+  useEffect(()=>{ setTxt(fmt(value)); setErr(""); },[ownerKey, JSON.stringify(value||null)]);
+  const commit=()=>{
+    const s=txt.trim();
+    if(!s){ setErr(""); onCommit(undefined); return; }
+    try{ const v=JSON.parse(s); if(!v||typeof v!=="object"||Array.isArray(v)) throw new Error("must be an object {…}"); setErr(""); onCommit(v); }
+    catch(e){ setErr(String(e.message||e)); }
+  };
+  return html`<div style="flex:1;min-width:0">
+    <textarea class="mono" rows=${Math.min(14,Math.max(3,txt.split("\n").length))} style="width:100%;font-size:11px" value=${txt}
+      onInput=${e=>setTxt(e.target.value)} onBlur=${commit}></textarea>
+    ${err?html`<div class="pb-note" style="color:var(--rose)">⚠ not saved — ${err}</div>`:html`<div class="pb-note">JSON object · saved when the box loses focus · empty = remove</div>`}
+  </div>`;
+}
+
+/* charge_cond editor: one row per ClassCharge.COND_KEYS key; the value widget follows the key. */
+function ChargeCondEditor({value, onChange}){
+  const cond=(value&&typeof value==="object"&&!Array.isArray(value))?value:{};
+  const keys=Object.keys(cond);
+  const write=o=>onChange(Object.keys(o).length?o:undefined);
+  const setKey=(k,v)=>write({...cond,[k]:v});
+  const delKey=k=>{ const o={...cond}; delete o[k]; write(o); };
+  const addKey=k=>{ if(!k||cond[k]!==undefined) return;
+    const v=CHARGE_COND_BOOL.includes(k)?true:CHARGE_COND_LIST.includes(k)?[]:k==="discount"?{if:CHARGE_DISCOUNT_IFS[0],cost:1}:(k.endsWith("_pct")?50:1);
+    setKey(k,v); };
+  const valueCtl=k=>{
+    const v=cond[k];
+    if(CHARGE_COND_BOOL.includes(k)) return html`<label class="cp-check"><input type="checkbox" checked=${!!v} onChange=${e=>setKey(k,e.target.checked)} /> required</label>`;
+    if(CHARGE_COND_LIST.includes(k)) return html`<input type="text" class="mono" placeholder="Burn, Poison" value=${Array.isArray(v)?v.join(", "):""}
+      title="effect names, comma-separated (any one of them)" onChange=${e=>setKey(k,e.target.value.split(",").map(x=>x.trim()).filter(Boolean))} />`;
+    if(k==="discount") return html`<span style="display:flex;gap:4px;align-items:center">
+      <select class="mono" value=${(v&&v.if)||""} onChange=${e=>setKey(k,{...(v||{}),if:e.target.value})}>
+        ${CHARGE_DISCOUNT_IFS.map(o=>html`<option value=${o}>${o}</option>`)}</select>
+      <span class="note" style="margin:0">→ costs</span>
+      <input type="number" class="mono" style="width:56px" min="0" step="1" value=${(v&&v.cost)!=null?v.cost:0} onChange=${e=>setKey(k,{...(v||{}),cost:intOf(e.target.value,0)})} /></span>`;
+    if(!CHARGE_COND_KEYS.includes(k)) return html`<span class="warn-text mono">⚠ unknown key — ${JSON.stringify(v)}</span>`;
+    return html`<input type="number" class="mono" style="width:70px" step="1" min="0" value=${v==null?0:v} onChange=${e=>setKey(k,intOf(e.target.value,0))} />`;
+  };
+  return html`<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
+    ${keys.map(k=>html`<div key=${k} style="display:flex;gap:6px;align-items:center">
+      <span class="mono" style="font-size:11px;min-width:150px">${k}</span>${valueCtl(k)}
+      <button class="mini del" title="Remove this condition" onClick=${()=>delKey(k)}>×</button></div>`)}
+    <select class="mono" value="" onChange=${e=>{ addKey(e.target.value); e.target.value=""; }}>
+      <option value="">+ add condition…</option>
+      ${CHARGE_COND_KEYS.filter(k=>cond[k]===undefined).map(k=>html`<option value=${k}>${k}</option>`)}
+    </select>
+  </div>`;
 }
 
 /* Full-card "New mechanics" body: only SET (or added) fields + an add-picker.
@@ -1833,14 +2036,14 @@ function AdvancedFields({action, setField}){
   const [revealed,setRevealed]=useState([]);
   useEffect(()=>{ setRevealed([]); },[action.id]);   // don't carry adds across actions
   const shown=advShownFor(action, revealed);
-  const addable=ADV_FIELDS.filter(f=> shown.indexOf(f)<0);
+  const addable=advAddable(shown);
   return html`<div>
     ${shown.length?html`<div class="daoe-grid">
-      ${shown.map(f=>html`<${Field} key=${f.k} label=${f.label} hint=${f.hint}>
-        <div style="display:flex;gap:6px;align-items:center">${advControl(action,f,setField)}
+      ${shown.map(f=>html`<div key=${f.k} style=${(f.kind==="json"||f.kind==="cond")?"grid-column:1/-1":""}><${Field} label=${f.label+(f.retired?" · RETIRED":"")} hint=${f.hint}>
+        <div style="display:flex;gap:6px;align-items:flex-start">${advControl(action,f,setField)}
         <button title="Reset to default & remove this field" style="border:1px solid var(--line);background:transparent;color:var(--rose);cursor:pointer;font-size:11px;border-radius:5px;padding:2px 6px;flex:none"
-          onClick=${()=>{ const d=(f.kind==="bool")?false:(f.kind==="text")?"":(f.dflt||0); setField(f.k,d); setRevealed(r=>r.filter(x=>x!==f.k)); }}>✕</button></div>
-      </${Field}>`)}
+          onClick=${()=>{ setField(f.k,advDefault(f)); setRevealed(r=>r.filter(x=>x!==f.k)); }}>✕</button></div>
+      </${Field}></div>`)}
     </div>`:html`<p class="note">No mechanic fields set on this action. Only fields a class actually uses show here — use “+ add mechanic field” to introduce one.</p>`}
     ${addable.length?html`<div class="add-slug" style="margin-top:8px">
       <select class="mono" value="" onChange=${e=>{ const k=e.target.value; if(k){ setRevealed(r=>r.indexOf(k)>=0?r:[...r,k]); e.target.value=""; } }}>
@@ -1910,7 +2113,9 @@ class ErrorBoundary extends Component {
    small UI atoms
    ════════════════════════════════════════════════════════════════════ */
 function Field({label, hint, children}){
-  return html`<div class="field"><label>${label}${hint?html`<span class="hint">${hint}</span>`:null}</label>${children}</div>`;
+  /* 2026-11: a long hint squeezed its label into a narrow column — long hints become a hover (ⓘ) instead */
+  const long=hint && typeof hint==="string" && hint.length>48;
+  return html`<div class="field"><label title=${long?hint:undefined}>${label}${hint?(long?html`<span class="hint" style="cursor:help"> ⓘ</span>`:html`<span class="hint">${hint}</span>`):null}</label>${children}</div>`;
 }
 /* R5 — the per-field visibility toggle bar. Sits at the top of the
    Class / Character / Actions tabs; controls which fields render in every
@@ -2080,49 +2285,31 @@ function StatStepper({stat, value, onInput}){
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   FORMULA L — balance lab core
+   DAMAGE FORMULA (PL + attack − defence) — balance lab core
    ════════════════════════════════════════════════════════════════════ */
-function typeMult(tm, atkType, defTypes){
-  // atkType: single string; defTypes: [{type,pct}]
-  if(!atkType) return 1;
-  let total=0, wsum=0;
-  (defTypes||[]).forEach(dt=>{
-    if(!dt.type) return;
-    const key=atkType+":"+dt.type;
-    const m = (tm && tm[key]!=null) ? Number(tm[key]) : 1;
-    total += m*dt.pct; wsum += dt.pct;
-  });
-  if(wsum<=0) return (tm && tm[atkType+":"+(defTypes&&defTypes[0]&&defTypes[0].type)]!=null)
-    ? Number(tm[atkType+":"+defTypes[0].type]) : 1;
-  return total/wsum;
+/* ⚖ 2026-09-23 (Pat D) — damage = PL + (attack − defence), floor 1. MUST track scripts/combat/DamageFormula.gd:
+   attack / defence are picked by damage type (0 Normal: Atk vs Def · 1 Special: SpcAtk vs SpcDef ·
+   2 Hybrid: the 50/50 average on BOTH sides); every hit of a multi-hit card adds the gap again; a graded
+   pattern's per-hex PL = max(1, round-half-up(PL × ratio%)) (DamageFormula.graded_pl). Crit, Curse,
+   mutators and conditional scaling multiply AFTER. The type matrix is NOT in the formula (all 1.0). */
+function damageFormula({pl, atk, def}){
+  return Math.max(1, (Number(pl)||0) + (Number(atk)||0) - (Number(def)||0));
 }
-function formulaL({atkStat, modifier, mult, defStat}){
-  // ⚖ 2026-09-23: damage = power level + attack - defence, floor 1 (MUST track
-  // DamageFormula.gd). PL = round(10 x modifier); the type multiplier is ignored.
-  const pl = Math.round((Number(modifier)||0) * 10);
-  return Math.max(1, pl + (Number(atkStat)||0) - (Number(defStat)||0));
+const gradedPl = (pl, pct) => Math.max(1, Math.floor(pl*pct/100 + 0.5));
+function pickAtk(dt, st){ const a=num(st.attack,5), sa=num(st.special_attack,5); return dt===1?sa:dt===2?(a+sa)/2:a; }
+function pickDef(dt, st){ const d=num(st.defense,5), sd=num(st.special_defense,5); return dt===1?sd:dt===2?(d+sd)/2:d; }
+function actionAtkStat(action, char){ return pickAtk(action?intOf(action.damage_type,0):0, (char&&char.stats)||{}); }
+function estimateDamage(action, caster, defStat){
+  if(!action || !(plOf(action)>0)) return null;
+  return {dmg: Math.round(damageFormula({pl:plOf(action), atk:actionAtkStat(action,caster), def:defStat}))};
 }
-function actionAtkStat(action, char){
-  // damage_type 0 Normal -> attack ; 1 Special -> special_attack ; 2 Hybrid -> 50/50
-  const st = (char && char.stats) || {};
-  const a = num(st.attack,5), sa = num(st.special_attack,5);   // 50 -> 5 (2026-08-06 rescale)
-  const dt = action ? action.damage_type : 0;
-  if(dt===1) return sa;
-  if(dt===2) return (a+sa)/2;
-  return a;
-}
-function estimateDamage(action, caster, defenderTypes, defStat, tm){
-  if(!action || !(num(action.damage_modifier,0)>0)) return null;
-  const atkType = (action.action_type && action.action_type.trim())
-    || (caster && caster.type_1) || "";
-  const m = typeMult(tm, atkType, defenderTypes);
-  const dmg = formulaL({
-    atkStat: actionAtkStat(action, caster),
-    modifier: num(action.damage_modifier,1),
-    mult: m,
-    defStat: defStat,
-  });
-  return {dmg: Math.round(dmg), mult: m, atkType};
+/* the graded ratio table that applies to this card (pattern row + size), or null */
+function gradedRatios(action, patterns){
+  const row=(patterns||[]).find(p=>p&&p.name===action.aoe_pattern);
+  if(!row||!row.graded) return null;
+  if(row.ratios){ const r=row.ratios[String(action.aoe_size)]; return Array.isArray(r)?{kind:"ratios",values:r,rule:row.grade_rule||""}:null; }
+  if(row.role_ratios) return {kind:"roles",values:row.role_ratios,rule:row.grade_rule||""};
+  return null;
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -2227,7 +2414,7 @@ function lintAction(a, charById){
     out.push({k:"warn",t:`19-hex zone at window ${cd}: size-2 hazards are for window>=12 signatures`});
   if(tt===1 && cd<12 && Number(a.zone_duration_turns||0)>6)
     out.push({k:"warn",t:`zone lives ${a.zone_duration_turns} turns at window ${cd}: cheap zones cap at 6`});
-  if(hasOwnWindow(a) && (intOf(a.recent_use_window,0)<1 || intOf(a.recent_use_window,0)>64))
+  if(hasOwnWindow(a) && ((intOf(a.recent_use_window,0)<1 && !(masteryOwner(a) && intOf(a.recent_use_window,0)===0)) || intOf(a.recent_use_window,0)>64))
     out.push({k:"err",t:`recent-use window ${a.recent_use_window}: must be 1–64`});
   if(hasOwnWindow(a) && isStdAttack(a) && intOf(a.recent_use_window,0)<RU_STD_WINDOW)
     out.push({k:"warn",t:`standard attack window ${a.recent_use_window}: RU-05 rules ${RU_STD_WINDOW} rounds`});
@@ -2236,19 +2423,68 @@ function lintAction(a, charById){
     const mo=magnitudeOptions(ef.effect_type), du=durationOptions(ef.effect_type);
     const m=Number(ef.effect_magnitude), d=Number(ef.effect_duration);
     if(mo.length===1 && m!==mo[0]) out.push({k:"warn",t:`eff${i+1} ${ef.effect_type}: magnitude must be ${mo[0]}`});
-    else if(mo.length && (m<mo[0]||m>mo[mo.length-1])) out.push({k:"warn",t:`eff${i+1} ${ef.effect_type}: magnitude ${ef.effect_magnitude} out of range`});
+    /* 0 is the normal magnitude of an on/off effect (Blind, Silence, Mirage …) — only flag values above the palette */
+    else if(mo.length && (m<0||m>mo[mo.length-1])) out.push({k:"warn",t:`eff${i+1} ${ef.effect_type}: magnitude ${ef.effect_magnitude} above the usual range (max ${mo[mo.length-1]})`});
     if(du.length===1 && d!==du[0]) out.push({k:"warn",t:`eff${i+1} ${ef.effect_type}: duration must be ${du[0]}`});
   });
-  if(a.summon_character_id){
+  if(a.summon_character_id && a.summon_character_id!=="raised_copy"){
     const c=charById[String(a.summon_character_id)];
     if(!c) out.push({k:"err",t:`summon id ${a.summon_character_id} not found`});
   }
-  // Summon-mechanic guards: corpse-raise only fires on a SUMMON action; the two
-  // summon toggles are distinct mechanics and must not both be on (see TurnManager).
-  if(a.corpse_raise && !a.summon_character_id)
-    out.push({k:"warn",t:"corpse-raise does nothing without a Summon character"});
   if(a.corpse_raise && a.consume_summon)
-    out.push({k:"err",t:"corpse-raise + consume-summon can't both be on"});
+    out.push({k:"warn",t:"corpse-raise + consume-summon on one card (Corpse Explosion uses consume-summon + corpse fuel)"});
+  /* ── 2026-11 mirrors of data_lint.gd (scenes/kindred_wars/sandbox/tools/data_lint.gd) ── */
+  const summon=String(a.summon_character_id||"");
+  if(Array.isArray(a.partner_effects) && a.partner_effects.length>1)
+    out.push({k:"err",t:`${a.partner_effects.length} synergy rows — an action carries ONE (⚖ 2026-10-18)`});
+  if(summon===RAISED_COPY_ID && !a.corpse_raise) out.push({k:"err",t:"a raised copy needs corpse-raise"});
+  if(a.raise_all && summon!==RAISED_COPY_ID) out.push({k:"err",t:"raise_all needs Summon = raised_copy"});
+  ["raise_hp_pct","raise_stat_pct"].forEach(k=>{ const v=num(a[k],0); if(v<0||v>1||(v>0&&summon!==RAISED_COPY_ID)) out.push({k:"err",t:`${k} must be 0..1 on a raised-copy card`}); });
+  if(a.corpse_fuel && !a.consume_summon) out.push({k:"err",t:"corpse fuel only works with consume-summon"});
+  const fam=String(a.familiar_card||"");
+  if(fam && !FAMILIAR_CARDS.includes(fam)) out.push({k:"err",t:`unknown familiar card "${fam}"`});
+  if(fam==="call" && !summon) out.push({k:"err",t:"a familiar call needs a Summon character"});
+  if(fam==="sacrifice" && intOf(a.dissolve_summons,0)!==1) out.push({k:"err",t:"a familiar sacrifice is dissolve summons 1"});
+  if(a.familiar_look && (fam!=="call" || !charById[String(a.familiar_look)])) out.push({k:"err",t:`familiar look "${a.familiar_look}" needs a familiar call and a real character id`});
+  const mach=String(a.machine_card||"");
+  if(mach && !MACHINE_CARDS.includes(mach)) out.push({k:"err",t:`unknown machine card "${mach}"`});
+  if(intOf(a.machine_rounds,0)!==0 && !mach) out.push({k:"err",t:"machine rounds needs a machine card"});
+  if(mach && summon) out.push({k:"err",t:"a machine card works on machines and calls nothing"});
+  if(mach && ((intOf(a.aoe_range,0)>0)!==(mach==="repair"))) out.push({k:"err",t:"only a repair card aims; other machine cards are range 0"});
+  if(a.blessing && (summon || a.chorus || !(a.effect1&&a.effect1.effect_type))) out.push({k:"err",t:"a Blessing keeps effect1, calls nothing and is no Chorus"});
+  if(a.blessing && intOf(a.effect1&&a.effect1.effect_duration,0)!==0) out.push({k:"err",t:"a Blessing has no timer (effect1 duration 0)"});
+  if(a.chorus && intOf(a.aoe_range,0)!==0) out.push({k:"err",t:"a Chorus is a self-cast shape (range 0)"});
+  if(a.all_allies && intOf(a.aoe_range,0)!==0) out.push({k:"err",t:"all-allies is a self-cast shape (range 0)"});
+  if(a.first_attack_effect && ![a.effect1,a.effect2].some(ef=>ef&&ef.effect_type===a.first_attack_effect))
+    out.push({k:"err",t:"first-attack effect must name one of its effect slots"});
+  if(isEdgeAction(a)){
+    if(intOf(a.trap_tick,2)!==2) out.push({k:"warn",t:"edge card with a trap tick — the edge branch shadows it (set None)"});
+    if(plOf(a)>0) out.push({k:"warn",t:"edge card with PL > 0 — never dealt (author damage as a Burn/Poison effect)"});
+    if(a.aoe_pattern!=="Edge Wall") out.push({k:"warn",t:"edge cards must use the Edge Wall pattern"});
+    if(a.place_wall && intOf(a.zone_team,0)!==0) out.push({k:"err",t:"a wall blocks BOTH teams — zone team must be 0"});
+    if(a.place_wall && !a.edge_touch_effects && ((a.effect1&&a.effect1.effect_type)||(a.effect2&&a.effect2.effect_type)))
+      out.push({k:"warn",t:"wall with effects but no edge-touch effects — they never apply"});
+  } else if(a.edge_touch_effects) out.push({k:"warn",t:"edge-touch effects on a non-edge card — dead"});
+  const bvm=num(a.bonus_vs_marked,0);
+  if(bvm>0){ const cap=plOf(a)>=20?0.3:0.5; if(bvm>cap+1e-4) out.push({k:"err",t:`bonus vs Marked ${bvm} over the house cap ${cap} at PL ${plOf(a)} (⚖ 2026-10-13)`}); }
+  ["effect1","effect2","self_effect1","self_effect2"].forEach(s=>{ const ef=a[s]; if(ef&&ef.effect_type==="Bleed"&&num(ef.effect_magnitude,0)>5) out.push({k:"warn",t:`${s} Bleed ${ef.effect_magnitude} > 5 — ticks like Bleed 5 (hard clamp)`}); });
+  /* class charge */
+  const owner=masteryOwner(a);
+  const cMin=intOf(a.charge_min,0), cCost=intOf(a.charge_cost,0);
+  const hasCond=!!a.charge_cond && typeof a.charge_cond==="object" && Object.keys(a.charge_cond).length>0;
+  if(intOf(a.charge_gain,0)>0) out.push({k:"err",t:"charge gain is retired — charge is earned only by class charge rules"});
+  if((cMin>0||cCost>0||a.charge_spend||hasCond) && !owner) out.push({k:"err",t:"charge fields on a card that is not a class MASTERY"});
+  if(owner){
+    const pool=CHARGE_VOCAB.pool[owner]||0;
+    if(Math.max(cMin,cCost)>pool) out.push({k:"err",t:`needs ${Math.max(cMin,cCost)} charge but ${owner}'s pool holds ${pool}`});
+    if(hasCond) Object.keys(a.charge_cond).forEach(ck=>{ if(!CHARGE_COND_KEYS.includes(ck)) out.push({k:"err",t:`unknown charge condition "${ck}"`}); });
+    if(intOf(a.cooldown_rounds,0)>0) out.push({k:"err",t:"a mastery carries no cooldown (cooldown_rounds must be 0)"});
+    const rule=masteryWindowRule(a), w=intOf(a.recent_use_window,0);
+    if(rule.eff>=3 && w>0) out.push({k:"err",t:`mastery at effective cost ${rule.eff>=99?"exempt":rule.eff}: window must be 0 (exempt), got ${w}`});
+    else if(rule.eff<=2 && w!==rule.window) out.push({k:"warn",t:`mastery at effective cost ${rule.eff}: window should be ${rule.window} (got ${w})`});
+  }
+  if((num(a.charge_damage_per_point,0)>0||num(a.charge_heal_per_point,0)>0) && !a.charge_spend)
+    out.push({k:"err",t:"per-charge payout without charge spend pays zero"});
   return out;
 }
 function lintCharacter(c){
@@ -2259,7 +2495,12 @@ function lintCharacter(c){
     const sum=Math.round((p1+p2)*100);
     if(sum!==100) out.push({k:"warn",t:`Type1%+Type2% = ${sum}% (≠100)`});
   }
-  if((c.synergies||[]).length>8) out.push({k:"warn",t:"unusually many type synergies (>8) — runtime applies all; counts and accumulation are unbounded, and only final live stats use absolute STAT_CAPS (2026-07-26)"});
+  /* ⚖ Pat D 2026-11-05: a hero's ONE unique core card is its standard_attack (data_lint errors) */
+  if(c.tier==="hero") for(let i=1;i<=15;i++){ const w=c["unique_action_"+i]; const id=(w&&typeof w==="object")?w.id:w;
+    if(id) out.push({k:"err",t:`unique_action_${i} holds "${id}" — a hero has one unique core card (standard_attack)`}); }
+  const sw=c.standard_attack; if(!((sw&&typeof sw==="object")?sw.id:sw)) out.push({k:"warn",t:"no standard_attack (the unique core card)"});
+  const mu=(c.mastery_unique_actions||[]).filter(w=>(w&&typeof w==="object")?w.id:w);
+  if(mu.length>1) out.push({k:"warn",t:`${mu.length} unique masteries — ⚖ one per character (the III)`});
   return out;
 }
 
@@ -2366,6 +2607,9 @@ function MobileHintLayer({mobile}){
 
 function App(){
   const [session,setSession]=useState(undefined);  // undefined=unknown, null=signed out, obj=in
+  /* 2026-11: browse read-only without signing in (reads are public; RLS gates writes). ?readonly=1 enters it directly. */
+  const [readonly,setReadonly]=useState(()=>{ try{ return /[?&]readonly=1\b/.test(location.search); }catch(e){ return false; } });
+  const canWrite = !!session;
   const [loading,setLoading]=useState(false);
   const [data,setData]=useState(null);             // working copy {characters,actions,classes,effects,types,type_matrix,aoe_patterns,glossary,mutators,reactions,hybridisation}
   const [dirty,setDirty]=useState({chars:new Set(),actions:new Set(),classes:false,effects:false,matrix:false,types:false,tunables:false,aoe_patterns:false,glossary:false,mutators:false,hybridisation:false,reactions:false});
@@ -2373,6 +2617,7 @@ function App(){
   syncInherentNames(data&&data.effects);   // keeps the live Type-inherents group current
   syncPartnerVocab(data);                  // Push B: class / type lists for partner-effect conditions
   syncStdAttackIds(data);                  // Push B RU-05: which cards are standard attacks (window 3)
+  syncChargeVocab(data);                   // 2026-10-13 class charge: mastery owners, pools, core slot count
   const [toasts,setToasts]=useState([]);
   const [cmdk,setCmdk]=useState(false);
   const [undoStack,setUndo]=useState([]);
@@ -2457,12 +2702,12 @@ function App(){
      tab switches, and minimize until you hit Save to Supabase. */
   const loadedUserRef = useRef(null);
   useEffect(()=>{
-    if(!session){ loadedUserRef.current=null; return; }
-    const uid = session.user ? session.user.id : "anon";
+    if(!session && !readonly){ loadedUserRef.current=null; return; }
+    const uid = session ? (session.user ? session.user.id : "anon") : "__readonly";
     if(loadedUserRef.current===uid) return;   // already loaded for this user — ignore focus/refresh churn
     loadedUserRef.current=uid;
     loadAll();
-  },[session]);
+  },[session,readonly]);
 
   /* ── derived indexes ── */
   const enums = useMemo(()=> data?buildEnums(data):null, [data]);
@@ -2475,7 +2720,7 @@ function App(){
   const usageIdx = useMemo(()=> data?buildUsageIndex(data.characters,data.classes,data.types):{}, [data]);
   // summon-ID dropdown options: lieutenants + minions
   const summonOptions = useMemo(()=>{
-    const opts=[{value:"",label:"— none —"}];
+    const opts=[{value:"",label:"— none —"},{value:"raised_copy",label:"Raised copy of the dead (corpse-raise)"}];
     (data?.characters||[]).forEach(c=>{
       if(c.tier==="lieutenant"||c.tier==="minion"){
         const X = c.tier==="lieutenant"?"Lieutenant":"Minion";
@@ -2738,14 +2983,14 @@ function App(){
   useEffect(()=>{
     const h=e=>{
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){ e.preventDefault(); setCmdk(c=>!c); }
-      else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){ e.preventDefault(); if(dirtyCount>0) setSaveDlg(true); }
+      else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="s"){ e.preventDefault(); if(dirtyCount>0&&canWrite) setSaveDlg(true); }
       else if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key.toLowerCase()==="z"){ e.preventDefault(); undo(); }
       else if((e.ctrlKey||e.metaKey)&&(e.shiftKey&&e.key.toLowerCase()==="z" || e.key.toLowerCase()==="y")){ e.preventDefault(); redo(); }
       else if(e.key==="Escape"){ setSaveDlg(false); setCmdk(false); }
     };
     window.addEventListener("keydown",h);
     return ()=>window.removeEventListener("keydown",h);
-  },[dirtyCount,undo,redo]);
+  },[dirtyCount,undo,redo,canWrite]);
 
   useEffect(()=>{
     const h=e=>{ if(discardingRef.current) return;   // a discard reload must not re-save (or re-prompt)
@@ -2778,7 +3023,7 @@ function App(){
 
   /* ── render ── */
   if(session===undefined) return html`<div class="loading-shade"><span class="spinner"></span>STARTING…</div>`;
-  if(session===null) return html`<${Login} db=${db} />`;
+  if(session===null && !readonly) return html`<${Login} db=${db} onBrowse=${()=>setReadonly(true)} />`;
 
   const tabs=[
     {id:"characters",label:"Characters",n:data?.characters.length,dirty:dirty.chars.size>0},
@@ -2789,7 +3034,7 @@ function App(){
     {id:"glossary",label:"Glossary",n:data?.glossary.length,dirty:dirty.glossary},
     {id:"mutators",label:"Mutators",n:data?.mutators.length,dirty:dirty.mutators},
     {id:"hybridisation",label:"Hybridisation",n:data?.hybridisation?.length,dirty:dirty.hybridisation},
-    {id:"matrix",label:"Type Matrix",n:null,dirty:dirty.matrix},
+    {id:"matrix",label:"Type Matrix (unused)",n:null,dirty:dirty.matrix},
     {id:"aoe",label:"AoE Patterns",n:data?.aoe_patterns.length,dirty:dirty.aoe_patterns},
     {id:"class_costs",label:"Class Costs",dirty:dirty.tunables},
     {id:"tunables",label:"Tunables",n:data?.tunables?.length,dirty:dirty.tunables},
@@ -2800,7 +3045,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-10-26 3e1ccb0eb</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-11-07 716fb7c70</span></span>
       </div>
       <div class="spacer"></div>
       <a class="btn ghost" href="spread.html" target="_blank" rel="noopener" title="Synergy Spread: how class-action Synergy lines spread across types, classes and playstyles (live from Supabase)">Synergy Spread ↗</a>
@@ -2813,9 +3058,11 @@ function App(){
         if(dirtyCount>0 && !confirm("Discard "+dirtyCount+" unsaved change(s) and reload from Supabase?")) return;
         loadAll();
       }}>⟳ Reload</button>
-      <button class="btn primary" disabled=${dirtyCount===0} onClick=${()=>setSaveDlg(true)}>
+      ${canWrite?html`<button class="btn primary" disabled=${dirtyCount===0} onClick=${()=>setSaveDlg(true)}>
         Save to Supabase <span class="count">${dirtyCount}</span>
-      </button>
+      </button>`:html`<button class="btn primary" title="Read-only browsing: edits stay in this browser (draft) until you sign in and save" onClick=${()=>setReadonly(false)}>
+        Read-only · Sign in to save <span class="count">${dirtyCount}</span>
+      </button>`}
     </div>
 
     <div class="tabbar">
@@ -2851,7 +3098,7 @@ function App(){
     ${loading?html`<div class="loading-shade"><span class="spinner"></span>WORKING…</div>`:null}
     ${saveDlg?html`<${SaveDialog} data=${data} dirty=${dirty} onCancel=${()=>setSaveDlg(false)} onConfirm=${doSave} />`:null}
     ${cmdk?html`<${CommandPalette} data=${data} onJump=${jumpTo} onClose=${()=>setCmdk(false)} />`:null}
-    ${isMobile && dirtyCount>0 ? html`<button class="save-fab" onClick=${()=>setSaveDlg(true)}>Save <span class="count">${dirtyCount}</span></button>` : null}
+    ${isMobile && dirtyCount>0 && canWrite ? html`<button class="save-fab" onClick=${()=>setSaveDlg(true)}>Save <span class="count">${dirtyCount}</span></button>` : null}
     <${MobileHintLayer} mobile=${isMobile} />
 
     <div class="toast-wrap">
@@ -2865,7 +3112,7 @@ function App(){
 /* ════════════════════════════════════════════════════════════════════
    LOGIN
    ════════════════════════════════════════════════════════════════════ */
-function Login({db}){
+function Login({db, onBrowse}){
   const [email,setEmail]=useState("");
   const [pass,setPass]=useState("");
   const [msg,setMsg]=useState("");
@@ -2882,6 +3129,7 @@ function Login({db}){
       onInput=${e=>setPass(e.target.value)} onKeyDown=${e=>{if(e.key==="Enter")go();}} />
     <button class="btn primary" style="min-height:42px" onClick=${go}>Sign in</button>
     <div style="color:#e06a6a;font-size:13px;min-height:16px">${msg}</div>
+    ${onBrowse?html`<button class="btn ghost" style="min-height:36px" title="Load everything from Supabase without signing in. Nothing can be saved." onClick=${onBrowse}>Browse read-only</button>`:null}
   </div></div>`;
 }
 
@@ -2987,7 +3235,7 @@ function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEf
   const cur = (value && typeof value==="object" && value.id) ? value.id : (typeof value==="string"?value:"");
   const act = cur ? actionById[cur] : null;
   const filled = !!cur;
-  const est = act ? estimateDamage(act, caster, defenderSampleTypes(), 50, tm) : null;
+  const est = act ? estimateDamage(act, caster, 5) : null;
   const uses = usageCount||0;
   const effNames = actionEffectNames(act);                              // R3.5
 
@@ -3053,7 +3301,6 @@ function SlotCard({slotLabel, value, actionById, allActions, effectRows, knownEf
     </div>`:null}
   </div>`;
 }
-function defenderSampleTypes(){ return [{type:"",pct:1}]; } // neutral by default for slot estimate
 
 /* shared action body editor (used in Actions tab + inline in slot cards).
    R6 — showName: card/table hosts pass true to get an editable NAME title
@@ -3091,8 +3338,8 @@ function ActionEditorInline({action, patterns, onChangePattern, effectRows, know
         ${vis.has("recent_use_window")?html`<${Field} label="Recent use" hint="rounds">
           <${RecentUseField} action=${action} set=${set} />
         </${Field}>`:null}
-        ${vis.has("energy_cost")?html`<${Field} label="Energy cost" hint="1-5 · default 3">
-          <${NumSelect} value=${action.energy_cost} options=${[1,2,3,4,5]} onInput=${v=>set("energy_cost",v)} />
+        ${vis.has("energy_cost")?html`<${Field} label="Energy cost" hint="0–5 · most 3">
+          <${NumSelect} value=${action.energy_cost} options=${[0,1,2,3,4,5]} onInput=${v=>set("energy_cost",v)} />
         </${Field}>`:null}
         ${vis.has("trap_tick")?html`<${Field} label="Trap tick">
           <${Select} value=${action.trap_tick} options=${TRAP_TICKS} onInput=${v=>set("trap_tick",intOf(v,2))} />
@@ -3127,30 +3374,38 @@ function ActionEditorInline({action, patterns, onChangePattern, effectRows, know
           effectByName=${effectByName} onChange=${v=>set("enchant_rider",v)} />`:null}
       </div>
     </${Group}>`:null}
-    ${(vis.has("partner_fx")||(Array.isArray(action.partner_effects)&&action.partner_effects.length))?html`<${Group} title=${"Partner effects"+(Array.isArray(action.partner_effects)&&action.partner_effects.length?(" ("+action.partner_effects.length+")"):"")}>
-      <${PartnerEffectsEditor} action=${action} onChangeField=${set} knownEffects=${knownEffects} effectRows=${effectRows} effectByName=${effectByName} />
+    ${(vis.has("charge")&&(masteryOwner(action)||chargeCellText(action)))?html`<${Group} title=${"Class charge"+(masteryOwner(action)?(" · mastery of "+masteryOwner(action)):" · ⚠ not a mastery")}>
+      <${ChargeFields} action=${action} set=${set} />
     </${Group}>`:null}
-    ${vis.has("summon")?html`<${Group} title="Summon">
+    ${(vis.has("partner_fx")||(Array.isArray(action.partner_effects)&&action.partner_effects.length)||(Array.isArray(action.partner_effects_two)&&action.partner_effects_two.length))?html`<${Group} title=${"Synergy (partner effect)"+(Array.isArray(action.partner_effects)&&action.partner_effects.length?(" ("+action.partner_effects.length+")"):"")}>
+      <${PartnerEffectsEditor} action=${action} onChangeField=${set} onPatch=${onChangePattern} knownEffects=${knownEffects} effectRows=${effectRows} effectByName=${effectByName} />
+    </${Group}>`:null}
+    ${vis.has("summon")?html`<${Group} title="Summon / corpse">
       <div class="summon-row">
-        <${Field} label="Summon character">
+        <${Field} label="Summon character" hint="raised_copy = a copy of the dead unit (Necromancer)">
           <${Select} value=${action.summon_character_id||""} options=${summonOptions} onInput=${v=>set("summon_character_id",v)} />
         </${Field}>
-        <${Field} label="Corpse-raise" hint=${!action.summon_character_id ? "needs a Summon character above" : (action.consume_summon ? "disabled — consume-summon is on" : "Necromancer: summon only fires on a nearby corpse hex, and spawns on it")}>
-          <label class="summon-check"><input type="checkbox" checked=${!!action.corpse_raise}
-              disabled=${!action.summon_character_id || !!action.consume_summon}
-              onChange=${e=>set("corpse_raise", e.target.checked)} />
-            <span>on corpse hex</span></label>
+        <${Field} label="Count" hint="bodies per cast">
+          <${NumSelect} value=${action.summon_count==null?1:action.summon_count} options=${[0,1,2,3]} onInput=${v=>set("summon_count",v)} />
         </${Field}>
-        <${Field} label="Consume summon" hint=${action.corpse_raise ? "disabled — corpse-raise is on" : "Sacrifice your nearest own summon; the AoE re-centers on its hex (Immolate Familiar / Corpse Explosion)"}>
+        <${Field} label="Lasts" hint="rounds · 0 = no limit">
+          <${NumSelect} value=${action.summon_duration_rounds==null?3:action.summon_duration_rounds} options=${[0,1,2,3,4,5,6,8]} onInput=${v=>set("summon_duration_rounds",v)} />
+        </${Field}>
+        <${Field} label="Corpse-raise" hint="⚖ 2026-11-04: the card needs a corpse in range and uses it up, whatever it does with it (a raised copy, a wall, a self payload)">
+          <label class="summon-check"><input type="checkbox" checked=${!!action.corpse_raise}
+              onChange=${e=>set("corpse_raise", e.target.checked)} />
+            <span>needs a corpse</span></label>
+        </${Field}>
+        <${Field} label="Consume summon" hint="Sacrifice your nearest own summon; the AoE re-centres on its hex (Immolate Familiar / Corpse Explosion). For a COST without re-centring use Dissolve summons (mechanics).">
           <label class="summon-check"><input type="checkbox" checked=${!!action.consume_summon}
-              disabled=${!!action.corpse_raise}
               onChange=${e=>set("consume_summon", e.target.checked)} />
             <span>sacrifice nearest summon</span></label>
         </${Field}>
       </div>
+      <p class="note" style="margin:4px 0 0">⚖ 2026-11-04 summoner redesign: only Conjurer (one Bound Elemental — familiar card), Engineer (machines — machine card), Commander, Necromancer (raised copies) summon, plus the Warlock's imp and the Hunter's Lion. Summon HP × 0.75 lives in the summoned character's own stats.</p>
     </${Group}>`:null}
     ${vis.has("newmech")?html`<${Group} title="Mechanics (advanced)">
-      <p class="note" style="margin-top:-4px;margin-bottom:8px">Only fields SET on this action show here (a class that uses none shows nothing) — add one with the picker below. These are the 2026-07 mechanic fields.</p>
+      <p class="note" style="margin-top:-4px;margin-bottom:8px">Class-mechanic fields (summoner redesign, edges, Druid forms, Blessings, Step …). Only fields SET on this card show; add one with the picker. Hover a label (ⓘ) for its rule. Class charge has its own group above.</p>
       <${AdvancedFields} action=${action} setField=${set} />
     </${Group}>`:null}
   </div>`;
@@ -3329,18 +3584,33 @@ function PartnerEffectRow({a, row, i, n, knownEffects, effectRows, effectByName,
   </div>`;
 }
 
-function PartnerEffectsEditor({action, onChangeField, knownEffects, effectRows, effectByName}){
+function PartnerEffectsEditor({action, onChangeField, onPatch, knownEffects, effectRows, effectByName}){
   const rows=Array.isArray(action.partner_effects)?action.partner_effects:[];
   const write=arr=>onChangeField("partner_effects", arr.length?arr:undefined);
   const upd=(i,r)=>write(rows.map((x,j)=>j===i?r:x));
   const move=(i,d)=>{ const a=rows.slice(); const j=i+d; if(j<0||j>=a.length) return; [a[i],a[j]]=[a[j],a[i]]; write(a); };
   const del=i=>write(rows.filter((_,j)=>j!==i));
   const add=()=>write([...rows,{when:{kind:"playstyle",value:""},then:{kind:"effect",to:peHostileAction(action)?"target":"self",effect:{effect_type:"",effect_magnitude:0,effect_duration:0}}}]);
+  /* reference-only rows kept on the action (nothing in the game reads them) */
+  const refs=[["partner_effects_two","dropped by ONE SYNERGY PER ACTION (2026-10-18)"],["partner_effects_weak","the weaker payoff replaced 2026-10-19"]]
+    .map(([k,why])=>({k,why,rows:Array.isArray(action[k])?action[k]:[]})).filter(r=>r.rows.length);
   return html`<div>
-    <p class="note" style="margin-top:-4px;margin-bottom:8px">⚖ 7.2 / 7.7 / 7.8 + PE-01..04: a line that <b>lights</b> when the caster's current partner qualifies (checked at cast; a dead or parked partner is none — which is exactly when a <i>no partner</i> line lights). A class / type condition counts any side in play at the partner's slider position. Always printed on the card — lit, or dimmed “needs X partner”. No limit per card.${rows.length>4?html` <span class="warn-text">${rows.length} rows — readability warning (more than 4).</span>`:""}</p>
+    <p class="note" style="margin-top:-4px;margin-bottom:8px">⚖ Pat D 2026-10-18: every action carries <b>ONE synergy</b> — one <span class="mono">partner_effects</span> row naming a partner type, class or playstyle (data_lint errors on more). The synergy is <b>activated</b> when the caster's current partner qualifies (checked at cast; a dead or parked partner is none, which is exactly when a <i>no partner</i> row activates); it is always printed on the card, dimmed when not activated.${rows.length>1?html` <span class="warn-text">${rows.length} rows — delete all but one.</span>`:""}</p>
     ${rows.map((r,i)=>html`<${PartnerEffectRow} key=${i} a=${action} row=${r} i=${i} n=${rows.length} knownEffects=${knownEffects}
       effectRows=${effectRows} effectByName=${effectByName} onChange=${nr=>upd(i,nr)} onMove=${move} onDel=${del} />`)}
-    <button class="mini pb-btn" style="margin-top:8px" onClick=${add}>+ Add partner effect</button>
+    ${rows.length?null:html`<button class="mini pb-btn" style="margin-top:8px" onClick=${add}>+ Add the synergy</button>`}
+    ${refs.map(rf=>html`<div key=${rf.k} class="pb-box" style="margin-top:8px;opacity:.8">
+      <div class="pb-note" style="margin-bottom:4px"><span class="mono">${rf.k}</span> · reference only (${rf.why}) — the game never reads it.</div>
+      ${rf.rows.map((r,i)=>html`<div key=${i} style="display:flex;gap:8px;align-items:center;margin-top:2px">
+        <span class="mono" style="font-size:11px;flex:1">⚭ ${pePreview(action,r)}</span>
+        ${onPatch?html`<button class="mini pb-btn" title="Make this the action's synergy (the current one moves to partner_effects_two, so nothing is lost)"
+          onClick=${()=>{ const cur=rows.slice(); const two=Array.isArray(action.partner_effects_two)?action.partner_effects_two.slice():[];
+            const patch={partner_effects:[clone(r)]};
+            if(rf.k==="partner_effects_two"){ const rest=two.filter((_,j)=>j!==i).concat(cur); patch.partner_effects_two=rest.length?rest:undefined; }
+            else if(cur.length) patch.partner_effects_two=two.concat(cur);
+            onPatch(patch); }}>use this</button>`:null}
+      </div>`)}
+    </div>`)}
   </div>`;
 }
 
@@ -3627,9 +3897,15 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
               <${Field} label="Name"><${TextInput} value=${c.name} onInput=${v=>edit(cc=>cc.name=v)} /></${Field}>
               <${Field} label="Tier"><${Select} value=${c.tier} options=${["hero","lieutenant","minion"]} onInput=${v=>edit(cc=>cc.tier=v)} /></${Field}>
             </div>
-            <div style="margin-top:8px" title="available_in_kw — off = hidden from the draft, AI enemy pools, Orb, challenges and PvP. A missing value counts as ON (the game's default).">
-              <${Toggle} label="Available in game" on=${c.available_in_kw!==false} onInput=${v=>edit(cc=>cc.available_in_kw=v)} />
+            <div style="margin-top:8px;display:flex;gap:18px;flex-wrap:wrap">
+              <span title="available_in_kw — off = hidden from the draft, AI enemy pools, Orb, challenges and PvP. A missing value counts as ON (the game's default).">
+                <${Toggle} label="Available in game" on=${c.available_in_kw!==false} onInput=${v=>edit(cc=>cc.available_in_kw=v)} /></span>
+              <span title="machine — ⚖ Engineer 2026-11-04: this character is a MACHINE when summoned (never moves, reads as rooted, +50% HP, 6 rounds; Machine.gd)">
+                <${Toggle} label="Machine (Engineer summon)" on=${!!c.machine} onInput=${v=>edit(cc=>{ if(v) cc.machine=true; else delete cc.machine; })} /></span>
             </div>
+            ${(c.tier!=="hero"||c.muster_description)?html`<${Field} label="Muster description" hint="optional blurb (GameManager reads muster_description); mostly for summons">
+              <textarea rows="2" value=${c.muster_description||""} onInput=${e=>edit(cc=>{ if(e.target.value) cc.muster_description=e.target.value; else delete cc.muster_description; })}></textarea>
+            </${Field}>`:null}
           </${Group}>
 
           <${Group} title="Types">
@@ -3666,18 +3942,12 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
             <${ClassBuckets} selId=${selId} data=${data} enums=${enums} commitEdit=${commitEdit} />
           </${Group}>
 
-          <${Group} title=${`Type Synergies (${(c.synergies||[]).length}; convention 3, unbounded)`}>
-            <${SynergyEditor} list=${c.synergies||[]} kind="type" enums=${enums}
-              onChange=${arr=>edit(cc=>cc.synergies=arr)} />
-          </${Group}>
-
-          <${Group} title="Class Synergies">
-            <${SynergyEditor} list=${c.class_synergies||[]} kind="class" enums=${enums}
-              onChange=${arr=>edit(cc=>cc.class_synergies=arr)} />
+          <${Group} title="Legacy synergies (removed from play 2026-09-24 · read only)">
+            <${LegacySynergies} c=${c} />
           </${Group}>
 
           <${Group} title="Action Slots">
-            <p class="note" style="margin-top:-4px;margin-bottom:8px">Standard attack + unique actions (Type / Class actions are inherited, not edited here). Use the chips to control which fields show. <b>Table</b> edits fields per-cell (one row per filled slot); <b>Cards</b> lets you pick / create / fork / clear a slot's action.</p>
+            <p class="note" style="margin-top:-4px;margin-bottom:8px">⚖ 2026-11-05: a hero's ONE unique core card is its <span class="mono">standard_attack</span> ("Unique core"); a hero may not hold <span class="mono">unique_action_N</span> (data_lint errors). Lieutenants / minions may still use the unique slots. Type / Class actions are inherited, not edited here. Use the chips to control which fields show. <b>Table</b> edits fields per-cell (one row per filled slot); <b>Cards</b> lets you pick / create / fork / clear a slot's action.</p>
             <${FieldChips} />
             <div class="viewtoggle" style="margin-bottom:8px">
               <span class="vt-lead">Actions view</span>
@@ -3692,7 +3962,8 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
                   const filled=slotInfo.filter(x=>x.id);
                   // the reflex slot is never the target of the generic "+ Add existing action…"
                   // picker — it has its own narrowed picker on the Cards view.
-                  const emptySlot=(slotInfo.find(x=>!x.id&&x.slot!==REFLEX_SLOT)||{}).slot;
+                  const heroLocked=x=>c.tier==="hero"&&/^unique_action_/.test(x.slot);   // ⚖ 2026-11-05
+                  const emptySlot=(slotInfo.find(x=>!x.id&&x.slot!==REFLEX_SLOT&&!heroLocked(x))||{}).slot;
                   const labels=filled.map(f=>charSlotLabel(f.slot));
                   const onBody=(u)=>commitEdit(next=>{ const i=next.actions.findIndex(a=>a.id===u.id); if(i>=0) next.actions[i]=u; }, dy=>dy.actions.add(String(u.id)));
                   const onClear=(i)=>{ const slot=filled[i].slot; commitEdit(next=>{ const o=next.characters.find(x=>String(x.id)===String(selId)); if(o) o[slot]={}; }, dy=>dy.chars.add(String(selId))); };
@@ -3711,12 +3982,12 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
                           <input class="mono" style="flex:1" placeholder="new action slug" value=${charNewId} onInput=${e=>setCharNewId(e.target.value.trim())} />
                           <button class="btn primary" disabled=${!charNewId} onClick=${()=>{ if(charNewId){ assign(charNewId,true); setCharAdding(false); } }}>Create</button>
                           <button class="btn ghost" onClick=${()=>setCharAdding(false)}>Cancel</button>`}
-                      `:html`<span class="note" style="margin:0">All 16 action slots are full.</span>`}
+                      `:html`<span class="note" style="margin:0">${c.tier==="hero"?"A hero holds one unique core card (standard_attack) — it is filled.":"All 16 action slots are full."}</span>`}
                       ${slotInfo.some(x=>x.slot===REFLEX_SLOT&&x.id)?null:html`<span class="note" style="margin:0">Reflex slot empty — set it on the <b>Cards</b> view.</span>`}
                     </div>`;
                 })()
               : html`<div class="cardgrid">
-                  ${CHAR_EDIT_SLOTS.map(slot=>html`<${SlotCardBound}
+                  ${CHAR_EDIT_SLOTS.filter(slot=>!(c.tier==="hero"&&/^unique_action_/.test(slot)&&!((c[slot]&&typeof c[slot]==="object")?c[slot].id:c[slot]))).map(slot=>html`<${SlotCardBound}
                     key=${slot} slot=${slot} owner=${c} ownerKind="char"
                     data=${data} actionById=${actionById} enums=${enums}
                     effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions}
@@ -3724,17 +3995,16 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
                 </div>`}
           </${Group}>
 
-          <${Group} title="Unique mastery (single-player ladder)">
+          <${Group} title="Unique mastery">
             ${(()=>{
               const arr=(c.mastery_unique_actions||[]);
               const muSlugs=arr.map(w=>(w&&typeof w==="object"&&w.id)?w.id:(typeof w==="string"?w:"")).filter(Boolean);
-              const roman=["I","II","III","IV","V"];
-              const muLabels=muSlugs.map((_,i)=>"Mastery "+(roman[i]||String(i+1)));
+              const muLabels=muSlugs.map((_,i)=>i===0?"Unique mastery":"⚠ extra "+(i+1));
               const onMuBody=(u)=>commitEdit(next=>{ const i=next.actions.findIndex(a=>a.id===u.id); if(i>=0) next.actions[i]=u; }, dy=>dy.actions.add(String(u.id)));
               const onMuDel=(i)=>commitEdit(next=>{ const o=next.characters.find(x=>String(x.id)===String(selId)); if(o&&Array.isArray(o.mastery_unique_actions)) o.mastery_unique_actions.splice(i,1); }, dy=>dy.chars.add(String(selId)));
               const addMu=(id)=>commitEdit(next=>{ const o=next.characters.find(x=>String(x.id)===String(selId)); if(o){ if(!Array.isArray(o.mastery_unique_actions)) o.mastery_unique_actions=[]; o.mastery_unique_actions.push({id, category:"mastery"}); } }, dy=>dy.chars.add(String(selId)));
               return html`
-                <p class="note">Ordered unlock ladder (I → II → III) — field <span class="mono">mastery_unique_actions</span>. Heroes only. Single-player power fantasy: never composed in PvP, sims, or AI-enemy hands.</p>
+                <p class="note">⚖ 2026-10-14 (P2): ONE unique mastery per character (the III) — field <span class="mono">mastery_unique_actions</span>. Single-player only (campaign altar unlock); it spends no class charge — its recent-use window is its throttle.</p>
                 ${muSlugs.length?html`<${ClassActionTable} slugs=${muSlugs} rowLabels=${muLabels} data=${data} actionById=${actionById}
                   effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx}
                   onDel=${onMuDel} onActionChange=${onMuBody} />`:html`<p class="note">No unique mastery actions on this character.</p>`}
@@ -3756,7 +4026,22 @@ function CharactersTab({data,enums,charById,actionById,usageIdx,summonOptions,co
   </div></div>`;
 }
 
-/* synergy editor (type + class) — condensed */
+/* ⚖ 2026-09-24 (Push A/B): the old type / class stat synergies are OUT of play — the bond lasers and the
+   synergy stat pass were deleted; positional play is partner effects (the action's synergy) + reactions.
+   The rows still sit in the data (synergies / class_synergies / class_synergy_*), so they are shown read-only. */
+function LegacySynergies({c}){
+  const ty=Array.isArray(c.synergies)?c.synergies:[], cl=Array.isArray(c.class_synergies)?c.class_synergies:[];
+  const [open,setOpen]=useState(false);
+  if(!ty.length && !cl.length) return html`<p class="note">None.</p>`;
+  const line=(s,who)=>html`<div class="mono" style="font-size:11px;color:var(--ink-3)">${who} → ${s.stat||"?"} ×${s.modifier}${s.per_ally?" (per ally)":""}</div>`;
+  return html`<div>
+    <p class="note" style="margin-top:-4px">The game no longer reads these (${ty.length} type · ${cl.length} class rows). Kept in the data only; edit nothing here.
+      <a href="#" onClick=${e=>{e.preventDefault();setOpen(o=>!o);}}>${open?"hide":"show"}</a></p>
+    ${open?html`<div>${ty.map(s=>line(s,"type "+(s.type||"?")))}${cl.map(s=>line(s,"class "+(s.class_name||"?")))}</div>`:null}
+  </div>`;
+}
+
+/* synergy editor (type + class) — condensed (no longer mounted: legacy synergies are read-only) */
 function SynergyEditor({list, max, kind, enums, onChange}){
   const rows=Array.isArray(list)?list:[];
   const cols = kind==="type"?"1.2fr 1.2fr .8fr minmax(70px,.65fr) auto":"1.3fr 1.2fr .8fr minmax(70px,.65fr) auto";
@@ -3848,7 +4133,7 @@ function SlotCardBound({slot, owner, ownerKind, data, actionById, enums, effectR
     }, dy=>dy.actions.add(String(aid)));
   };
 
-  return html`<${SlotCard} patterns=${data.aoe_patterns} slotLabel=${isReflex?"Reflex · RETIRED (kept for re-authoring as reactions)":slot} value=${value} actionById=${actionById}
+  return html`<${SlotCard} patterns=${data.aoe_patterns} slotLabel=${isReflex?"Reflex · RETIRED (kept for re-authoring as reactions)":slot==="standard_attack"?"Unique core · standard_attack":slot} value=${value} actionById=${actionById}
     allActions=${data.actions} effectRows=${effectRows} knownEffects=${knownEffects}
     summonOptions=${summonOptions} charById=${charById} tm=${tm} caster=${caster}
     usageCount=${uses} onFork=${onFork} effectByName=${effectByName} defaultOpen=${true}
@@ -3873,7 +4158,7 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
   const knownEffects=useMemo(()=>new Set(enums.effects),[enums]);
   const effectByName=useMemo(()=>{ const m={}; (data.effects||[]).forEach(e=>{ if(e&&e.name) m[e.name]=e; }); return m; },[data.effects]);
   const summonOptions=useMemo(()=>{
-    const opts=[{value:"",label:"— none —"}];
+    const opts=[{value:"",label:"— none —"},{value:RAISED_COPY_ID,label:"Raised copy of the dead (corpse-raise)"}];
     (data.characters||[]).forEach(ch=>{ if(ch.tier==="lieutenant"||ch.tier==="minion")
       opts.push({value:String(ch.id),label:`${ch.tier==="lieutenant"?"Lieutenant":"Minion"}: ${ch.id}, ${ch.name||"(unnamed)"}`}); });
     return opts;
@@ -3932,7 +4217,7 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
         ${list.map(cl=>html`<div class=${"row"+(cl.class_name===selName?" sel":"")} key=${cl.class_name}
           onClick=${()=>setSel(s=>({...s,class:cl.class_name}))}>
           <span class="rname">${cl.class_name}</span>
-          <span class="rmeta">${(cl.core_class_actions||[]).length}c · ${(cl.mastery_class_actions||[]).length}m</span>
+          <span class="rmeta">${(cl.core_class_actions||[]).length>CHARGE_VOCAB.coreSlots?html`<span class="lint-flag" title="more core actions than core slots">⚠</span>`:null}${(cl.core_class_actions||[]).length}c · ${(cl.mastery_class_actions||[]).length}m${cl.charge_pool?html` · ◆${cl.charge_pool}`:""}</span>
         </div>`)}
       </div>
     </div>
@@ -3966,6 +4251,7 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
               onChange=${arr=>edit(cc=>cc.inherent_class_effects=arr)} />
           </${Group}>
           <${ClassReactionsGroup} c=${c} data=${data} commitEdit=${commitEdit} selName=${selName} jumpTo=${jumpTo} />
+          ${c.class_name!=="Minion"?html`<${ClassChargeGroup} c=${c} data=${data} edit=${edit} selName=${selName} jumpTo=${jumpTo} />`:null}
 
           <div class="viewtoggle">
             <span class="vt-lead">Actions view</span>
@@ -3979,12 +4265,13 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
           <${FieldChips} />
           ${(()=>{ const sl=[...(c.core_class_actions||[]),...(c.mastery_class_actions||[])]; let rows=0,cards=0,bad=0;
             sl.forEach(id=>{ const a=actionById[id]; const pe=a&&Array.isArray(a.partner_effects)?a.partner_effects:[]; if(pe.length){ cards++; rows+=pe.length; bad+=pe.filter(r=>peLint(a,r,null).length).length; } });
-            return html`<p class="note" style="margin:6px 0 10px">⚭ this class: <b>${rows}</b> partner effect${rows===1?"":"s"} on <b>${cards}</b> card${cards===1?"":"s"} (of ${sl.length})${bad?html` · <span style="color:var(--rose)">${bad} with problems</span>`:""} — ⚖ 7.3 no limit, it varies by class.</p>`; })()}
-          <${Group} title="Core Class Actions">
+            return html`<p class="note" style="margin:6px 0 10px">⚭ this class: <b>${cards}</b> of ${sl.length} card${sl.length===1?"":"s"} carry a synergy${rows>cards?html` · <span style="color:var(--rose)">${rows-cards} extra row(s) — ONE synergy per action</span>`:""}${bad?html` · <span style="color:var(--rose)">${bad} with problems</span>`:""}.</p>`; })()}
+          <${Group} title=${`Core Class Actions (${(c.core_class_actions||[]).length} / ${hybSlotCounts(data.hybridisation,"classes").core} slots)`}>
+            ${(c.core_class_actions||[]).length>hybSlotCounts(data.hybridisation,"classes").core?html`<div class="chips" style="margin-bottom:6px"><span class="wchip err">✕ ${(c.core_class_actions||[]).length} core actions but the HYBRIDISATION classes axis gives ${hybSlotCounts(data.hybridisation,"classes").core} core slots — a core card past the slots reaches no hand and may not be listed (⚖ 2026-11-05)</span></div>`:null}
             <${ClassActionList} c=${c} keyName="core_class_actions" data=${data} actionById=${actionById} viewMode=${actView}
               enums=${enums} effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
           </${Group}>
-          <${Group} title="Mastery Class Actions">
+          <${Group} title="Mastery Class Actions (I · II · III — spend this class's charge)">
             <${ClassActionList} c=${c} keyName="mastery_class_actions" data=${data} actionById=${actionById} viewMode=${actView}
               enums=${enums} effectRows=${effectRows} knownEffects=${knownEffects} summonOptions=${summonOptions} usageIdx=${usageIdx} commitEdit=${commitEdit} selName=${selName} />
           </${Group}>
@@ -4048,6 +4335,48 @@ function ClassReactionsGroup({c, data, commitEdit, selName, jumpTo}){
     <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
       <button class="mini pb-btn" onClick=${addNew}>+ New class reaction</button>
       <span class="note" style="margin:0">${mine.length} authored for ${selName}${jumpTo?html` · <a href="#" onClick=${e=>{e.preventDefault(); jumpTo("reactions");}}>open Reactions tab</a>`:""}</span>
+    </div>
+  </${Group}>`;
+}
+
+/* ⚖ 2026-10-12/13 CLASS CHARGE — one pool per class. charge_rules lists the class's silent charge-rule rows
+   (reactions with owner_kind "charge", authored on the Reactions tab); charge_pool caps it; charge_live
+   marks the classes whose charge is read off the board; charge_expiry_turns ages banked charge. */
+function ClassChargeGroup({c, data, edit, selName, jumpTo}){
+  const byId={}; (data.reactions||[]).forEach(r=>{ if(r&&r.id) byId[r.id]=r; });
+  const mine=(data.reactions||[]).filter(r=>r&&r.id&&rxOwner(r)==="charge"&&r.class===selName);
+  const rules=Array.isArray(c.charge_rules)?c.charge_rules:[];
+  const avail=mine.filter(r=>!rules.includes(r.id));
+  const masteries=(c.mastery_class_actions||[]).map(id=>(data.actions||[]).find(a=>a&&a.id===id)).filter(Boolean);
+  const pool=intOf(c.charge_pool,0);
+  const over=masteries.filter(a=>Math.max(intOf(a.charge_cost,0),intOf(a.charge_min,0))>pool);
+  return html`<${Group} title=${`Class charge (pool ${pool})`}>
+    <p class="note" style="margin-top:-4px;margin-bottom:8px">⚖ 2026-10-12/13: charge is EARNED only by this class's charge rules and SPENT only by its masteries. One pool per class (a two-class unit holds two). Every pool is called <b>CHARGES</b> in the game UI — <span class="mono">charge_label</span> is kept in the data but never shown.</p>
+    <div class="grid cols-4">
+      <${Field} label="Pool size" hint="charge_pool · max charge held">
+        <${NumSelect} value=${pool} options=${[0,1,2,3,4,5,6,7,8,10,12]} onInput=${v=>edit(cc=>cc.charge_pool=v)} /></${Field}>
+      <${Field} label="Live source" hint="charge_live · blank = banked">
+        <${Select} value=${c.charge_live||""} options=${CHARGE_LIVE_OPTS} onInput=${v=>edit(cc=>{ if(v) cc.charge_live=v; else delete cc.charge_live; })} /></${Field}>
+      <${Field} label="Expiry" hint="charge_expiry_turns · 0 = never">
+        <${NumSelect} value=${intOf(c.charge_expiry_turns,0)} options=${[0,1,2,3,4,5,6,8]} onInput=${v=>edit(cc=>{ if(v) cc.charge_expiry_turns=v; else delete cc.charge_expiry_turns; })} /></${Field}>
+      <${Field} label="Label (not shown)" hint="charge_label · reference only">
+        <${TextInput} value=${c.charge_label||""} onInput=${v=>edit(cc=>cc.charge_label=v)} /></${Field}>
+    </div>
+    ${over.length?html`<div class="chips" style="margin-top:6px">${over.map(a=>html`<span class="wchip err" key=${a.id}>✕ ${a.name||a.id} needs ${Math.max(intOf(a.charge_cost,0),intOf(a.charge_min,0))} — the pool holds ${pool}</span>`)}</div>`:null}
+    <div style="margin-top:8px">
+      <div class="note" style="margin-bottom:4px"><b>Charge rules</b> (<span class="mono">charge_rules</span>) — how this class earns charge:</div>
+      ${rules.length?rules.map((id,i)=>{ const r=byId[id]; return html`<div key=${id} style="display:flex;gap:8px;align-items:baseline;margin-bottom:3px">
+        <span class="mono" style="font-size:11px;min-width:170px">${r?id:html`<span class="warn-text">⚠ ${id} (missing)</span>`}</span>
+        <span class="note" style="margin:0;flex:1">${r?(r.effect||r.trigger||r.name||""):""}</span>
+        <button class="mini del" title="Remove from this class" onClick=${()=>edit(cc=>{ cc.charge_rules=(cc.charge_rules||[]).filter((_,j)=>j!==i); })}>×</button>
+      </div>`; }):html`<p class="note">No charge rules — this class can never gain charge.</p>`}
+      <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
+        ${avail.length?html`<select class="mono" value="" onChange=${e=>{ const v=e.target.value; if(v){ edit(cc=>{ cc.charge_rules=[...(cc.charge_rules||[]),v]; }); e.target.value=""; } }}>
+          <option value="">+ add a ${selName} charge rule…</option>
+          ${avail.map(r=>html`<option value=${r.id} key=${r.id}>${r.id}</option>`)}
+        </select>`:null}
+        <span class="note" style="margin:0">Rows are authored on the Reactions tab → Class charge rules${jumpTo?html` · <a href="#" onClick=${e=>{e.preventDefault(); jumpTo("reactions");}}>open</a>`:""}.</span>
+      </div>
     </div>
   </${Group}>`;
 }
@@ -4128,7 +4457,7 @@ function ClassActionList({c, keyName, data, actionById, enums, effectRows, known
   const hybCounts = hybSlotCounts(data.hybridisation,"classes");
   const grantedN = isMastery?hybCounts.mastery:hybCounts.core;
   const rowLabels = slugs.map((_,i)=>{
-    const head=isMastery?("Lv "+(i+1)):("#"+(i+1));
+    const head=isMastery?(["Mastery I","Mastery II","Mastery III"][i]||("Mastery "+(i+1))):("#"+(i+1));
     if(i>=grantedN) return head+" · not granted";
     const r=slotReach(data.hybridisation,"classes",isMastery?"mastery":"core",i);
     return head+(r?(" · "+r):"");
@@ -4269,8 +4598,8 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
       <${Select} value=${act.damage_type} options=${DAMAGE_TYPES} onInput=${v=>commit("damage_type",intOf(v,0))} /></div>`;
     if(f==="damage_type") return html`<div class="cp-field"><label>Damage type <span class="hint">Physical (Normal) / Special / Hybrid</span></label>
       <${Select} value=${act.damage_type} options=${DAMAGE_TYPES} onInput=${v=>commitClose("damage_type",intOf(v,0))} /></div>`;
-    if(f==="energy_cost") return html`<div class="cp-field"><label>Energy cost <span class="hint">1-5 · default 3</span></label>
-      <${NumSelect} value=${act.energy_cost} options=${[1,2,3,4,5]} onInput=${v=>commitClose("energy_cost",v)} /></div>`;
+    if(f==="energy_cost") return html`<div class="cp-field"><label>Energy cost <span class="hint">0-5 of the 5-per-turn budget · most cards 3 · reflex 0</span></label>
+      <${NumSelect} value=${act.energy_cost} options=${[0,1,2,3,4,5]} onInput=${v=>commitClose("energy_cost",v)} /></div>`;
     if(f==="recent_use_window") return html`<div class="cp-field"><label>Recent-use window (rounds) <span class="hint">weakened for this many rounds after use</span></label>
       <${RecentUseField} action=${act} set=${commit} autoOpen=${true} /></div>`;
     if(f==="effect1"||f==="effect2") return html`<${EffectBlock} label=${f==="effect1"?"Effect 1":"Effect 2"}
@@ -4284,21 +4613,22 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
       hint="Spellblade Enchant Weapon: the effect an enchanted ally's next attack applies to whoever it hits"
       ef=${act.enchant_rider} ownerKey=${act.id+"_ench"} effectRows=${effectRows} knownEffects=${knownEffects}
       effectByName=${effectByName} onChange=${v=>commit("enchant_rider",v)} />`;
-    if(f==="partner_fx") return html`<div class="cp-field"><label>Partner effects <span class="hint">conditional_effects.md</span></label>
-      <${PartnerEffectsEditor} action=${act} onChangeField=${commit} knownEffects=${knownEffects} effectRows=${effectRows} effectByName=${effectByName} /></div>`;
+    if(f==="charge") return html`<div class="cp-field"><${ChargeFields} action=${act} set=${commit} /></div>`;
+    if(f==="partner_fx") return html`<div class="cp-field"><label>Synergy <span class="hint">ONE partner_effects row per action (⚖ 2026-10-18)</span></label>
+      <${PartnerEffectsEditor} action=${act} onChangeField=${commit} onPatch=${patch=>onActionChange({...act,...patch})} knownEffects=${knownEffects} effectRows=${effectRows} effectByName=${effectByName} /></div>`;
     if(f==="trap_tick") return html`<div class="cp-field"><label>Trap tick <span class="hint">Trap / Zone / None</span></label>
       <${Select} value=${act.trap_tick} options=${TRAP_TICKS} onInput=${v=>commitClose("trap_tick",intOf(v,2))} /></div>`;
     if(f==="unlock_round") return html`<div class="cp-field"><label>Unlock round <span class="hint">0 = from start · N = locked until round N</span></label>
       <${NumSelect} value=${act.unlock_round==null?0:act.unlock_round} options=${[0,1,2,3,4,5,6,8,10,12,15]} onInput=${v=>commit("unlock_round",v)} /></div>`;
-    if(f==="corpse_raise") return html`<div class="cp-field"><label>Corpse raise <span class="hint">summon only fires on a recent corpse hex</span></label>
+    if(f==="corpse_raise") return html`<div class="cp-field"><label>Corpse raise <span class="hint">the card needs a corpse in range and uses it up</span></label>
       <label class="cp-check"><input type="checkbox" checked=${!!act.corpse_raise} onChange=${e=>commit("corpse_raise",e.target.checked)} /> enabled</label></div>`;
-    if(f==="summon") return html`<div class="cp-field"><label>Summon character <span class="hint">count + duration come from the Summon effect</span></label>
+    if(f==="summon") return html`<div class="cp-field"><label>Summon character <span class="hint">count + rounds: summon_count / summon_duration_rounds (full editor ⤢)</span></label>
       <${Select} value=${act.summon_character_id||""} options=${summonOptions||[{value:"",label:"— none —"}]} onInput=${v=>commit("summon_character_id",v)} />
-      <label class="cp-check" style="margin-top:9px"><input type="checkbox" checked=${!!act.consume_summon} disabled=${!!act.corpse_raise}
+      <label class="cp-check" style="margin-top:9px"><input type="checkbox" checked=${!!act.consume_summon}
         onChange=${e=>commit("consume_summon",e.target.checked)} /> consume-summon (sacrifice nearest own summon)</label></div>`;
     if(f==="__add"){
       const shown=advShownFor(act, revealed[edit.slug]);
-      const addable=ADV_FIELDS.filter(x=> shown.indexOf(x)<0);
+      const addable=advAddable(shown);
       const query=advQuery.trim().toLowerCase();
       const filtered=query?addable.filter(x=>
         x.label.toLowerCase().includes(query) || x.k.toLowerCase().includes(query) || x.hint.toLowerCase().includes(query)
@@ -4320,7 +4650,7 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
       </div>`;
     }
     const af=ADV_BY_KEY[f];
-    if(af){ const dflt=(af.kind==="bool")?false:(af.kind==="text")?"":(af.dflt||0);
+    if(af){ const dflt=advDefault(af);
       return html`<div class="cp-field"><label>${af.label}${af.hint?html`<span class="hint">${af.hint}</span>`:null}</label>
       ${advControl(act, af, commit)}
       <button class="cp-remove" title="Reset to default and remove this field from the action"
@@ -4328,14 +4658,14 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
         onClick=${()=>{ onActionChange({...act,[f]:dflt}); unreveal(edit.slug,f); closeEdit(); }}>✕ Remove field</button></div>`; }
     return null;
   };
-  const wideField = edit && (edit.wide || ["aoe_pattern","effect1","effect2","self_effect1","self_effect2","enchant_rider","partner_fx","__add"].indexOf(edit.field)>=0);
+  const wideField = edit && (edit.wide || ["aoe_pattern","effect1","effect2","self_effect1","self_effect2","enchant_rider","partner_fx","__add","charge","charge_cond","form_variants"].indexOf(edit.field)>=0);
 
   // Column model — the middle columns follow the SHOW FIELDS chips, so enabling a
   // field surfaces it as a compact per-cell-editable column (fills the empty row
   // space) and disabling it removes the column. `always` cols never toggle.
   const trapCell=(tt)=>{ const v=intOf(tt,2); return v===2?"—":(v===0?"Trap":"Zone"); };
   const COLS=[
-    {k:"idx",always:true,th:isMastery?"Lv":(rowLabels?"Slot":"#"),
+    {k:"idx",always:true,th:isMastery?"Mastery":(rowLabels?"Slot":"#"),
       cell:(c)=>html`<td class="a-lv" style=${rowLabels?"width:auto;white-space:nowrap;color:var(--ink-2);font-size:11px":""}>${rowLabels?(rowLabels[c.i]||c.slug):(isMastery?("Lv "+(c.i+1)):(c.i+1))}</td>`},
     {k:"name",always:true,th:"Name",
       cell:(c)=>(!c.slug&&onPick)
@@ -4360,6 +4690,10 @@ function ClassActionTable({slugs, rowLabels, isMastery, data, actionById, effect
       cell:(c)=>html`<td class=${"num"+(c.act?" cell-edit":"")} onClick=${c.ed("energy_cost")}>${c.act?(c.act.energy_cost!=null?c.act.energy_cost:"—"):""}</td>`},
     {vk:"recent_use_window",th:"WIN",right:true,title:"Recent-use window (rounds) — dim* = not set, inherits the retired cooldown",
       cell:(c)=>html`<td class=${"num"+(c.act?" cell-edit":"")} onClick=${c.ed("recent_use_window")}>${c.act?(hasOwnWindow(c.act)?winOf(c.act):html`<span style="opacity:.55" title="inherits cooldown_rounds">${winOf(c.act)}*</span>`):""}</td>`},
+    {vk:"charge",th:"Charge",center:true,title:"Class charge — MASTERY cards only: charge cost / gate / spend-all + cast conditions (click to edit)",
+      cell:(c)=>{ const own=c.act?masteryOwner(c.act):""; const t=c.act?chargeCellText(c.act):"";
+        return html`<td class=${c.act?"cell-edit":""} style=${"text-align:center;font-size:11px;white-space:nowrap"+(!own&&t?";color:var(--rose)":"")} onClick=${c.ed("charge")}
+          title=${own?("Mastery of "+own+" (pool "+(CHARGE_VOCAB.pool[own]||0)+")"+(c.act.charge_cond?"\nif "+chargeCondText(c.act.charge_cond):"")):(t?"⚠ charge fields on a card that is not a class mastery":"not a class mastery")}>${t||(own?"0":"—")}</td>`; }},
     ...["effect1","effect2","self_effect1","self_effect2","enchant_rider"].map((fk,fi)=>({
       vk:fk, th:["Effect 1","Effect 2","Self fx 1","Self fx 2","Enchant"][fi],
       title:["","","Self effect 1 (to caster)","Self effect 2 (to caster)","Enchant rider (ally's next-hit effect)"][fi]||undefined,
@@ -4453,6 +4787,8 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
   const [frg,setFrg]=useState("");
   const [fe1,setFe1]=useState("");
   const [fe2,setFe2]=useState("");
+  const [fcat,setFcat]=useState("");   // category / mastery
+  const [flint,setFlint]=useState(""); // lint: err / warn
   const [filtersExpanded,setFiltersExpanded]=useState(false);
 
   const effectRows = EFFECT_GROUPS.map(g=>({label:g.label,names:g.names}));
@@ -4486,6 +4822,12 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
       const e1=a.effect1&&a.effect1.effect_type||"", e2=a.effect2&&a.effect2.effect_type||"";
       if(fe1 && e1!==fe1) return false;
       if(fe2 && e2!==fe2) return false;
+      if(fcat){
+        if(fcat==="__mastery"){ if(!masteryOwner(a)) return false; }
+        else if(fcat==="__none"){ if(a.category) return false; }
+        else if(a.category!==fcat) return false;
+      }
+      if(flint){ const li=lintAction(a,charById); if(!li.some(x=>flint==="warn"?true:x.k==="err")) return false; }
       if(fg){
         const g=groupOf[a.id]||"Unique";
         if(fg==="Type" && !String(g).startsWith("Type")) return false;
@@ -4498,7 +4840,7 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
       }
       return true;
     });
-  },[data.actions,q,fp,fg,fdt,fsz,frg,fe1,fe2,groupOf]);
+  },[data.actions,q,fp,fg,fdt,fsz,frg,fe1,fe2,fcat,flint,groupOf,charById]);
 
   const selId=sel.action || (list[0]&&list[0].id) || (data.actions[0]&&data.actions[0].id);
   const a=selId?actionById[selId]:null;
@@ -4509,8 +4851,8 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
 
   const usage=usageIdx[selId]||{chars:[],classes:[],types:[]};
   const issues=a?lintAction(a,charById):[];
-  const activeFilterCount=[fp,fg,fdt,fsz,frg,fe1,fe2].filter(v=>v!=="").length;
-  const clearFilters=()=>{ setFp(""); setFg(""); setFdt(""); setFsz(""); setFrg(""); setFe1(""); setFe2(""); };
+  const activeFilterCount=[fp,fg,fdt,fsz,frg,fe1,fe2,fcat,flint].filter(v=>v!=="").length;
+  const clearFilters=()=>{ setFp(""); setFg(""); setFdt(""); setFsz(""); setFrg(""); setFe1(""); setFe2(""); setFcat(""); setFlint(""); };
 
   const groupFilterOpts=[{value:"",label:"Group: any"},{value:"Type",label:"Type actions"},{value:"Reflex",label:"Reflex"},{value:"Unique",label:"Unique"}]
     .concat(enums.classes.map(cn=>({value:cn,label:cn})));
@@ -4536,9 +4878,11 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
           <${Select} value=${frg} options=${[{value:"",label:"Range: any"},0,1,2,3,4,5,6,7]} onInput=${setFrg} />
           <${Select} value=${fe1} options=${[{value:"",label:"Effect1: any"}].concat(enums.effects)} onInput=${setFe1} />
           <${Select} value=${fe2} options=${[{value:"",label:"Effect2: any"}].concat(enums.effects)} onInput=${setFe2} />
+          <${Select} value=${fcat} options=${[{value:"",label:"Category: any"},{value:"__mastery",label:"Class masteries (spend charge)"},{value:"core",label:"category core"},{value:"mastery",label:"category mastery"},{value:"reflex",label:"category reflex"},{value:"__none",label:"no category"}]} onInput=${setFcat} />
+          <${Select} value=${flint} options=${[{value:"",label:"Lint: any"},{value:"err",label:"Lint: errors only"},{value:"warn",label:"Lint: any issue"}]} onInput=${setFlint} />
         </div>`:null}
       </div>
-      <div class="list-meta">${list.length} action${list.length===1?"":"s"}${(q||fp||fg||fdt!==""||fsz!==""||frg!==""||fe1||fe2)?" (filtered)":""}</div>
+      <div class="list-meta">${list.length} action${list.length===1?"":"s"}${(q||activeFilterCount)?" (filtered)":""}</div>
       <div class="list-scroll">
         ${list.map(ac=>{
           const li=lintAction(ac,charById);
@@ -4568,6 +4912,12 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
           <${Group} title="Identity">
             <div class="grid cols-2">
               <${Field} label="Name"><${TextInput} value=${a.name} onInput=${v=>setField("name",v)} /></${Field}>
+              <${Field} label="Category" hint="core / mastery / reflex — the card kind (slot wrappers can override)">
+                <${Select} value=${a.category||""} options=${ACTION_CATS.map(c=>({value:c,label:c||"(none — derived)"}))} onInput=${v=>setField("category",v||undefined)} />
+              </${Field}>
+              <${Field} label="Batch flag" hint="flag · authoring batch marker (not read by the game)">
+                <input type="text" class="mono" value=${a.flag||""} onInput=${e=>setField("flag",e.target.value||undefined)} />
+              </${Field}>
               <${Field} label="id (slug)" hint="rename = no auto-rewrite">
                 <input type="text" class="mono" value=${a.id||""} onChange=${e=>{
                   const old=a.id, v=e.target.value.trim();
@@ -4585,7 +4935,7 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
             onChangeField=${(k,v)=>setField(k,v)} onChangePattern=${patch=>commitEdit(next=>{const row=next.actions.find(x=>x.id===a.id); if(row) Object.assign(row,patch);},dy=>dy.actions.add(String(a.id)))} showAll=${true} />
 
           <${Group} title="Balance lab" >
-            <${BalanceLab} action=${a} enums=${enums} types=${data.types} tm=${data.type_matrix} charById=${charById} />
+            <${BalanceLab} action=${a} characters=${data.characters} patterns=${data.aoe_patterns} />
           </${Group}>
 
           <${Group} title=${`Used by (${usage.chars.length} chars · ${usage.classes.length} classes · ${(usage.types||[]).length} types)`}>
@@ -4614,47 +4964,49 @@ function ActionsTab({data,enums,charById,actionById,usageIdx,summonOptions,commi
   </div></div>`;
 }
 
-/* Balance lab — live Formula L preview vs a chosen defender type */
-function BalanceLab({action, enums, types, tm, charById}){
-  const [defType,setDefType]=useState("");
-  // 2026-08-06 rescale: 50/120/80 -> 5/12/8 (hero atk/def now land ~3-15).
-  const [defStat,setDefStat]=useState(5);
-  const [atkStat,setAtkStat]=useState(()=> action.damage_type===1?12:8);
-  // a synthetic caster carrying the chosen atk stat + the action's type
-  const caster=useMemo(()=>({type_1:(action.action_type||"").trim(),
-    stats:{attack:atkStat,special_attack:atkStat}}),[atkStat,action.action_type]);
-  const defTypes=[{type:defType,pct:1}];
-  const isDmg = num(action.damage_modifier,0)>0;
-  const est = isDmg?estimateDamage(action,caster,defTypes,defStat,tm):null;
-
-  // matchup table across all types (defender) at the current settings
-  const rows = isDmg?(enums.types||[]).map(t=>{
-    const e=estimateDamage(action,caster,[{type:t,pct:1}],defStat,tm);
-    return {t, dmg:e?e.dmg:0, mult:e?e.mult:1};
-  }).sort((a,b)=>b.dmg-a.dmg):[];
-
-  if(!isDmg) return html`<p class="note">This is a support action (damage modifier 0) — no damage estimate. Edit damage modifier above to enable the lab.</p>`;
-
+/* Balance lab — live damage preview with the CURRENT formula (PL + attack − defence, floor 1),
+   against the real roster: every available hero's live defence for this card's damage type. */
+function BalanceLab({action, characters, patterns}){
+  const dt=intOf(action.damage_type,0);
+  const heroes=useMemo(()=>(characters||[]).filter(c=>c&&c.tier==="hero"&&c.available_in_kw!==false&&c.stats),[characters]);
+  const median=arr=>{ if(!arr.length) return 0; const s=arr.slice().sort((a,b)=>a-b); return s[s.length>>1]; };
+  const medAtk=useMemo(()=>Math.round(median(heroes.map(h=>pickAtk(dt,h.stats)))),[heroes,dt]);
+  const [atkStat,setAtkStat]=useState(null);
+  const [defStat,setDefStat]=useState(null);
+  useEffect(()=>{ setAtkStat(null); setDefStat(null); },[action.id]);
+  const atk=atkStat==null?medAtk:atkStat;
+  const pl=plOf(action);
+  if(!(pl>0)) return html`<p class="note">Support card (PL 0) — no damage. Set a Power level above to use the lab.</p>`;
+  const defs=heroes.map(h=>({h, def:pickDef(dt,h.stats), hp:num(h.stats.health,0)}));
+  const medDef=Math.round(median(defs.map(d=>d.def)));
+  const def=defStat==null?medDef:defStat;
+  const dmg=damageFormula({pl, atk, def});
+  const all=defs.map(d=>({...d, dmg:damageFormula({pl, atk, def:d.def})}));
+  const dmgs=all.map(x=>x.dmg).sort((a,b)=>a-b);
+  const medHp=median(heroes.map(h=>num(h.stats.health,0)));
+  const gr=gradedRatios(action, patterns);
+  const dtName=(DAMAGE_TYPES.find(d=>d.value===dt)||{label:"Normal"}).label;
   return html`<div class="bl">
     <div class="blrow">
       <div style="display:flex;flex-direction:column;gap:2px">
-        <div class="dmgbig">~${est?est.dmg:"—"}</div>
-        <div class="dmgsub">first-pass estimate · ${est?(est.atkType||"caster type_1"):""} @ ${est?est.mult.toFixed(2):"1.00"}×</div>
+        <div class="dmgbig">${dmg}</div>
+        <div class="dmgsub">${pl} PL + ${+atk.toFixed(1)} atk − ${+def.toFixed(1)} def · ${dtName}</div>
       </div>
-      <div class="blfield"><label>Attacker stat</label>
-        <input class="mono" type="number" value=${atkStat} onInput=${e=>setAtkStat(num(e.target.value,0))} /></div>
-      <div class="blfield"><label>Defender type</label>
-        <${Select} value=${defType} options=${[{value:"",label:"(neutral)"}].concat(enums.types)} onInput=${setDefType} /></div>
-      <div class="blfield"><label>Defender DEF</label>
-        <input class="mono" type="number" value=${defStat} onInput=${e=>setDefStat(num(e.target.value,1))} /></div>
+      <div class="blfield"><label>Attacker ${dt===1?"SpcAtk":dt===2?"(Atk+SpcAtk)/2":"Atk"}</label>
+        <input class="mono" type="number" value=${atk} onInput=${e=>setAtkStat(num(e.target.value,0))} /></div>
+      <div class="blfield"><label>Defender ${dt===1?"SpcDef":dt===2?"(Def+SpcDef)/2":"Def"}</label>
+        <input class="mono" type="number" value=${def} onInput=${e=>setDefStat(num(e.target.value,0))} /></div>
     </div>
-    <div class="dmgsub" style="margin-bottom:4px">Damage vs every defender type (atk ${atkStat}, def ${defStat}, PL ${plOf(action)}):</div>
-    <div style="max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:7px">
+    ${heroes.length?html`<div class="dmgsub" style="margin-bottom:4px">vs the ${heroes.length} available heroes (attacker ${+atk.toFixed(1)}): min <b>${dmgs[0]}</b> · median <b>${median(dmgs)}</b> · max <b>${dmgs[dmgs.length-1]}</b> · median hero HP ${medHp} → ~${Math.ceil(medHp/Math.max(1,median(dmgs)))} hits to kill (before crits, Curse, recent-use weakening).</div>`:null}
+    ${gr?html`<div class="dmgsub" style="margin-bottom:4px">Graded pattern (${action.aoe_pattern}${gr.rule?" · "+gr.rule:""}): per-hex PL ${gr.kind==="ratios"
+        ? gr.values.map(r=>gradedPl(pl,r)+" ("+r+"%)").join(" · ")
+        : Object.entries(gr.values).map(([k,r])=>k+" "+gradedPl(pl,r)).join(" · ")} — each hex then adds the gap (atk − def).</div>`:null}
+    <div style="max-height:200px;overflow:auto;border:1px solid var(--line);border-radius:7px">
       <table class="dmgtable"><tbody>
-        ${rows.map(r=>html`<tr><td class="nm">${r.t}</td><td class="mt">${r.mult.toFixed(2)}×</td><td class="dm">~${r.dmg}</td></tr>`)}
+        ${all.slice().sort((a,b)=>b.dmg-a.dmg).slice(0,60).map(r=>html`<tr key=${r.h.id}><td class="nm">${r.h.name||r.h.id}</td><td class="mt">def ${+r.def.toFixed(1)}</td><td class="dm">${r.dmg} <span style="opacity:.6">/ ${r.hp} HP</span></td></tr>`)}
       </tbody></table>
     </div>
-    <p class="note">Formula L: <span class="mono">max(1, eff_atk^1.05 · 10 / def^1.1)</span>, eff_atk = atk·(modifier + matchup − 1). Crit/variance/synergy excluded.</p>
+    <p class="note">⚖ 2026-09-23: <span class="mono">damage = PL + (attack − defence)</span>, floor 1. Hybrid uses the 50/50 average on both sides; every hit of a multi-hit card adds the gap; crit / Curse / mutators / conditional scaling multiply afterwards. Type matchups are not part of the formula.</p>
   </div>`;
 }
 
@@ -5650,13 +6002,16 @@ const RX_EVENTS = [
   {v:"zone_created",     l:"zone_created — actor places a zone / trap / wall / tripwire (kind)"},
   {v:"turn_skipped",     l:"turn_skipped — actor ends without spending energy (kind stunned / passed / delayed / no_energy)"},
   {v:"summoned",         l:"summoned — a summon joined the board (actor = summoner, target = summon)"},
+  {v:"familiar_form",    l:"familiar_form — a cast changed the familiar's form (actor = owner, target = familiar)"},
+  {v:"chorus",           l:"chorus — a Chorus card resolved (actor = its caster)"},
   {v:"trap_triggered",   l:"trap_triggered — the actor's trap / zone / tripwire fired on the target"},
+  {v:"hazard_hit",       l:"hazard_hit — the actor's trap / zone / edge LANDED on the target (how enter / placed / tick)"},
   /* ⚖ Pat D 2026-10-12 (inherents rewrite): PASSIVE seams — inherent seat rows only (modify_heal) */
   {v:"heal_out",         l:"heal_out — PASSIVE (seat: inherent only): a heal this unit gives (modify_heal)"},
   {v:"heal_in",          l:"heal_in — PASSIVE (seat: inherent only): any heal this unit receives (modify_heal)"},
 ];
 /* reactions.md §3.2 — filter vocabulary. An unknown key is a lint ERROR in the runtime. */
-const RX_ROLE_VALUES = ["self","partner","pair","ally","ally_not_partner","enemy","any","own_summon"];
+const RX_ROLE_VALUES = ["self","partner","pair","ally","ally_not_partner","enemy","any","own_summon","own_familiar"];
 const RX_FILTER_KEYS = {
   actor:"role", target:"role",
   /* 2026-10-13 — class charge shared keys */
@@ -5754,6 +6109,7 @@ const RX_OPS = [
   {v:"apply_effect",         l:"apply_effect (default)"},
   {v:"lose_charge",          l:"lose_charge — class charge rule: drain the class pool (magnitude, per)"},
   {v:"empty_charge",         l:"empty_charge — class charge rule: empty the class pool"},
+  {v:"bless",                l:"bless — give recipient effect_id at magnitude as a lasting Blessing"},
   {v:"damage",               l:"damage — deterministic HP loss"},
   {v:"heal",                 l:"heal"},
   {v:"gain_charge",          l:"gain_charge"},
@@ -5798,7 +6154,7 @@ const RX_WITHIN_RECIPIENTS = ["allies_within","enemies_within","lowest_hp_ally_w
 const RX_RECIPIENTS = ["self","partner","pair","trigger_source","trigger_target","adjacent_allies","adjacent_enemies",
   "allies_within","enemies_within","nearest_enemy","nearest_enemy_to_target","enemies_adjacent_to_target","streak_enemies",
   /* Push F: R-01 · R-02 · R-03 · R-05 */
-  "lowest_hp_ally_within","trigger_source_partner","farthest_enemy_within","other_pair","own_summons","unit_blocking_displacement","nearest_enemies"].map(v=>({v,l:v==="nearest_enemies"?"nearest_enemies — the [skip, skip+count] nearest enemies (set skip / count on the line; count defaults to 2)":v==="own_summons"?"own_summons — all your living summons on the board":v==="unit_blocking_displacement"?"unit_blocking_displacement — living blocker of a push/pull, including zero movement":v}));
+  "lowest_hp_ally_within","trigger_source_partner","farthest_enemy_within","other_pair","own_summons","own_familiar","unit_blocking_displacement","nearest_enemies"].map(v=>({v,l:v==="nearest_enemies"?"nearest_enemies — the [skip, skip+count] nearest enemies (set skip / count on the line; count defaults to 2)":v==="own_summons"?"own_summons — all your living summons on the board":v==="unit_blocking_displacement"?"unit_blocking_displacement — living blocker of a push/pull, including zero movement":v}));
 const RX_BASIS = ["flat","pct_event_amount","pct_holder_max_hp","pct_recipient_max_hp",
   "holder_stat:attack","holder_stat:defense","holder_stat:special_attack","holder_stat:special_defense","holder_stat:speed"];
 const RX_LIMIT_PER = [{v:"",l:"(default) once per round · RX-01"},{v:"none",l:"none — every time"},{v:"cast",l:"per cast"},
@@ -6255,7 +6611,8 @@ function MatrixTab({types, matrix, commitEdit}){
   const clearHover=()=>setHover({r:-1,c:-1});
 
   return html`<div class="view"><div class="full-pane">
-    <div class="group-title">Type effectiveness matrix</div>
+    <div class="group-title">Type effectiveness matrix · UNUSED</div>
+    <p class="note warn-text" style="font-weight:600">⚖ 2026-09-08 / 09-23: type matchups are OUT of the damage formula (damage = PL + attack − defence). The game ignores this table (it is all 1.0); it is kept only for data compatibility. Editing it changes nothing in play.</p>
     <p class="note">Rows = <b>attacker</b>, columns = <b>defender</b>. Click a cell → pick 0–2 (step 0.25). Hover highlights the row + column. Blank = neutral (1). <span style="color:var(--good)">&gt;1 super</span> · <span style="color:var(--rose)">&lt;1 resist</span> · <span style="color:var(--violet)">0 immune</span></p>
     <div class="table-wrap" style="max-height:calc(100vh - 220px)">
       <table class="tm-grid" onMouseLeave=${clearHover}>
@@ -6381,7 +6738,13 @@ function AoeTab({patterns,commitEdit}){
         <dt>Size</dt><dd>${selected.size_meaning||"—"}</dd>
         <dt>Range</dt><dd>${selected.range_meaning||"—"}</dd>
         ${selected.name==="Edge Wall"?html`<dt>Persistence</dt><dd>Until the wall expires</dd>`:null}
+        <dt>Category</dt><dd>${selected.category||"—"}</dd>
+        <dt>Movement</dt><dd>${selected.move_kind||"none"}${selected.travels?" · travels (flight)":""}${selected.hits_twice?" · hits twice":""}${selected.centre_on_unit?" · centres on a unit":""}${selected.empty_centre?(" · empty centre: "+selected.empty_centre):""}</dd>
+        <dt>Legal sizes</dt><dd class="mono">${Array.isArray(selected.allowed_size)?selected.allowed_size.join(", "):"(flat defaults)"}</dd>
+        <dt>Legal ranges</dt><dd class="mono">${Array.isArray(selected.allowed_range)?selected.allowed_range.join(", "):(selected.allowed_range||"(flat defaults)")}</dd>
+        ${selected.graded?html`<dt>Per-hex PL</dt><dd>round-half-up(PL × ratio %), min 1 — ⚖ R106; the card prints the true PL per hex</dd>`:null}
       </dl>
+      <p class="note">⚖ R44: attacks are instant — no attack persistence (only Edge Wall stands). Catalog fields other than notes and ratios are read-only here.</p>
       <label>Notes <textarea class="aoe-notes" value=${selected.notes||""}
         onInput=${e=>setField("notes",e.target.value)} /></label>
       ${selected.graded?html`<${AoeRatioTableGraded} pattern=${selected} onInput=${setField} />`:null}
