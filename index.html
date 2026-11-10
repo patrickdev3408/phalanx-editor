@@ -3045,7 +3045,7 @@ function App(){
       <div class="brand">
         <span class="glyph">◈PX</span>
         <h1>Phalanx Data Editor</h1>
-        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-11-07 716fb7c70</span></span>
+        <span class="sub">v2 · Supabase · live · <span id="buildstamp">build 2026-11-10 828336794</span></span>
       </div>
       <div class="spacer"></div>
       <a class="btn ghost" href="spread.html" target="_blank" rel="noopener" title="Synergy Spread: how class-action Synergy lines spread across types, classes and playstyles (live from Supabase)">Synergy Spread ↗</a>
@@ -4235,13 +4235,9 @@ function ClassesTab({data,enums,actionById,usageIdx,commitEdit,sel,setSel,jumpTo
                 </div>
               </${Field}>
             </div>
-            <${Field} label="Muster description" hint="player-facing muster wall blurb">
+            <${Field} label="Class line" hint="one line: who the class is and how it fights; no numbers, card or effect names (Pat D 2026-11-10)">
               <textarea rows="2" placeholder="Describe the class's turn-to-turn identity…"
                 value=${c.muster_description||""} onInput=${e=>edit(cc=>cc.muster_description=e.target.value)}></textarea>
-            </${Field}>
-            <${Field} label="Muster edge" hint="what distinguishes this class within its playstyle">
-              <textarea rows="2" placeholder="Explain what sets this class apart in one or two sentences…"
-                value=${c.muster_edge||""} onInput=${e=>edit(cc=>cc.muster_edge=e.target.value)}></textarea>
             </${Field}>
           </${Group}>
 
